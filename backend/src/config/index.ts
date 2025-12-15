@@ -1,0 +1,62 @@
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load environment variables
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+
+export const config = {
+  // Server
+  port: parseInt(process.env.PORT || '3001', 10),
+  nodeEnv: process.env.NODE_ENV || 'development',
+  
+  // Frontend
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+  
+  // Redis
+  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+  
+  // Supabase
+  supabase: {
+    url: process.env.SUPABASE_URL || '',
+    anonKey: process.env.SUPABASE_ANON_KEY || '',
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+    jwtSecret: process.env.SUPABASE_JWT_SECRET || '',
+  },
+  
+  // Judge0
+  judge0: {
+    url: process.env.JUDGE0_URL || 'https://judge.deadlock.sbs',
+    apiKey: process.env.JUDGE0_API_KEY || '',
+  },
+  
+  // Match settings
+  match: {
+    timeoutMs: parseInt(process.env.MATCH_TIMEOUT_MS || '1800000', 10), // 30 minutes default
+    matchmakingIntervalMs: parseInt(process.env.MATCHMAKING_INTERVAL_MS || '1000', 10),
+  },
+  
+  // Redis keys
+  redisKeys: {
+    queue: 'queue:global',
+    match: (matchId: string) => `match:${matchId}`,
+    userMatch: (userId: string) => `user:${userId}:match`,
+    userSocket: (userId: string) => `user:${userId}:socket`,
+  },
+} as const;
+
+// Validate required config
+export function validateConfig(): void {
+  const required = [
+    'SUPABASE_URL',
+    'SUPABASE_JWT_SECRET',
+  ];
+  
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    console.warn(`⚠️  Missing environment variables: ${missing.join(', ')}`);
+    console.warn('   Some features may not work correctly.');
+  }
+}
+
+
