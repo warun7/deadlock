@@ -1,9 +1,8 @@
 import React from 'react';
-import GameArena from '../components/GameArena';
+import RealGameArena from '../components/RealGameArena';
 
 const GamePage: React.FC = () => {
-  return <GameArena />;
+  return <RealGameArena />;
 };
 
 export default GamePage;
-

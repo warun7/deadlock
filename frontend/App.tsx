@@ -11,7 +11,7 @@ import AuthPage from "./pages/AuthPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import ProfilePage from "./pages/ProfilePage";
-import MatchmakingPage from "./pages/MatchmakingPage";
+import RealMatchmakingPage from "./pages/RealMatchmakingPage";
 import GamePage from "./pages/GamePage";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
@@ -67,7 +67,7 @@ const AppContent: React.FC = () => {
           path="/matchmaking"
           element={
             <ProtectedRoute>
-              <MatchmakingPage />
+              <RealMatchmakingPage />
             </ProtectedRoute>
           }
         />
