@@ -28,7 +28,7 @@ const REDIS_OPTIONS = {
 /**
  * RedisService - Manages all Redis operations for the real-time layer
  * 
- * Philosophy: Redis is the source of truth during the match.
+ * Redis is the source of truth during the match.
  * All live state (queue, active matches) lives here.
  */
 export class RedisService {
