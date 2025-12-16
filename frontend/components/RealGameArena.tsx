@@ -1,25 +1,38 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Play, CheckCircle, XCircle, Terminal, Maximize2, RotateCcw, Clock, ChevronDown, AlertCircle, Loader2, Trophy } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import 'katex/dist/katex.min.css';
-import CodeEditor from '../components/CodeEditor';
-import { gameSocket } from '../lib/socket';
+import React, { useState, useEffect, useMemo } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { motion } from "framer-motion";
+import {
+  Play,
+  CheckCircle,
+  XCircle,
+  Terminal,
+  Maximize2,
+  RotateCcw,
+  Clock,
+  ChevronDown,
+  AlertCircle,
+  Loader2,
+  Trophy,
+} from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
+import CodeEditor from "../components/CodeEditor";
+import { gameSocket } from "../lib/socket";
+import { supabase } from "../lib/supabase";
 
 // Convert Codeforces-style math ($$$...$$$) to standard LaTeX ($...$)
 const convertCodeforcesMath = (text: string): string => {
-  if (!text) return '';
+  if (!text) return "";
   // Replace $$$ with $ for inline math (Codeforces uses $$$ for inline)
-  return text.replace(/\$\$\$([^$]+)\$\$\$/g, '$$$1$');
+  return text.replace(/\$\$\$([^$]+)\$\$\$/g, "$$$1$");
 };
 
 const LANGUAGE_IDS = {
   python: 71,
   javascript: 63,
-  cpp: 54
+  cpp: 54,
 };
 
 const STARTER_CODE = {
@@ -41,22 +54,26 @@ using namespace std;
 int main() {
     // Write your solution here
     return 0;
-}`
+}`,
 };
 
 type Language = keyof typeof STARTER_CODE;
 
 // Codeforces difficulty color mapping
 const getDifficultyColor = (difficulty: string | number) => {
-  const rating = typeof difficulty === 'string' ? parseInt(difficulty) : difficulty;
-  
-  if (rating < 1200) return 'text-gray-500 bg-gray-500/10 border-gray-500/20';
-  if (rating < 1400) return 'text-green-500 bg-green-500/10 border-green-500/20';
-  if (rating < 1600) return 'text-cyan-500 bg-cyan-500/10 border-cyan-500/20';
-  if (rating < 1900) return 'text-blue-500 bg-blue-500/10 border-blue-500/20';
-  if (rating < 2100) return 'text-purple-500 bg-purple-500/10 border-purple-500/20';
-  if (rating < 2400) return 'text-orange-500 bg-orange-500/10 border-orange-500/20';
-  return 'text-red-500 bg-red-500/10 border-red-500/20';
+  const rating =
+    typeof difficulty === "string" ? parseInt(difficulty) : difficulty;
+
+  if (rating < 1200) return "text-gray-500 bg-gray-500/10 border-gray-500/20";
+  if (rating < 1400)
+    return "text-green-500 bg-green-500/10 border-green-500/20";
+  if (rating < 1600) return "text-cyan-500 bg-cyan-500/10 border-cyan-500/20";
+  if (rating < 1900) return "text-blue-500 bg-blue-500/10 border-blue-500/20";
+  if (rating < 2100)
+    return "text-purple-500 bg-purple-500/10 border-purple-500/20";
+  if (rating < 2400)
+    return "text-orange-500 bg-orange-500/10 border-orange-500/20";
+  return "text-red-500 bg-red-500/10 border-red-500/20";
 };
 
 const RealGameArena: React.FC = () => {
@@ -65,16 +82,16 @@ const RealGameArena: React.FC = () => {
   const { matchId } = useParams<{ matchId: string }>();
   const matchData = location.state?.matchData;
 
-  const [language, setLanguage] = useState<Language>('python');
+  const [language, setLanguage] = useState<Language>("python");
   const [code, setCode] = useState(STARTER_CODE.python);
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState<any>(null);
-  const [opponentProgress, setOpponentProgress] = useState<string>('Idle');
+  const [opponentProgress, setOpponentProgress] = useState<string>("Idle");
   const [gameOver, setGameOver] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
-  const [gameOverReason, setGameOverReason] = useState<string>('');
+  const [gameOverReason, setGameOverReason] = useState<string>("");
   const [showForfeitModal, setShowForfeitModal] = useState(false);
 
   /* State */
@@ -86,11 +103,11 @@ const RealGameArena: React.FC = () => {
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging.current || !editorPanelRef.current) return;
-      
+
       const panelRect = editorPanelRef.current.getBoundingClientRect();
       const newHeight = panelRect.bottom - e.clientY;
       const maxHeight = panelRect.height * 0.8;
-      
+
       if (newHeight >= 40 && newHeight <= maxHeight) {
         setResultsHeight(newHeight);
       }
@@ -98,21 +115,21 @@ const RealGameArena: React.FC = () => {
 
     const handleMouseUp = () => {
       isDragging.current = false;
-      document.body.style.cursor = 'default';
+      document.body.style.cursor = "default";
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
   }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;
-    document.body.style.cursor = 'ns-resize';
+    document.body.style.cursor = "ns-resize";
     e.preventDefault();
   };
 
@@ -128,100 +145,114 @@ const RealGameArena: React.FC = () => {
       setCurrentMatchData(matchData);
       setIsLoading(false);
     }
-    
+
     // If no match ID in URL, redirect
     if (!matchId) {
-      console.error('No match ID in URL, redirecting...');
-      navigate('/dashboard');
+      console.error("No match ID in URL, redirecting...");
+      navigate("/dashboard");
       return;
     }
 
-    const token = localStorage.getItem('supabase_token');
-    if (!token) {
-      navigate('/auth');
-      return;
-    }
+    // Get auth token from Supabase session
+    const initSocket = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
 
-    // Connect socket if not connected
-    let socket = gameSocket.getSocket();
-    if (!socket?.connected) {
-      socket = gameSocket.connect(token);
-    }
-
-    // Handle match_found event (for rejoin)
-    const handleMatchFound = (data: any) => {
-      console.log('Match data received:', data);
-      setCurrentMatchData(data);
-      setIsLoading(false);
-      setLoadError(null);
-    };
-
-    // Listen for submission results
-    const handleSubmissionResult = (result: any) => {
-      console.log('Submission result:', result);
-      setSubmissionResult(result);
-      setIsSubmitting(false);
-    };
-
-    // Listen for opponent progress
-    const handleOpponentProgress = (data: any) => {
-      console.log('Opponent progress:', data);
-      setOpponentProgress(data.status);
-    };
-
-    // Listen for game over
-    const handleGameOver = (data: any) => {
-      console.log('Game over:', data);
-      setGameOver(true);
-      setWinner(data.winnerId);
-      setGameOverReason(data.reason || 'Match ended');
-    };
-
-    // Listen for errors
-    const handleError = (data: any) => {
-      console.error('Socket error:', data);
-      if (data.code === 'MATCH_NOT_FOUND' || data.code === 'MATCH_ENDED') {
-        setLoadError(data.message);
-        setIsLoading(false);
-      } else if (data.code !== 'NOT_PARTICIPANT') {
-        // Don't show alert for normal errors during rejoin
-        if (!isLoading) {
-          alert(data.message);
-        }
+      if (!token) {
+        console.error("No auth token, redirecting to auth...");
+        navigate("/auth");
+        return;
       }
+
+      // Connect socket if not connected
+      let socket = gameSocket.getSocket();
+      if (!socket?.connected) {
+        socket = gameSocket.connect(token);
+      }
+
+      return socket;
     };
 
-    socket?.on('match_found', handleMatchFound);
-    socket?.on('submission_result', handleSubmissionResult);
-    socket?.on('opponent_progress', handleOpponentProgress);
-    socket?.on('game_over', handleGameOver);
-    socket?.on('error', handleError);
+    initSocket().then((socket) => {
+      if (!socket) return;
 
-    // If no match data (page refresh), request rejoin
-    if (!matchData && matchId) {
-      console.log('No match data, requesting rejoin...');
-      
-      const attemptRejoin = () => {
-        if (socket?.connected) {
-          gameSocket.rejoinMatch(matchId);
-        } else {
-          // Wait for socket to connect
-          socket?.once('connect', () => {
-            gameSocket.rejoinMatch(matchId);
-          });
+      // Handle match_found event (for rejoin)
+      const handleMatchFound = (data: any) => {
+        console.log("Match data received:", data);
+        setCurrentMatchData(data);
+        setIsLoading(false);
+        setLoadError(null);
+      };
+
+      // Listen for submission results
+      const handleSubmissionResult = (result: any) => {
+        console.log("Submission result:", result);
+        setSubmissionResult(result);
+        setIsSubmitting(false);
+      };
+
+      // Listen for opponent progress
+      const handleOpponentProgress = (data: any) => {
+        console.log("Opponent progress:", data);
+        setOpponentProgress(data.status);
+      };
+
+      // Listen for game over
+      const handleGameOver = (data: any) => {
+        console.log("Game over:", data);
+        setGameOver(true);
+        setWinner(data.winnerId);
+        setGameOverReason(data.reason || "Match ended");
+      };
+
+      // Listen for errors
+      const handleError = (data: any) => {
+        console.error("Socket error:", data);
+        if (data.code === "MATCH_NOT_FOUND" || data.code === "MATCH_ENDED") {
+          setLoadError(data.message);
+          setIsLoading(false);
+        } else if (data.code !== "NOT_PARTICIPANT") {
+          // Don't show alert for normal errors during rejoin
+          if (!isLoading) {
+            alert(data.message);
+          }
         }
       };
-      
-      attemptRejoin();
-    }
 
-    return () => {
-      socket?.off('match_found', handleMatchFound);
-      socket?.off('submission_result', handleSubmissionResult);
-      socket?.off('opponent_progress', handleOpponentProgress);
-      socket?.off('game_over', handleGameOver);
-      socket?.off('error', handleError);
-    };
+      socket?.on("match_found", handleMatchFound);
+      socket?.on("submission_result", handleSubmissionResult);
+      socket?.on("opponent_progress", handleOpponentProgress);
+      socket?.on("game_over", handleGameOver);
+      socket?.on("error", handleError);
+
+      // If no match data (page refresh), request rejoin
+      if (!matchData && matchId) {
+        console.log("No match data, requesting rejoin...");
+
+        const attemptRejoin = () => {
+          if (socket?.connected) {
+            gameSocket.rejoinMatch(matchId);
+          } else {
+            // Wait for socket to connect
+            socket?.once("connect", () => {
+              gameSocket.rejoinMatch(matchId);
+            });
+          }
+        };
+
+        attemptRejoin();
+      }
+
+      return () => {
+        socket?.off("match_found", handleMatchFound);
+        socket?.off("submission_result", handleSubmissionResult);
+        socket?.off("opponent_progress", handleOpponentProgress);
+        socket?.off("game_over", handleGameOver);
+        socket?.off("error", handleError);
+      };
+    });
   }, [matchId, matchData, navigate]);
 
   const handleLanguageChange = (lang: Language) => {
@@ -232,13 +263,13 @@ const RealGameArena: React.FC = () => {
 
   const handleSubmit = () => {
     if (!gameSocket.isConnected()) {
-      alert('Not connected to server');
+      alert("Not connected to server");
       return;
     }
 
     setIsSubmitting(true);
     setSubmissionResult(null);
-    
+
     gameSocket.submitCode(code, LANGUAGE_IDS[language]);
   };
 
@@ -266,7 +297,7 @@ const RealGameArena: React.FC = () => {
           <p className="text-white text-xl mb-2">Match Not Found</p>
           <p className="text-stone-400 mb-6">{loadError}</p>
           <button
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate("/dashboard")}
             className="px-6 py-2 bg-stone-800 hover:bg-stone-700 text-white rounded-lg transition-colors"
           >
             Return to Dashboard
@@ -284,7 +315,9 @@ const RealGameArena: React.FC = () => {
           <pre className="text-[8px] text-stone-500 whitespace-pre-wrap leading-tight">
             {`for (int i = 0; i < n; i++) { double ans = 0; for (int j = 0; j < m; j++) { ans += a[i][j]; } } 
 int main() { scanf("%d", &n); for (int i = 0; i < n; i++) { printf("%d\\n", solve(i)); } return 0; }
-while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid, left = mid + 1; else right = mid - 1; }`.repeat(50)}
+while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid, left = mid + 1; else right = mid - 1; }`.repeat(
+              50
+            )}
           </pre>
         </div>
 
@@ -315,7 +348,7 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
           )}
 
           <button
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate("/dashboard")}
             className="px-8 py-3 bg-white text-stone-900 font-bold rounded-lg hover:bg-stone-200 transition-colors"
           >
             Return to Dashboard
@@ -337,11 +370,14 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
           >
             <div className="text-center">
               <div className="text-5xl mb-4">🏳️</div>
-              <h2 className="text-2xl font-bold text-white mb-2">Forfeit Match?</h2>
+              <h2 className="text-2xl font-bold text-white mb-2">
+                Forfeit Match?
+              </h2>
               <p className="text-stone-400 text-sm mb-6">
-                You will lose this match and receive a rating penalty. This action cannot be undone.
+                You will lose this match and receive a rating penalty. This
+                action cannot be undone.
               </p>
-              
+
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowForfeitModal(false)}
@@ -367,7 +403,9 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
       {/* Game Header */}
       <div className="h-14 border-b border-stone-800 bg-[#0a0a0a] flex items-center justify-between px-4 z-20">
         <div className="flex items-center gap-4">
-          <div className="bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-sm uppercase">Ranked Match</div>
+          <div className="bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-sm uppercase">
+            Ranked Match
+          </div>
           <div className="flex items-center gap-2 text-stone-400 text-xs">
             <Clock className="w-3 h-3" />
             <span>LIVE</span>
@@ -377,12 +415,16 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
           <div className="text-xs text-stone-500">
             Opponent: <span className="text-white">{opponentProgress}</span>
           </div>
-          <button 
+          <button
             onClick={handleSubmit}
             disabled={isSubmitting}
             className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold px-4 py-1.5 rounded-sm flex items-center gap-2 transition-colors"
           >
-            {isSubmitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
+            {isSubmitting ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Play className="w-3 h-3 fill-current" />
+            )}
             SUBMIT
           </button>
         </div>
@@ -390,7 +432,6 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        
         {/* Left Panel: Problem */}
         <div className="w-1/2 border-r border-stone-800 flex flex-col bg-[#050505]">
           {/* Tabs */}
@@ -403,12 +444,16 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
           <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
             <div className="mb-6">
               <h1 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
-                {currentMatchData?.problem?.title || 'Loading...'}
+                {currentMatchData?.problem?.title || "Loading..."}
               </h1>
-              
+
               <div className="flex items-center gap-3 text-xs">
-                <span className={`px-3 py-1 rounded-full font-medium bg-opacity-10 border border-opacity-20 ${getDifficultyColor(currentMatchData?.problem?.difficulty || 1500)}`}>
-                  {currentMatchData?.problem?.difficulty || 'Medium'}
+                <span
+                  className={`px-3 py-1 rounded-full font-medium bg-opacity-10 border border-opacity-20 ${getDifficultyColor(
+                    currentMatchData?.problem?.difficulty || 1500
+                  )}`}
+                >
+                  {currentMatchData?.problem?.difficulty || "Medium"}
                 </span>
               </div>
             </div>
@@ -418,88 +463,146 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
                 remarkPlugins={[remarkMath]}
                 rehypePlugins={[rehypeKatex]}
                 components={{
-                  h1: ({node, ...props}) => <h1 className="text-xl font-bold text-white mt-6 mb-3" {...props} />,
-                  h2: ({node, ...props}) => <h2 className="text-lg font-bold text-white mt-5 mb-2" {...props} />,
-                  h3: ({node, ...props}) => <h3 className="text-base font-bold text-white mt-4 mb-2" {...props} />,
-                  p: ({node, ...props}) => <p className="mb-4 text-stone-300 leading-7" {...props} />,
-                  code: ({node, inline, ...props}: any) => 
-                    inline 
-                      ? <code className="bg-stone-800/50 px-1.5 py-0.5 rounded text-stone-200 border border-stone-700/50 text-sm font-mono" {...props} />
-                      : <code className="block bg-[#111] p-4 rounded-lg my-4 text-sm font-mono border border-stone-800 overflow-x-auto text-stone-300 leading-6" {...props} />,
-                  pre: ({node, ...props}) => <pre className="bg-transparent p-0 m-0 border-0" {...props} />,
-                  ul: ({node, ...props}) => <ul className="list-disc list-outside ml-4 mb-4 space-y-2 text-stone-300" {...props} />,
-                  ol: ({node, ...props}) => <ol className="list-decimal list-outside ml-4 mb-4 space-y-2 text-stone-300" {...props} />,
-                  strong: ({node, ...props}) => <strong className="text-white font-semibold" {...props} />,
-                  li: ({node, ...props}) => <li className="pl-1" {...props} />,
+                  h1: ({ node, ...props }) => (
+                    <h1
+                      className="text-xl font-bold text-white mt-6 mb-3"
+                      {...props}
+                    />
+                  ),
+                  h2: ({ node, ...props }) => (
+                    <h2
+                      className="text-lg font-bold text-white mt-5 mb-2"
+                      {...props}
+                    />
+                  ),
+                  h3: ({ node, ...props }) => (
+                    <h3
+                      className="text-base font-bold text-white mt-4 mb-2"
+                      {...props}
+                    />
+                  ),
+                  p: ({ node, ...props }) => (
+                    <p className="mb-4 text-stone-300 leading-7" {...props} />
+                  ),
+                  code: ({ node, inline, ...props }: any) =>
+                    inline ? (
+                      <code
+                        className="bg-stone-800/50 px-1.5 py-0.5 rounded text-stone-200 border border-stone-700/50 text-sm font-mono"
+                        {...props}
+                      />
+                    ) : (
+                      <code
+                        className="block bg-[#111] p-4 rounded-lg my-4 text-sm font-mono border border-stone-800 overflow-x-auto text-stone-300 leading-6"
+                        {...props}
+                      />
+                    ),
+                  pre: ({ node, ...props }) => (
+                    <pre
+                      className="bg-transparent p-0 m-0 border-0"
+                      {...props}
+                    />
+                  ),
+                  ul: ({ node, ...props }) => (
+                    <ul
+                      className="list-disc list-outside ml-4 mb-4 space-y-2 text-stone-300"
+                      {...props}
+                    />
+                  ),
+                  ol: ({ node, ...props }) => (
+                    <ol
+                      className="list-decimal list-outside ml-4 mb-4 space-y-2 text-stone-300"
+                      {...props}
+                    />
+                  ),
+                  strong: ({ node, ...props }) => (
+                    <strong className="text-white font-semibold" {...props} />
+                  ),
+                  li: ({ node, ...props }) => (
+                    <li className="pl-1" {...props} />
+                  ),
                 }}
               >
-                {convertCodeforcesMath(currentMatchData?.problem?.description || 'Loading problem...')}
+                {convertCodeforcesMath(
+                  currentMatchData?.problem?.description || "Loading problem..."
+                )}
               </ReactMarkdown>
             </div>
           </div>
         </div>
 
         {/* Right Panel: Editor & Results */}
-        <div ref={editorPanelRef} className="w-1/2 flex flex-col h-full bg-[#080808]">
-          
+        <div
+          ref={editorPanelRef}
+          className="w-1/2 flex flex-col h-full bg-[#080808]"
+        >
           {/* Code Editor Header */}
           <div className="h-10 bg-[#0a0a0a] border-b border-stone-800 flex items-center justify-between px-4">
             <div className="flex items-center gap-4">
-                <div className="relative">
-                <button 
-                    onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
-                    className="flex items-center gap-2 text-xs text-stone-300 hover:text-white font-medium transition-colors"
+              <div className="relative">
+                <button
+                  onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
+                  className="flex items-center gap-2 text-xs text-stone-300 hover:text-white font-medium transition-colors"
                 >
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                    {language === 'cpp' ? 'C++' : language}
-                    <ChevronDown className="w-3 h-3" />
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  {language === "cpp" ? "C++" : language}
+                  <ChevronDown className="w-3 h-3" />
                 </button>
-                
+
                 {isLangMenuOpen && (
-                    <div className="absolute top-full left-0 mt-2 w-32 bg-[#1a1a1a] border border-stone-700 rounded-md shadow-xl z-50 py-1">
+                  <div className="absolute top-full left-0 mt-2 w-32 bg-[#1a1a1a] border border-stone-700 rounded-md shadow-xl z-50 py-1">
                     {Object.keys(STARTER_CODE).map((lang) => (
-                        <button
+                      <button
                         key={lang}
                         onClick={() => handleLanguageChange(lang as Language)}
-                        className={`w-full text-left px-3 py-2 text-xs font-medium hover:bg-stone-800 ${language === lang ? 'text-blue-400' : 'text-stone-300'}`}
-                        >
-                        {lang === 'cpp' ? 'C++' : lang}
-                        </button>
+                        className={`w-full text-left px-3 py-2 text-xs font-medium hover:bg-stone-800 ${
+                          language === lang ? "text-blue-400" : "text-stone-300"
+                        }`}
+                      >
+                        {lang === "cpp" ? "C++" : lang}
+                      </button>
                     ))}
-                    </div>
+                  </div>
                 )}
-                </div>
+              </div>
             </div>
 
             {/* Sub-Header Actions (Opponent Info + Reset) */}
             <div className="flex items-center gap-6">
-                {/* Opponent Info */}
-                <div className="flex items-center gap-3 px-3 py-1 bg-stone-900/50 rounded border border-stone-800">
-                    <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                        <span className="text-xs font-bold text-stone-400 uppercase">Opponent</span>
-                    </div>
-                    <div className="h-3 w-px bg-stone-700"></div>
-                    <div className="flex items-center gap-2 text-xs">
-                        <span className="text-white font-medium">{matchData?.opponent?.username || 'Unknown'}</span>
-                        <span className="text-stone-500">({matchData?.opponent?.elo || '?'})</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 ml-2">
-                        <span className="block w-1.5 h-1.5 rounded-full bg-stone-600"></span>
-                        <span className="text-[10px] text-stone-400 uppercase tracking-wider">{opponentProgress}</span>
-                    </div>
+              {/* Opponent Info */}
+              <div className="flex items-center gap-3 px-3 py-1 bg-stone-900/50 rounded border border-stone-800">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                  <span className="text-xs font-bold text-stone-400 uppercase">
+                    Opponent
+                  </span>
                 </div>
+                <div className="h-3 w-px bg-stone-700"></div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-white font-medium">
+                    {matchData?.opponent?.username || "Unknown"}
+                  </span>
+                  <span className="text-stone-500">
+                    ({matchData?.opponent?.elo || "?"})
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 ml-2">
+                  <span className="block w-1.5 h-1.5 rounded-full bg-stone-600"></span>
+                  <span className="text-[10px] text-stone-400 uppercase tracking-wider">
+                    {opponentProgress}
+                  </span>
+                </div>
+              </div>
 
-                <div className="h-4 w-px bg-stone-800"></div>
+              <div className="h-4 w-px bg-stone-800"></div>
 
-                <button 
-                    onClick={() => setShowForfeitModal(true)}
-                    className="text-red-500 hover:text-red-400 hover:bg-red-500/10 px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5" 
-                    title="Forfeit Match"
-                >
-                    <XCircle className="w-3.5 h-3.5" />
-                    Forfeit
-                </button>
+              <button
+                onClick={() => setShowForfeitModal(true)}
+                className="text-red-500 hover:text-red-400 hover:bg-red-500/10 px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5"
+                title="Forfeit Match"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                Forfeit
+              </button>
             </div>
           </div>
 
@@ -507,7 +610,12 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
           <div className="bg-blue-900/20 border-b border-blue-900/30 px-4 py-2 flex items-center gap-3">
             <AlertCircle className="w-4 h-4 text-blue-400 shrink-0" />
             <p className="text-xs text-blue-200 font-medium">
-              Important: You submitted code must include the full implementation including the <code className="bg-blue-900/40 px-1 rounded text-blue-100">main</code> function and imports.
+              Important: You submitted code must include the full implementation
+              including the{" "}
+              <code className="bg-blue-900/40 px-1 rounded text-blue-100">
+                main
+              </code>{" "}
+              function and imports.
             </p>
           </div>
 
@@ -517,16 +625,17 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
           </div>
 
           {/* Resizable Results Area */}
-          <div 
-             className="relative flex flex-col border-t border-stone-800 bg-[#0a0a0a]"
-             style={{ height: resultsHeight }}
+          <div
+            className="relative flex flex-col border-t border-stone-800 bg-[#0a0a0a]"
+            style={{ height: resultsHeight }}
           >
             {/* Drag Handle */}
-            <div 
-                className="absolute top-0 left-0 right-0 h-1 cursor-ns-resize hover:bg-blue-500/50 transition-colors z-50 group"
-                onMouseDown={handleMouseDown}
+            <div
+              className="absolute top-0 left-0 right-0 h-1 cursor-ns-resize hover:bg-blue-500/50 transition-colors z-50 group"
+              onMouseDown={handleMouseDown}
             >
-                <div className="absolute inset-x-0 -top-2 h-4 w-full"></div> {/* Invisible hit area */}
+              <div className="absolute inset-x-0 -top-2 h-4 w-full"></div>{" "}
+              {/* Invisible hit area */}
             </div>
 
             <div className="h-9 border-b border-stone-800 flex items-center px-1 bg-[#0a0a0a] shrink-0">
@@ -537,7 +646,7 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
               <button className="flex items-center gap-2 px-4 h-full text-xs font-medium text-stone-500 hover:text-stone-300">
                 Test Result
               </button>
-              
+
               <div className="ml-auto mr-4 text-[10px] text-stone-600 font-mono">
                 {resultsHeight}px
               </div>
@@ -551,22 +660,28 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
                 </div>
               ) : submissionResult ? (
                 <div className="space-y-3">
-                  {submissionResult.status === 'accepted' ? (
+                  {submissionResult.status === "accepted" ? (
                     <div className="flex items-center gap-2 text-emerald-500 font-bold">
                       <CheckCircle className="w-4 h-4" />
-                      Accepted ({submissionResult.passed}/{submissionResult.total} tests passed)
+                      Accepted ({submissionResult.passed}/
+                      {submissionResult.total} tests passed)
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 text-red-500 font-bold">
                       <XCircle className="w-4 h-4" />
-                      {submissionResult.status} ({submissionResult.passed}/{submissionResult.total} tests passed)
+                      {submissionResult.status} ({submissionResult.passed}/
+                      {submissionResult.total} tests passed)
                     </div>
                   )}
 
                   {submissionResult.stderr && (
                     <div className="bg-stone-900/50 p-2 rounded-sm border border-red-900/50">
-                      <span className="text-stone-500 block text-[10px] uppercase mb-1">Error</span>
-                      <pre className="text-red-400 whitespace-pre-wrap">{submissionResult.stderr}</pre>
+                      <span className="text-stone-500 block text-[10px] uppercase mb-1">
+                        Error
+                      </span>
+                      <pre className="text-red-400 whitespace-pre-wrap">
+                        {submissionResult.stderr}
+                      </pre>
                     </div>
                   )}
                 </div>

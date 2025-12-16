@@ -1,20 +1,34 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { ChevronLeft, Lock, Mail, Key, ArrowRight, AlertTriangle } from 'lucide-react';
-import GlitchText from '../components/GlitchText';
-import { isSupabaseConfigured } from '../lib/supabase';
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
+import {
+  ChevronLeft,
+  Lock,
+  Mail,
+  Key,
+  ArrowRight,
+  AlertTriangle,
+} from "lucide-react";
+import GlitchText from "../components/GlitchText";
+import { isSupabaseConfigured } from "../lib/supabase";
 
 const AuthPage: React.FC = () => {
   const navigate = useNavigate();
-  const { signUp, signIn, signInWithGoogle, resetPassword, isLoggedIn, loading: authLoading } = useAuth();
-  
+  const {
+    signUp,
+    signIn,
+    signInWithGoogle,
+    resetPassword,
+    isLoggedIn,
+    loading: authLoading,
+  } = useAuth();
+
   const [isLogin, setIsLogin] = useState(true);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -23,49 +37,82 @@ const AuthPage: React.FC = () => {
   // Only redirect once to avoid infinite loops
   // IMPORTANT: Only redirect when ON the auth page, not from other pages
   const hasRedirected = React.useRef(false);
-  
+  const mountTime = React.useRef(Date.now());
+  const isMounted = React.useRef(true);
+
   React.useEffect(() => {
+    isMounted.current = true;
+
     // Check for OAuth errors in URL
     const params = new URLSearchParams(window.location.search);
-    const urlError = params.get('error');
-    const errorDescription = params.get('error_description');
-    
+    const urlError = params.get("error");
+    const errorDescription = params.get("error_description");
+
     if (urlError) {
-      console.error('❌ OAuth error from URL:', urlError, errorDescription);
-      
-      let friendlyError = 'Google OAuth authentication failed.';
-      
-      if (errorDescription?.includes('Unable to exchange external code')) {
-        friendlyError = 'Google OAuth configuration error. The redirect URI in Google Cloud Console may not match Supabase. Please check GOOGLE_OAUTH_ERROR_FIX.md for detailed instructions.';
-      } else if (errorDescription?.includes('redirect_uri_mismatch')) {
-        friendlyError = 'Redirect URI mismatch. The authorized redirect URI in Google Cloud Console must exactly match your Supabase callback URL.';
+      console.error("❌ OAuth error from URL:", urlError, errorDescription);
+
+      let friendlyError = "Google OAuth authentication failed.";
+
+      if (errorDescription?.includes("Unable to exchange external code")) {
+        friendlyError =
+          "Google OAuth configuration error. The redirect URI in Google Cloud Console may not match Supabase. Please check GOOGLE_OAUTH_ERROR_FIX.md for detailed instructions.";
+      } else if (errorDescription?.includes("redirect_uri_mismatch")) {
+        friendlyError =
+          "Redirect URI mismatch. The authorized redirect URI in Google Cloud Console must exactly match your Supabase callback URL.";
       } else if (errorDescription) {
         friendlyError = `OAuth Error: ${decodeURIComponent(errorDescription)}`;
       }
-      
+
       setError(friendlyError);
-      
+
       // Clean up URL without reloading
       window.history.replaceState({}, document.title, window.location.pathname);
       return;
     }
-    
+
     // Only redirect to dashboard if we're ON the auth page
     // Don't redirect if user navigated here from another protected page
-    const isOnAuthPage = window.location.pathname === '/auth';
-    
-    if (isLoggedIn && !authLoading && !hasRedirected.current && isOnAuthPage) {
-      console.log('User is logged in on auth page, redirecting to dashboard...');
+    const isOnAuthPage = window.location.pathname === "/auth";
+
+    // Add a small delay to prevent race conditions with other navigations
+    const timeSinceMount = Date.now() - mountTime.current;
+    const shouldRedirect =
+      isLoggedIn &&
+      !authLoading &&
+      !hasRedirected.current &&
+      isOnAuthPage &&
+      timeSinceMount > 100;
+
+    if (shouldRedirect) {
+      // Double-check we're still mounted and on the auth page
+      if (!isMounted.current || window.location.pathname !== "/auth") {
+        return;
+      }
+
+      console.log(
+        "User is logged in on auth page, redirecting to dashboard..."
+      );
       hasRedirected.current = true;
-      navigate('/dashboard', { replace: true });
+
+      // Use a small timeout to let any other pending navigations complete first
+      setTimeout(() => {
+        // Triple-check we're still on the auth page before redirecting
+        if (isMounted.current && window.location.pathname === "/auth") {
+          navigate("/dashboard", { replace: true });
+        }
+      }, 50);
     }
+
+    return () => {
+      isMounted.current = false;
+    };
   }, [isLoggedIn, authLoading, navigate]);
 
   const handleBack = () => {
     if (isLoggedIn) {
-      navigate('/dashboard');
+      navigate("/dashboard");
     } else {
-      navigate('/');
+      navigate("/");
     }
   };
 
@@ -78,17 +125,17 @@ const AuthPage: React.FC = () => {
     // Validate registration fields
     if (!isLogin) {
       if (!username || username.trim().length < 3) {
-        setError('Username must be at least 3 characters');
+        setError("Username must be at least 3 characters");
         setLoading(false);
         return;
       }
       if (password !== confirmPassword) {
-        setError('Passwords do not match');
+        setError("Passwords do not match");
         setLoading(false);
         return;
       }
       if (password.length < 6) {
-        setError('Password must be at least 6 characters');
+        setError("Password must be at least 6 characters");
         setLoading(false);
         return;
       }
@@ -105,14 +152,14 @@ const AuthPage: React.FC = () => {
       } else {
         // Success - redirect to dashboard
         if (!isLogin) {
-          setSuccess('Account created! Redirecting...');
-          setTimeout(() => navigate('/dashboard'), 1500);
+          setSuccess("Account created! Redirecting...");
+          setTimeout(() => navigate("/dashboard"), 1500);
         } else {
-          navigate('/dashboard');
+          navigate("/dashboard");
         }
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred');
+      setError(err.message || "An error occurred");
       setLoading(false);
     }
   };
@@ -130,15 +177,15 @@ const AuthPage: React.FC = () => {
         setError(resetError.message);
         setLoading(false);
       } else {
-        setSuccess('Password reset link sent! Check your email.');
+        setSuccess("Password reset link sent! Check your email.");
         setTimeout(() => {
           setShowForgotPassword(false);
           setLoading(false);
-          setEmail('');
+          setEmail("");
         }, 2000);
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred');
+      setError(err.message || "An error occurred");
       setLoading(false);
     }
   };
@@ -156,9 +203,9 @@ const AuthPage: React.FC = () => {
     } else {
       // In demo mode, show success and redirect
       if (!isSupabaseConfigured()) {
-        setSuccess('Demo login successful! Redirecting...');
+        setSuccess("Demo login successful! Redirecting...");
         setTimeout(() => {
-          navigate('/dashboard');
+          navigate("/dashboard");
         }, 1000);
       }
       // For real OAuth, redirect happens automatically via Supabase
@@ -195,14 +242,16 @@ const AuthPage: React.FC = () => {
             <div className="mb-4 p-3 bg-yellow-950/20 border border-yellow-900/30 rounded flex items-start gap-2 text-yellow-500 text-xs">
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <div>
-                <strong>DEMO MODE:</strong> Authentication works but data is not saved. 
-                <a 
-                  href="/SUPABASE_SETUP.md" 
+                <strong>DEMO MODE:</strong> Authentication works but data is not
+                saved.
+                <a
+                  href="/SUPABASE_SETUP.md"
                   target="_blank"
                   className="underline hover:text-yellow-400 ml-1"
                 >
                   Set up Supabase
-                </a> for real authentication.
+                </a>{" "}
+                for real authentication.
               </div>
             </div>
           )}
@@ -214,15 +263,22 @@ const AuthPage: React.FC = () => {
               <span>SECURE_GATEWAY // 443</span>
             </div>
             <h2 className="text-3xl font-black mb-2">
-              <GlitchText text={showForgotPassword ? 'RESET_PASSWORD' : isLogin ? 'SYSTEM_LOGIN' : 'CREATE_ACCOUNT'} />
+              <GlitchText
+                text={
+                  showForgotPassword
+                    ? "RESET_PASSWORD"
+                    : isLogin
+                    ? "SYSTEM_LOGIN"
+                    : "CREATE_ACCOUNT"
+                }
+              />
             </h2>
             <p className="text-stone-500 text-sm">
-              {showForgotPassword 
-                ? 'Recover access to your account' 
-                : isLogin 
-                  ? 'Enter credentials to access mainframe' 
-                  : 'Initialize new user profile'
-              }
+              {showForgotPassword
+                ? "Recover access to your account"
+                : isLogin
+                ? "Enter credentials to access mainframe"
+                : "Initialize new user profile"}
             </p>
           </div>
 
@@ -237,8 +293,8 @@ const AuthPage: React.FC = () => {
                 }}
                 className={`flex-1 py-2 text-sm font-bold rounded transition-all ${
                   isLogin
-                    ? 'bg-red-600 text-white'
-                    : 'text-stone-500 hover:text-white'
+                    ? "bg-red-600 text-white"
+                    : "text-stone-500 hover:text-white"
                 }`}
               >
                 Login
@@ -248,12 +304,12 @@ const AuthPage: React.FC = () => {
                   setIsLogin(false);
                   setError(null);
                   setSuccess(null);
-                  setConfirmPassword('');
+                  setConfirmPassword("");
                 }}
                 className={`flex-1 py-2 text-sm font-bold rounded transition-all ${
                   !isLogin
-                    ? 'bg-red-600 text-white'
-                    : 'text-stone-500 hover:text-white'
+                    ? "bg-red-600 text-white"
+                    : "text-stone-500 hover:text-white"
                 }`}
               >
                 Register
@@ -283,7 +339,9 @@ const AuthPage: React.FC = () => {
           {showForgotPassword ? (
             <>
               <div className="mb-6 text-center">
-                <h3 className="text-lg font-bold text-white mb-2">Reset Password</h3>
+                <h3 className="text-lg font-bold text-white mb-2">
+                  Reset Password
+                </h3>
                 <p className="text-sm text-stone-500">
                   Enter your email to receive a password reset link
                 </p>
@@ -313,7 +371,7 @@ const AuthPage: React.FC = () => {
                   disabled={loading}
                   className="w-full bg-red-600 hover:bg-red-500 text-white font-black py-3 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {loading ? 'SENDING...' : 'SEND RESET LINK'}
+                  {loading ? "SENDING..." : "SEND RESET LINK"}
                 </button>
 
                 <button
@@ -336,12 +394,16 @@ const AuthPage: React.FC = () => {
                 onClick={handleGoogleAuth}
                 disabled={loading}
                 className="w-full mb-4 px-4 py-3 bg-white hover:bg-stone-100 text-black font-bold rounded flex items-center justify-center gap-3 transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
-                title={isSupabaseConfigured() ? "Sign in with Google" : "Demo mode - instant login"}
+                title={
+                  isSupabaseConfigured()
+                    ? "Sign in with Google"
+                    : "Demo mode - instant login"
+                }
               >
-                <img 
-                  src="https://www.svgrepo.com/show/475656/google-color.svg" 
-                  alt="Google" 
-                  className="w-5 h-5" 
+                <img
+                  src="https://www.svgrepo.com/show/475656/google-color.svg"
+                  alt="Google"
+                  className="w-5 h-5"
                 />
                 <span className="relative z-10">Continue with Google</span>
               </button>
@@ -367,8 +429,18 @@ const AuthPage: React.FC = () => {
                       Username // Display Name
                     </label>
                     <div className="relative">
-                      <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      <svg
+                        className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                        />
                       </svg>
                       <input
                         type="text"
@@ -406,7 +478,7 @@ const AuthPage: React.FC = () => {
                 {/* Password Field */}
                 <div>
                   <label className="block text-xs text-stone-500 mb-2 font-bold">
-                    Passphrase {!isLogin && '(min 6 characters)'}
+                    Passphrase {!isLogin && "(min 6 characters)"}
                   </label>
                   <div className="relative">
                     <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-600" />
@@ -452,7 +524,11 @@ const AuthPage: React.FC = () => {
                   className="w-full bg-red-600 hover:bg-red-500 text-white font-black py-3 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group"
                 >
                   <span className="relative z-10">
-                    {loading ? 'INITIALIZING...' : isLogin ? 'EXECUTE' : 'CREATE_PROFILE'}
+                    {loading
+                      ? "INITIALIZING..."
+                      : isLogin
+                      ? "EXECUTE"
+                      : "CREATE_PROFILE"}
                   </span>
                   {!loading && (
                     <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -490,11 +566,11 @@ const AuthPage: React.FC = () => {
 
         {/* Terms */}
         <p className="text-center text-xs text-stone-700 mt-4">
-          By accessing this system you agree to the{' '}
+          By accessing this system you agree to the{" "}
           <a href="#" className="text-red-500 hover:underline">
             Terms of Service
-          </a>{' '}
-          and{' '}
+          </a>{" "}
+          and{" "}
           <a href="#" className="text-red-500 hover:underline">
             Privacy Protocols
           </a>
