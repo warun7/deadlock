@@ -2,27 +2,27 @@ import Redis from 'ioredis';
 import { config } from '../config';
 import { QueueEntry, MatchState } from '../types';
 
-// Redis connection options for production resilience
+// Redis connection options for Upstash (TLS required)
 const REDIS_OPTIONS = {
   maxRetriesPerRequest: null, // Disable per-request retry limit to prevent unhandled rejections
   enableReadyCheck: false, // Faster reconnect
+  tls: {}, // Required for Upstash - enables TLS connection
   retryStrategy: (times: number) => {
-    // Exponential backoff: 50ms, 100ms, 200ms, 400ms... max 2 seconds
-    const delay = Math.min(times * 50, 2000);
+    // Exponential backoff: 100ms, 200ms, 400ms... max 5 seconds
+    const delay = Math.min(times * 100, 5000);
     console.log(`🔄 Redis reconnecting in ${delay}ms (attempt ${times})`);
     return delay;
   },
   reconnectOnError: (err: Error) => {
     // Reconnect on connection reset errors
-    const targetError = 'READONLY';
-    if (err.message.includes(targetError) || err.message.includes('ECONNRESET')) {
+    if (err.message.includes('READONLY') || err.message.includes('ECONNRESET')) {
       return true;
     }
     return false;
   },
   lazyConnect: true,
-  keepAlive: 10000, // Keep connection alive
-  connectTimeout: 10000, // 10 second connection timeout
+  keepAlive: 30000, // Keep connection alive every 30 seconds
+  connectTimeout: 15000, // 15 second connection timeout
 };
 
 /**
