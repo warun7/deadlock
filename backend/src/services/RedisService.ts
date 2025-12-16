@@ -2,6 +2,29 @@ import Redis from 'ioredis';
 import { config } from '../config';
 import { QueueEntry, MatchState } from '../types';
 
+// Redis connection options for production resilience
+const REDIS_OPTIONS = {
+  maxRetriesPerRequest: null, // Disable per-request retry limit to prevent unhandled rejections
+  enableReadyCheck: false, // Faster reconnect
+  retryStrategy: (times: number) => {
+    // Exponential backoff: 50ms, 100ms, 200ms, 400ms... max 2 seconds
+    const delay = Math.min(times * 50, 2000);
+    console.log(`🔄 Redis reconnecting in ${delay}ms (attempt ${times})`);
+    return delay;
+  },
+  reconnectOnError: (err: Error) => {
+    // Reconnect on connection reset errors
+    const targetError = 'READONLY';
+    if (err.message.includes(targetError) || err.message.includes('ECONNRESET')) {
+      return true;
+    }
+    return false;
+  },
+  lazyConnect: true,
+  keepAlive: 10000, // Keep connection alive
+  connectTimeout: 10000, // 10 second connection timeout
+};
+
 /**
  * RedisService - Manages all Redis operations for the real-time layer
  * 
@@ -13,16 +36,10 @@ export class RedisService {
   private subscriber: Redis;
   
   constructor() {
-    this.client = new Redis(config.redisUrl, {
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-    });
+    this.client = new Redis(config.redisUrl, REDIS_OPTIONS);
     
     // Separate connection for pub/sub
-    this.subscriber = new Redis(config.redisUrl, {
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-    });
+    this.subscriber = new Redis(config.redisUrl, REDIS_OPTIONS);
     
     this.setupEventHandlers();
   }
