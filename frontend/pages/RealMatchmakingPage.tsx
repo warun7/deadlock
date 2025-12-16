@@ -15,6 +15,7 @@ const RealMatchmakingPage: React.FC = () => {
 
   useEffect(() => {
     let timerInterval: NodeJS.Timeout;
+    let hasJoinedQueue = false; // Flag to prevent double join
 
     const initSocket = async () => {
       try {
@@ -26,19 +27,43 @@ const RealMatchmakingPage: React.FC = () => {
           return;
         }
 
-        // Connect socket
+        // Connect socket (or get existing connection)
         const socket = gameSocket.connect(session.access_token);
 
-        // Wait for connection
-        socket.on('connect', () => {
-          console.log('Connected, joining queue...');
+        // IMPORTANT: Remove old listeners to prevent duplicates
+        socket.off('connect');
+        socket.off('connect_error');
+        socket.off('queue_joined');
+        socket.off('match_found');
+        socket.off('error');
+
+        // Helper to join queue (only once)
+        const joinQueueOnce = () => {
+          if (hasJoinedQueue) {
+            console.log('Already joined queue, skipping...');
+            return;
+          }
+          hasJoinedQueue = true;
+          console.log('Joining queue...');
           setStatus('searching');
           gameSocket.joinQueue();
-
+          
           // Start timer
           timerInterval = setInterval(() => {
             setTimer(t => t + 1);
           }, 1000);
+        };
+
+        // If already connected, join queue immediately
+        if (socket.connected) {
+          console.log('Socket already connected');
+          joinQueueOnce();
+        }
+
+        // Wait for connection (for new connections)
+        socket.on('connect', () => {
+          console.log('Socket connected');
+          joinQueueOnce();
         });
 
         socket.on('connect_error', (err) => {
@@ -80,9 +105,12 @@ const RealMatchmakingPage: React.FC = () => {
 
     return () => {
       clearInterval(timerInterval);
-      gameSocket.leaveQueue();
+      // Only leave queue if still searching (not if match found)
+      if (status === 'searching') {
+        gameSocket.leaveQueue();
+      }
     };
-  }, [navigate]);
+  }, []); // Empty deps - only run once on mount
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
