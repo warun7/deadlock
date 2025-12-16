@@ -21,6 +21,7 @@ const AuthPage: React.FC = () => {
 
   // Redirect if already logged in (handles OAuth callback)
   // Only redirect once to avoid infinite loops
+  // IMPORTANT: Only redirect when ON the auth page, not from other pages
   const hasRedirected = React.useRef(false);
   
   React.useEffect(() => {
@@ -49,8 +50,12 @@ const AuthPage: React.FC = () => {
       return;
     }
     
-    if (isLoggedIn && !authLoading && !hasRedirected.current) {
-      console.log('User is logged in, redirecting to dashboard...');
+    // Only redirect to dashboard if we're ON the auth page
+    // Don't redirect if user navigated here from another protected page
+    const isOnAuthPage = window.location.pathname === '/auth';
+    
+    if (isLoggedIn && !authLoading && !hasRedirected.current && isOnAuthPage) {
+      console.log('User is logged in on auth page, redirecting to dashboard...');
       hasRedirected.current = true;
       navigate('/dashboard', { replace: true });
     }
