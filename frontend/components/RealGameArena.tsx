@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Play, CheckCircle, XCircle, Terminal, Maximize2, RotateCcw, Clock, ChevronDown, AlertCircle, Loader2, Trophy } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -62,6 +62,7 @@ const getDifficultyColor = (difficulty: string | number) => {
 const RealGameArena: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { matchId } = useParams<{ matchId: string }>();
   const matchData = location.state?.matchData;
 
   const [language, setLanguage] = useState<Language>('python');
@@ -115,54 +116,113 @@ const RealGameArena: React.FC = () => {
     e.preventDefault();
   };
 
+  // Store match data in state (can be updated from rejoin)
+  const [currentMatchData, setCurrentMatchData] = useState<any>(matchData);
+  const [isLoading, setIsLoading] = useState(!matchData);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Handle socket connection and match rejoin
   useEffect(() => {
-    if (!matchData) {
-      console.error('No match data, redirecting...');
+    // If we have match data from navigation, use it
+    if (matchData) {
+      setCurrentMatchData(matchData);
+      setIsLoading(false);
+    }
+    
+    // If no match ID in URL, redirect
+    if (!matchId) {
+      console.error('No match ID in URL, redirecting...');
       navigate('/dashboard');
       return;
     }
 
-    const socket = gameSocket.getSocket();
-    if (!socket) {
-      console.error('Socket not connected');
-      navigate('/dashboard');
+    const token = localStorage.getItem('supabase_token');
+    if (!token) {
+      navigate('/auth');
       return;
     }
+
+    // Connect socket if not connected
+    let socket = gameSocket.getSocket();
+    if (!socket?.connected) {
+      socket = gameSocket.connect(token);
+    }
+
+    // Handle match_found event (for rejoin)
+    const handleMatchFound = (data: any) => {
+      console.log('Match data received:', data);
+      setCurrentMatchData(data);
+      setIsLoading(false);
+      setLoadError(null);
+    };
 
     // Listen for submission results
-    socket.on('submission_result', (result) => {
+    const handleSubmissionResult = (result: any) => {
       console.log('Submission result:', result);
       setSubmissionResult(result);
       setIsSubmitting(false);
-    });
+    };
 
     // Listen for opponent progress
-    socket.on('opponent_progress', (data) => {
+    const handleOpponentProgress = (data: any) => {
       console.log('Opponent progress:', data);
       setOpponentProgress(data.status);
-    });
+    };
 
     // Listen for game over
-    socket.on('game_over', (data) => {
+    const handleGameOver = (data: any) => {
       console.log('Game over:', data);
       setGameOver(true);
       setWinner(data.winnerId);
       setGameOverReason(data.reason || 'Match ended');
-      // No auto-navigate - user clicks button
-    });
+    };
 
-    socket.on('error', (data) => {
+    // Listen for errors
+    const handleError = (data: any) => {
       console.error('Socket error:', data);
-      alert(data.message);
-    });
+      if (data.code === 'MATCH_NOT_FOUND' || data.code === 'MATCH_ENDED') {
+        setLoadError(data.message);
+        setIsLoading(false);
+      } else if (data.code !== 'NOT_PARTICIPANT') {
+        // Don't show alert for normal errors during rejoin
+        if (!isLoading) {
+          alert(data.message);
+        }
+      }
+    };
+
+    socket?.on('match_found', handleMatchFound);
+    socket?.on('submission_result', handleSubmissionResult);
+    socket?.on('opponent_progress', handleOpponentProgress);
+    socket?.on('game_over', handleGameOver);
+    socket?.on('error', handleError);
+
+    // If no match data (page refresh), request rejoin
+    if (!matchData && matchId) {
+      console.log('No match data, requesting rejoin...');
+      
+      const attemptRejoin = () => {
+        if (socket?.connected) {
+          gameSocket.rejoinMatch(matchId);
+        } else {
+          // Wait for socket to connect
+          socket?.once('connect', () => {
+            gameSocket.rejoinMatch(matchId);
+          });
+        }
+      };
+      
+      attemptRejoin();
+    }
 
     return () => {
-      socket.off('submission_result');
-      socket.off('opponent_progress');
-      socket.off('game_over');
-      socket.off('error');
+      socket?.off('match_found', handleMatchFound);
+      socket?.off('submission_result', handleSubmissionResult);
+      socket?.off('opponent_progress', handleOpponentProgress);
+      socket?.off('game_over', handleGameOver);
+      socket?.off('error', handleError);
     };
-  }, [matchData, navigate]);
+  }, [matchId, matchData, navigate]);
 
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
@@ -183,7 +243,38 @@ const RealGameArena: React.FC = () => {
   };
 
   // Determine if current user won (if winner is opponent, we lost)
-  const didWin = winner !== null && winner !== matchData?.opponent?.id;
+  const didWin = winner !== null && winner !== currentMatchData?.opponent?.id;
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="h-screen w-full bg-[#050505] flex items-center justify-center font-mono">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-stone-400 animate-spin mx-auto mb-4" />
+          <p className="text-stone-400">Loading match...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (loadError) {
+    return (
+      <div className="h-screen w-full bg-[#050505] flex items-center justify-center font-mono">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <p className="text-white text-xl mb-2">Match Not Found</p>
+          <p className="text-stone-400 mb-6">{loadError}</p>
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="px-6 py-2 bg-stone-800 hover:bg-stone-700 text-white rounded-lg transition-colors"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (gameOver) {
     return (
@@ -312,12 +403,12 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
           <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
             <div className="mb-6">
               <h1 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
-                {matchData?.problem?.title || 'Loading...'}
+                {currentMatchData?.problem?.title || 'Loading...'}
               </h1>
               
               <div className="flex items-center gap-3 text-xs">
-                <span className={`px-3 py-1 rounded-full font-medium bg-opacity-10 border border-opacity-20 ${getDifficultyColor(matchData?.problem?.difficulty || 1500)}`}>
-                  {matchData?.problem?.difficulty || 'Medium'}
+                <span className={`px-3 py-1 rounded-full font-medium bg-opacity-10 border border-opacity-20 ${getDifficultyColor(currentMatchData?.problem?.difficulty || 1500)}`}>
+                  {currentMatchData?.problem?.difficulty || 'Medium'}
                 </span>
               </div>
             </div>
@@ -342,7 +433,7 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
                   li: ({node, ...props}) => <li className="pl-1" {...props} />,
                 }}
               >
-                {convertCodeforcesMath(matchData?.problem?.description || 'Loading problem...')}
+                {convertCodeforcesMath(currentMatchData?.problem?.description || 'Loading problem...')}
               </ReactMarkdown>
             </div>
           </div>

@@ -2,6 +2,7 @@ import { Server as HttpServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { redisService } from '../services/RedisService';
+import { problemService } from '../services/ProblemService';
 import { MatchmakingService } from '../services/MatchmakingService';
 import { GameService } from '../services/GameService';
 import { authMiddleware, devAuthMiddleware } from '../middleware/AuthMiddleware';
@@ -155,6 +156,11 @@ export class DeadlockSocketServer {
         await this.gameService.handleForfeit(authSocket);
       });
       
+      socket.on('rejoin_match', async (matchId: string) => {
+        console.log(`🔄 ${user.username} requesting to rejoin match ${matchId}`);
+        await this.handleRejoinMatch(authSocket, matchId);
+      });
+      
       // ============================================
       // Disconnect
       // ============================================
@@ -177,42 +183,118 @@ export class DeadlockSocketServer {
   }
   
   /**
-   * Handle reconnection - rejoin match if active
+   * Handle reconnection - check if user has an active match on socket connect
    */
   private async handleReconnection(socket: AuthenticatedSocket): Promise<void> {
     const user = socket.user;
     
-    // Check if user has an active match
+    // Check if user has an active match stored
     const matchId = await redisService.getUserMatchId(user.id);
     
     if (matchId) {
       const match = await redisService.getMatch(matchId);
       
       if (match && match.status === 'active') {
-        // Rejoin the match room
+        // Just join the room and update socket ID
+        // Client will call rejoin_match explicitly if needed
         socket.join(matchId);
         socket.data.currentMatchId = matchId;
         
-        console.log(`🔄 ${user.username} reconnected to match ${matchId}`);
+        // Update socket ID in Redis
+        await redisService.updateMatchSocketId(matchId, user.id, socket.id);
         
-        // Update socket ID in match state
-        const isPlayer1 = match.player1.id === user.id;
-        if (isPlayer1) {
-          match.player1.socketId = socket.id;
-        } else {
-          match.player2.socketId = socket.id;
-        }
-        
-        // Re-emit match found with current state
-        const opponent = isPlayer1 ? match.player2 : match.player1;
-        
-        // TODO: Fetch problem data and emit match_found
-        // For now, just notify client they're in a match
-        socket.emit('error', {
-          message: 'Reconnected to match',
-          code: 'RECONNECTED',
-        });
+        console.log(`🔄 ${user.username} reconnected - has active match ${matchId}`);
       }
+    }
+  }
+  
+  /**
+   * Handle explicit rejoin match request from client
+   * Called when client loads /game/:matchId and needs match data
+   */
+  private async handleRejoinMatch(socket: AuthenticatedSocket, matchId: string): Promise<void> {
+    const user = socket.user;
+    
+    try {
+      // Fetch match from Redis
+      const match = await redisService.getMatch(matchId);
+      
+      if (!match) {
+        socket.emit('error', {
+          message: 'Match not found or has ended',
+          code: 'MATCH_NOT_FOUND',
+        });
+        return;
+      }
+      
+      // Verify user is a participant
+      const isPlayer1 = match.player1.id === user.id;
+      const isPlayer2 = match.player2.id === user.id;
+      
+      if (!isPlayer1 && !isPlayer2) {
+        socket.emit('error', {
+          message: 'You are not a participant in this match',
+          code: 'NOT_PARTICIPANT',
+        });
+        return;
+      }
+      
+      // Check match status
+      if (match.status !== 'active') {
+        socket.emit('error', {
+          message: `Match has ended (status: ${match.status})`,
+          code: 'MATCH_ENDED',
+        });
+        return;
+      }
+      
+      // Join the match room
+      socket.join(matchId);
+      socket.data.currentMatchId = matchId;
+      
+      // Update socket ID in Redis
+      await redisService.updateMatchSocketId(matchId, user.id, socket.id);
+      
+      // Fetch problem data
+      const problem = await problemService.getProblemById(match.problemId);
+      
+      if (!problem) {
+        socket.emit('error', {
+          message: 'Problem data not found',
+          code: 'PROBLEM_NOT_FOUND',
+        });
+        return;
+      }
+      
+      // Determine opponent
+      const opponent = isPlayer1 ? match.player2 : match.player1;
+      
+      // Emit match_found with full data
+      socket.emit('match_found', {
+        matchId: match.id,
+        problem: {
+          id: problem.id,
+          title: problem.title,
+          description: problem.description,
+          difficulty: problem.difficulty,
+          testCases: problem.testCases.filter(tc => !tc.isHidden), // Only visible test cases
+        },
+        opponent: {
+          id: opponent.id,
+          username: opponent.username,
+          elo: opponent.elo,
+        },
+        startTime: match.startedAt,
+      });
+      
+      console.log(`✅ ${user.username} rejoined match ${matchId}`);
+      
+    } catch (error: any) {
+      console.error(`❌ Error rejoining match: ${error.message}`);
+      socket.emit('error', {
+        message: 'Failed to rejoin match',
+        code: 'REJOIN_ERROR',
+      });
     }
   }
   

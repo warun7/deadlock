@@ -59,6 +59,8 @@ export class ProblemService {
         description: problem.description,
         difficulty: this.extractDifficulty(problem.url || problem.difficulty),
         testCases: testCases,
+        checkerType: problem.checker_type || 'exact',
+        checkerCode: problem.checker_code || undefined,
       };
       
     } catch (error) {
@@ -125,6 +127,8 @@ export class ProblemService {
         description: problem.description,
         difficulty: this.extractDifficulty(problem.url || problem.difficulty),
         testCases: testCases,
+        checkerType: problem.checker_type || 'exact',
+        checkerCode: problem.checker_code || undefined,
       };
       
     } catch (error) {

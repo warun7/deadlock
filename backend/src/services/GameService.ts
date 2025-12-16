@@ -97,10 +97,13 @@ export class GameService {
 
     try {
       // Execute code against all test cases
+      // Pass checker info for problems with multiple valid answers
       const result = await judgeService.executeCode(
         payload.code,
         payload.languageId,
-        problem.testCases
+        problem.testCases,
+        problem.checkerType || 'exact',  // Default to exact match
+        problem.checkerCode
       );
 
       // Broadcast progress (e.g., "3/10 tests passed")

@@ -72,7 +72,7 @@ const AppContent: React.FC = () => {
           }
         />
         <Route
-          path="/game"
+          path="/game/:matchId"
           element={
             <ProtectedRoute>
               <GamePage />

@@ -6,13 +6,19 @@ import {
   TestCase,
   SubmissionResult,
   TestResult,
+  Problem,
+  CheckerType,
 } from '../types';
+import { checkerService } from './CheckerService';
 
 /**
  * JudgeService - Handles code execution via Judge0 API
  * 
  * This service is non-blocking and async.
  * It submits code to Judge0 and returns the results.
+ * 
+ * For problems with multiple valid answers, it uses CheckerService
+ * instead of Judge0's built-in comparison.
  */
 export class JudgeService {
   private client: AxiosInstance;
@@ -33,36 +39,76 @@ export class JudgeService {
   /**
    * Execute code against all test cases
    * Returns aggregated results
+   * 
+   * @param sourceCode - The user's code
+   * @param languageId - Judge0 language ID
+   * @param testCases - Array of test cases
+   * @param checkerType - How to validate answers (defaults to 'exact')
+   * @param checkerCode - Custom checker code for 'custom' type
    */
   async executeCode(
     sourceCode: string,
     languageId: number,
-    testCases: TestCase[]
+    testCases: TestCase[],
+    checkerType: CheckerType = 'exact',
+    checkerCode?: string
   ): Promise<SubmissionResult> {
     console.log(`🔬 Executing code (lang: ${languageId}) against ${testCases.length} test cases`);
+    console.log(`   Checker type: ${checkerType}`);
     
     const testResults: TestResult[] = [];
     let passedCount = 0;
+    
+    // Determine if we should use Judge0's built-in comparison or our checker
+    const useBuiltinComparison = checkerType === 'exact';
     
     // Run each test case with error handling
     for (let i = 0; i < testCases.length; i++) {
       const testCase = testCases[i];
       
       try {
+        // For exact match, use Judge0's comparison (faster)
+        // For other types, run without expected_output and validate ourselves
         const result = await this.runSingleTest(
           sourceCode,
           languageId,
           testCase.input,
-          testCase.expectedOutput
+          useBuiltinComparison ? testCase.expectedOutput : undefined
         );
         
-        const passed = result.status.id === 3; // 3 = Accepted
+        let passed: boolean;
+        let statusMessage = result.status.description;
+        
+        if (useBuiltinComparison) {
+          // Use Judge0's result directly
+          passed = result.status.id === 3; // 3 = Accepted
+        } else {
+          // Check for runtime/compile errors first
+          if (result.status.id !== 3 && result.status.id !== 4) {
+            // Not Accepted or Wrong Answer - it's an error
+            passed = false;
+          } else {
+            // Use our custom checker
+            const checkerResult = checkerService.validate({
+              userOutput: result.stdout || '',
+              expectedOutput: testCase.expectedOutput,
+              testInput: testCase.input,
+              checkerType,
+              checkerCode,
+            });
+            passed = checkerResult.passed;
+            if (!passed && checkerResult.message) {
+              statusMessage = checkerResult.message;
+            }
+          }
+        }
+        
         if (passed) passedCount++;
         
         testResults.push({
           testIndex: i,
           passed,
-          status: result.status.description,
+          status: statusMessage,
           stdout: result.stdout || undefined,
           expected: testCase.expectedOutput,
           time: result.time,
@@ -70,7 +116,7 @@ export class JudgeService {
         });
         
         // Log progress
-        console.log(`   Test ${i + 1}/${testCases.length}: ${passed ? '✅' : '❌'} ${result.status.description}`);
+        console.log(`   Test ${i + 1}/${testCases.length}: ${passed ? '✅' : '❌'} ${statusMessage}`);
         
       } catch (error: any) {
         // Handle Judge0 API errors gracefully

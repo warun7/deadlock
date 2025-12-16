@@ -79,6 +79,14 @@ class GameSocket {
     this.socket.emit('forfeit');
   }
 
+  rejoinMatch(matchId: string) {
+    if (!this.socket?.connected) {
+      throw new Error('Socket not connected');
+    }
+    console.log('Requesting rejoin for match:', matchId);
+    this.socket.emit('rejoin_match', matchId);
+  }
+
   // Event listeners
   on(event: string, callback: (...args: any[]) => void) {
     this.socket?.on(event, callback);

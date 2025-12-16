@@ -82,12 +82,24 @@ export interface TestCase {
   isHidden?: boolean;
 }
 
+// Checker types for problems with multiple valid answers
+export type CheckerType = 
+  | 'exact'           // Exact string match (default)
+  | 'special_chars'   // Validates special character count
+  | 'any_order'       // Output lines can be in any order  
+  | 'yes_no'          // Case-insensitive YES/NO check
+  | 'float_tolerance' // Numbers within tolerance
+  | 'multiline_any'   // Multiple valid answers
+  | 'custom';         // Custom checker function
+
 export interface Problem {
   id: string;
   title: string;
   description: string;
   difficulty: string;
   testCases: TestCase[];
+  checkerType?: CheckerType;  // How to validate answers (defaults to 'exact')
+  checkerCode?: string;       // Custom JS code for 'custom' checker type
 }
 
 // ============================================
@@ -157,6 +169,7 @@ export interface ClientToServerEvents {
   leave_queue: () => void;
   submit_code: (payload: SubmitCodePayload) => void;
   forfeit: () => void;
+  rejoin_match: (matchId: string) => void;  // Request to rejoin an active match
 }
 
 // Server -> Client Events

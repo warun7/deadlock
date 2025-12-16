@@ -84,7 +84,7 @@ const RealMatchmakingPage: React.FC = () => {
 
           // Navigate to game after animation
           setTimeout(() => {
-            navigate('/game', { state: { matchData: data } });
+            navigate(`/game/${data.matchId}`, { state: { matchData: data } });
           }, 3000);
         });
 

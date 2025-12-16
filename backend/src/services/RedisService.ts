@@ -291,6 +291,23 @@ export class RedisService {
   }
   
   /**
+   * Update socket ID for a player in a match (for reconnection)
+   */
+  async updateMatchSocketId(matchId: string, playerId: string, newSocketId: string): Promise<void> {
+    const key = config.redisKeys.match(matchId);
+    const match = await this.getMatch(matchId);
+    
+    if (!match) return;
+    
+    // Determine which player to update
+    if (match.player1.id === playerId) {
+      await this.client.hset(key, 'player1_socketId', newSocketId);
+    } else if (match.player2.id === playerId) {
+      await this.client.hset(key, 'player2_socketId', newSocketId);
+    }
+  }
+  
+  /**
    * Atomic operation to set match winner
    * Returns true if this call set the winner, false if already set
    */
