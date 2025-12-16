@@ -68,7 +68,7 @@ router.get('/matches', async (req, res) => {
     
     const matches = [];
     for (const key of keys) {
-      const match = await client.hGetAll(key);
+      const match = await client.hgetall(key);
       matches.push({
         id: key.replace('match:', ''),
         ...match,
