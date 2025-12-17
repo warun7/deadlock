@@ -65,15 +65,14 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({ onFindMatch }) => {
               </span>
             </h1>
             <p className="text-stone-500 font-mono text-sm max-w-md">
-              System ready. Your current ELO qualifies you for the Diamond
-              League brackets.
+              System ready. Start competing to climb the global leaderboard.
             </p>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-sm relative">
               <div className="text-xs text-stone-500 font-mono uppercase mb-1">
-                Current Rating
+                Global Rank
               </div>
               <div className="text-lg font-bold text-stone-600 flex items-center gap-2">
                 {loading ? "..." : "COMING SOON"}

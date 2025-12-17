@@ -374,8 +374,7 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
                 Forfeit Match?
               </h2>
               <p className="text-stone-400 text-sm mb-6">
-                You will lose this match and receive a rating penalty. This
-                action cannot be undone.
+                You will lose this match. This action cannot be undone.
               </p>
 
               <div className="flex gap-3">
@@ -453,7 +452,7 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
                     currentMatchData?.problem?.difficulty || 1500
                   )}`}
                 >
-                  {currentMatchData?.problem?.difficulty || "Medium"}
+                  ★ {currentMatchData?.problem?.difficulty || "1000"}
                 </span>
               </div>
             </div>
@@ -580,9 +579,6 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-white font-medium">
                     {matchData?.opponent?.username || "Unknown"}
-                  </span>
-                  <span className="text-stone-500">
-                    ({matchData?.opponent?.elo || "?"})
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 ml-2">

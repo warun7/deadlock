@@ -18,7 +18,6 @@ const RealMatchmakingPage: React.FC = () => {
   useEffect(() => {
     let timerInterval: NodeJS.Timeout;
     let hasJoinedQueue = false; // Flag to prevent double join
-    let isNavigating = false; // Flag to prevent auth redirect interference
 
     const initSocket = async () => {
       try {
@@ -86,15 +85,10 @@ const RealMatchmakingPage: React.FC = () => {
           setMatchData(data);
           setStatus("found");
           clearInterval(timerInterval);
-          isNavigating = true; // Set flag to indicate we're navigating
 
           // Navigate to game after animation
           setTimeout(() => {
-            console.log("Navigating to game:", `/game/${data.matchId}`);
-            navigate(`/game/${data.matchId}`, {
-              state: { matchData: data },
-              replace: true, // Replace history to prevent going back to matchmaking
-            });
+            navigate(`/game/${data.matchId}`, { state: { matchData: data } });
           }, 3000);
         });
 
@@ -114,8 +108,8 @@ const RealMatchmakingPage: React.FC = () => {
 
     return () => {
       clearInterval(timerInterval);
-      // Only leave queue if still searching and not navigating to game
-      if (status === "searching" && !isNavigating) {
+      // Only leave queue if still searching (not if match found)
+      if (status === "searching") {
         gameSocket.leaveQueue();
       }
     };
@@ -229,9 +223,7 @@ const RealMatchmakingPage: React.FC = () => {
                   <div className="w-24 h-24 bg-stone-900 rounded-full border-2 border-white flex items-center justify-center mb-4">
                     <span className="text-2xl font-bold">YOU</span>
                   </div>
-                  <div className="text-sm font-bold text-white">
-                    {matchData?.opponent?.elo || "???"} ELO
-                  </div>
+                  <div className="text-sm font-bold text-stone-500">Ready</div>
                 </div>
 
                 <div className="text-4xl font-black text-red-600 italic">

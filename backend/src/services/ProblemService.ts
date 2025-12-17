@@ -15,22 +15,23 @@ export class ProblemService {
   
   /**
    * Get a random problem for a match
-   * Optionally filter by difficulty or ELO range
+   * Capped at 1200 difficulty until ELO system is implemented
    */
   async getRandomProblem(options?: {
     difficulty?: string;
-    minElo?: number;
-    maxElo?: number;
+    minRating?: number;
+    maxRating?: number;
   }): Promise<Problem | null> {
     try {
-      // Build query
+      // Build query - cap at 1200 difficulty for now
       let query = supabase
         .from('problems')
-        .select('*');
+        .select('*')
+        .lte('difficulty', options?.maxRating || 1200); // Cap at 1200
       
-      // Apply difficulty filter if specified
-      if (options?.difficulty) {
-        query = query.eq('difficulty', options.difficulty);
+      // Apply minimum rating if specified
+      if (options?.minRating) {
+        query = query.gte('difficulty', options.minRating);
       }
       
       // Get all matching problems
@@ -42,7 +43,7 @@ export class ProblemService {
       }
       
       if (!problems || problems.length === 0) {
-        console.warn('No problems found in database');
+        console.warn('No problems found in database with rating <= 1200');
         return this.getFallbackProblem();
       }
       
@@ -57,7 +58,7 @@ export class ProblemService {
         id: problem.id.toString(),
         title: problem.title,
         description: problem.description,
-        difficulty: this.extractDifficulty(problem.url || problem.difficulty),
+        difficulty: problem.difficulty || '1000', // Use rating number directly
         testCases: testCases,
         checkerType: problem.checker_type || 'exact',
         checkerCode: problem.checker_code || undefined,
@@ -125,7 +126,7 @@ export class ProblemService {
         id: problem.id.toString(),
         title: problem.title,
         description: problem.description,
-        difficulty: this.extractDifficulty(problem.url || problem.difficulty),
+        difficulty: problem.difficulty || '1000', // Use rating number directly
         testCases: testCases,
         checkerType: problem.checker_type || 'exact',
         checkerCode: problem.checker_code || undefined,
@@ -138,17 +139,12 @@ export class ProblemService {
   }
   
   /**
-   * Extract difficulty from URL or return default
+   * No longer needed - we use rating numbers directly
+   * Kept for backwards compatibility
    */
   private extractDifficulty(urlOrDifficulty: string): string {
-    if (!urlOrDifficulty) return 'Medium';
-    
-    const lower = urlOrDifficulty.toLowerCase();
-    if (lower.includes('easy')) return 'Easy';
-    if (lower.includes('medium')) return 'Medium';
-    if (lower.includes('hard')) return 'Hard';
-    
-    return 'Medium';
+    // Return the difficulty as-is (should be a number like "1000", "1200", etc.)
+    return urlOrDifficulty || '1000';
   }
   
   /**
@@ -178,7 +174,7 @@ You can return the answer in any order.
 - -10^9 <= nums[i] <= 10^9
 - -10^9 <= target <= 10^9
 - Only one valid answer exists.`,
-      difficulty: 'Easy',
+      difficulty: '800', // Use rating number
       testCases: [
         { input: '4\n2 7 11 15\n9', expectedOutput: '0 1', isHidden: false },
         { input: '3\n3 2 4\n6', expectedOutput: '1 2', isHidden: false },
