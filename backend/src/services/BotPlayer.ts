@@ -41,8 +41,6 @@ export class BotPlayer {
   private matchId: string;
   private progress: number = 0;
   private timeouts: NodeJS.Timeout[] = [];
-  private shouldFail: boolean;
-  private failurePoint: number | null;
   private isStopped: boolean = false;
   private onComplete: (result: BotCompletionResult) => void;
 
@@ -60,22 +58,12 @@ export class BotPlayer {
       config.difficulty
     );
 
-    // Determine if bot should fail
-    const failureRates = {
-      easy: 0.7, // 70% chance to fail (user wins more often)
-      medium: 0.6, // 60% chance to fail
-      hard: 0.4, // 40% chance to fail (more challenging)
-    };
-
-    this.shouldFail = Math.random() < failureRates[this.difficulty];
-    this.failurePoint = this.shouldFail
-      ? Math.floor(Math.random() * 70) + 15 // Fail between 15-85%
-      : null;
-
     console.log(
       `[Bot ${this.id}] Created - ${this.username} (${
         this.difficulty
-      }) - Target: ${this.targetTime / 1000}s - Will fail: ${this.shouldFail}`
+      }) - Target: ${
+        this.targetTime / 1000
+      }s - Will always win if human doesn't submit first`
     );
   }
 
@@ -206,12 +194,6 @@ export class BotPlayer {
 
         this.progress = checkpoint.percentage;
 
-        // Check if bot should fail at this point
-        if (this.shouldFail && this.progress >= this.failurePoint!) {
-          this.failSolution();
-          return;
-        }
-
         // Emit progress to the room
         this.io.to(this.matchId).emit("opponent_progress", {
           playerId: this.id,
@@ -223,7 +205,7 @@ export class BotPlayer {
           `[Bot ${this.id}] Progress: ${this.progress}% - ${checkpoint.status}`
         );
 
-        // Win condition
+        // Win condition - bot always wins if it reaches 100%
         if (this.progress >= 100) {
           this.submitWinningSolution();
         }
@@ -252,7 +234,7 @@ export class BotPlayer {
     setTimeout(() => {
       if (this.isStopped) return;
 
-      // Call completion callback
+      // Call completion callback - bot always wins if it completes
       this.onComplete({
         botId: this.id,
         result: "success",
@@ -260,36 +242,6 @@ export class BotPlayer {
         totalTests: 10,
       });
     }, 500);
-  }
-
-  /**
-   * Bot fails the solution
-   */
-  private failSolution(): void {
-    if (this.isStopped) return;
-
-    console.log(`[Bot ${this.id}] Failed at ${this.progress}%`);
-
-    const testsPassed = Math.floor(Math.random() * 7) + 1; // Failed on test 1-7
-
-    // Emit failure
-    this.io.to(this.matchId).emit("opponent_progress", {
-      playerId: this.id,
-      status: `Wrong Answer (${testsPassed}/10)`,
-      percentage: this.progress,
-    });
-
-    // Bot gives up after failure
-    setTimeout(() => {
-      if (this.isStopped) return;
-
-      this.onComplete({
-        botId: this.id,
-        result: "failed",
-        testsPassed,
-        totalTests: 10,
-      });
-    }, 1000);
   }
 
   /**

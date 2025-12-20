@@ -47,13 +47,6 @@ export const config = {
       | "medium"
       | "hard",
 
-    // Failure rates per difficulty (chance that bot will fail)
-    failureRates: {
-      easy: parseFloat(process.env.BOT_EASY_FAILURE_RATE || "0.70"),
-      medium: parseFloat(process.env.BOT_MEDIUM_FAILURE_RATE || "0.60"),
-      hard: parseFloat(process.env.BOT_HARD_FAILURE_RATE || "0.40"),
-    },
-
     // Time multipliers per difficulty
     timeMultipliers: {
       easy: { min: 1.8, max: 2.5 },
