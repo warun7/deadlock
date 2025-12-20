@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { redisService } from "./RedisService";
 import { judgeService } from "./JudgeService";
 import { problemService } from "./ProblemService";
+import { BotCompletionResult } from "./BotPlayer";
 import { config } from "../config";
 import {
   AuthenticatedSocket,
@@ -32,9 +33,17 @@ const supabase = createClient(
 export class GameService {
   private io: SocketServer<ClientToServerEvents, ServerToClientEvents>;
   private cleanupTimers: Map<string, NodeJS.Timeout> = new Map();
+  private matchmakingService: any; // Will be set after construction
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
+  }
+
+  /**
+   * Set MatchmakingService reference (for bot cleanup)
+   */
+  setMatchmakingService(matchmakingService: any): void {
+    this.matchmakingService = matchmakingService;
   }
 
   /**
@@ -77,6 +86,15 @@ export class GameService {
 
     console.log(`📝 ${user.username} submitted code in match ${matchId}`);
 
+    // Stop bot if this is a bot match
+    if (this.matchmakingService) {
+      const bot = this.matchmakingService.getBot(matchId);
+      if (bot) {
+        console.log(`🤖 Stopping bot for match ${matchId} - human submitted`);
+        bot.stop();
+      }
+    }
+
     // === PSYCHOLOGICAL WARFARE ===
     // Broadcast to opponent that this player is testing
     this.io.to(matchId).emit("opponent_progress", {
@@ -102,7 +120,7 @@ export class GameService {
         payload.code,
         payload.languageId,
         problem.testCases,
-        problem.checkerType || 'exact',  // Default to exact match
+        problem.checkerType || "exact", // Default to exact match
         problem.checkerCode
       );
 
@@ -118,7 +136,12 @@ export class GameService {
 
       // === CHECK WIN CONDITION ===
       if (result.status === "accepted") {
-        await this.handlePotentialWin(socket, match, result, payload.languageId);
+        await this.handlePotentialWin(
+          socket,
+          match,
+          result,
+          payload.languageId
+        );
       } else {
         // Broadcast failed attempt
         this.io.to(matchId).emit("opponent_progress", {
@@ -290,7 +313,7 @@ export class GameService {
         player2Id: match.player2.id,
         result: "forfeit",
         eloChange,
-        language: 'unknown', // Forfeit - no language tracked
+        language: "unknown", // Forfeit - no language tracked
       });
 
       // Get winner and loser sockets
@@ -322,6 +345,100 @@ export class GameService {
         await this.cleanupMatch(matchId);
       }, 60000);
       this.cleanupTimers.set(matchId, timerId);
+    }
+  }
+
+  /**
+   * Handle bot completion (win or fail)
+   */
+  async handleBotCompletion(
+    matchId: string,
+    result: BotCompletionResult
+  ): Promise<void> {
+    try {
+      console.log(`🤖 Bot completion for match ${matchId}:`, result);
+
+      const match = await redisService.getMatch(matchId);
+
+      if (!match) {
+        console.warn(`[Bot] Match ${matchId} not found`);
+        return;
+      }
+
+      if (match.status !== "active") {
+        console.warn(
+          `[Bot] Match ${matchId} is not active (status: ${match.status})`
+        );
+        return;
+      }
+
+      // Determine winner
+      let winnerId: string;
+      let loserId: string;
+      let reason: string;
+
+      if (result.result === "success") {
+        // Bot won
+        winnerId = result.botId;
+        loserId = match.player1.id; // Human is player1
+        reason = "Opponent solved first";
+      } else {
+        // Bot failed - human wins by default
+        winnerId = match.player1.id; // Human is player1
+        loserId = result.botId;
+        reason = `Opponent failed (${result.testsPassed}/${result.totalTests} tests passed)`;
+      }
+
+      // Set winner atomically
+      const wonTheRace = await redisService.setMatchWinner(matchId, winnerId);
+
+      if (!wonTheRace) {
+        console.log(`[Bot] Race condition: human already won match ${matchId}`);
+        return;
+      }
+
+      console.log(
+        `🏆 Bot match ${matchId} ended - Winner: ${
+          winnerId === result.botId ? "BOT" : "HUMAN"
+        }`
+      );
+
+      // Save to database (only for human player)
+      await this.saveBotMatchToDatabase({
+        matchId,
+        humanId: match.player1.id,
+        botId: result.botId,
+        winnerId,
+        problemId: match.problemId,
+        problemTitle: match.problemTitle,
+        duration: Math.floor((Date.now() - match.startedAt) / 1000),
+        botDifficulty:
+          this.matchmakingService?.getBot(matchId)?.getDifficulty() || "medium",
+      });
+
+      // Get human socket
+      const humanSocket = this.io.sockets.sockets.get(match.player1.socketId);
+
+      if (humanSocket) {
+        humanSocket.emit("game_over", {
+          winnerId,
+          reason,
+        });
+      }
+
+      // Cleanup bot
+      if (this.matchmakingService) {
+        this.matchmakingService.cleanupBot(matchId);
+      }
+
+      // Schedule match cleanup
+      const timerId = setTimeout(async () => {
+        this.cleanupTimers.delete(matchId);
+        await this.cleanupMatch(matchId);
+      }, 60000);
+      this.cleanupTimers.set(matchId, timerId);
+    } catch (error) {
+      console.error(`❌ Error in handleBotCompletion:`, error);
     }
   }
 
@@ -392,12 +509,55 @@ export class GameService {
   }
 
   /**
+   * Save bot match to PostgreSQL
+   * Only creates ONE record for the human player
+   */
+  private async saveBotMatchToDatabase(data: {
+    matchId: string;
+    humanId: string;
+    botId: string;
+    winnerId: string;
+    problemId: string;
+    problemTitle: string;
+    duration: number;
+    botDifficulty: "easy" | "medium" | "hard";
+  }): Promise<void> {
+    try {
+      const result = data.winnerId === data.humanId ? "won" : "lost";
+
+      // Insert match record for human player
+      const { error } = await supabase.from("matches").insert({
+        player_id: data.humanId,
+        opponent_id: data.botId,
+        problem_id: data.problemId,
+        problem_title: data.problemTitle,
+        language: "unknown", // We don't track language for bot matches yet
+        result,
+        rating_change: 0, // No rating change for bot matches
+        duration_seconds: data.duration,
+        is_bot_match: true,
+        bot_difficulty: data.botDifficulty,
+        completed_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        console.error("❌ Error saving bot match record:", error);
+      } else {
+        console.log(`💾 Bot match record saved for human player`);
+        console.log(`📊 Stats will be auto-updated by database trigger`);
+      }
+    } catch (error) {
+      console.error("❌ Error in saveBotMatchToDatabase:", error);
+    }
+  }
+
+  /**
    * Update player statistics after a match
-   * 
+   *
    * ⚠️ DEPRECATED: This function is no longer used.
    * Stats are now automatically updated by the database trigger
    * `update_user_stats_after_match` when a match is inserted.
-   * 
+   *
    * Keeping this function for reference/backup purposes only.
    */
   private async updatePlayerStats(
@@ -405,9 +565,11 @@ export class GameService {
     won: boolean
   ): Promise<void> {
     // This function is deprecated - stats are handled by DB trigger
-    console.warn(`⚠️ updatePlayerStats called but is deprecated - using DB trigger instead`);
+    console.warn(
+      `⚠️ updatePlayerStats called but is deprecated - using DB trigger instead`
+    );
     return;
-    
+
     /* DEPRECATED CODE - kept for reference
     try {
       // Get current stats
@@ -472,18 +634,18 @@ export class GameService {
    */
   private getLanguageName(languageId: number): string {
     const languageMap: Record<number, string> = {
-      71: 'python',      // Python 3
-      63: 'javascript',  // JavaScript (Node.js)
-      54: 'cpp',         // C++ (GCC)
-      62: 'java',        // Java
-      73: 'rust',        // Rust
-      60: 'go',          // Go
-      78: 'kotlin',      // Kotlin
-      83: 'swift',       // Swift
-      51: 'csharp',      // C#
-      72: 'ruby',        // Ruby
+      71: "python", // Python 3
+      63: "javascript", // JavaScript (Node.js)
+      54: "cpp", // C++ (GCC)
+      62: "java", // Java
+      73: "rust", // Rust
+      60: "go", // Go
+      78: "kotlin", // Kotlin
+      83: "swift", // Swift
+      51: "csharp", // C#
+      72: "ruby", // Ruby
     };
-    
+
     return languageMap[languageId] || `lang_${languageId}`;
   }
 

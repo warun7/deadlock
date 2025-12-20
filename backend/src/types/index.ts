@@ -1,4 +1,4 @@
-import { Socket } from 'socket.io';
+import { Socket } from "socket.io";
 
 // ============================================
 // User & Auth Types
@@ -31,7 +31,7 @@ export interface QueueEntry {
 // Match Types
 // ============================================
 
-export type MatchStatus = 'pending' | 'active' | 'finished' | 'abandoned';
+export type MatchStatus = "pending" | "active" | "finished" | "abandoned";
 
 export interface MatchState {
   id: string;
@@ -83,14 +83,14 @@ export interface TestCase {
 }
 
 // Checker types for problems with multiple valid answers
-export type CheckerType = 
-  | 'exact'           // Exact string match (default)
-  | 'special_chars'   // Validates special character count
-  | 'any_order'       // Output lines can be in any order  
-  | 'yes_no'          // Case-insensitive YES/NO check
-  | 'float_tolerance' // Numbers within tolerance
-  | 'multiline_any'   // Multiple valid answers
-  | 'custom';         // Custom checker function
+export type CheckerType =
+  | "exact" // Exact string match (default)
+  | "special_chars" // Validates special character count
+  | "any_order" // Output lines can be in any order
+  | "yes_no" // Case-insensitive YES/NO check
+  | "float_tolerance" // Numbers within tolerance
+  | "multiline_any" // Multiple valid answers
+  | "custom"; // Custom checker function
 
 export interface Problem {
   id: string;
@@ -98,8 +98,8 @@ export interface Problem {
   description: string;
   difficulty: string;
   testCases: TestCase[];
-  checkerType?: CheckerType;  // How to validate answers (defaults to 'exact')
-  checkerCode?: string;       // Custom JS code for 'custom' checker type
+  checkerType?: CheckerType; // How to validate answers (defaults to 'exact')
+  checkerCode?: string; // Custom JS code for 'custom' checker type
 }
 
 // ============================================
@@ -112,7 +112,12 @@ export interface SubmitCodePayload {
 }
 
 export interface SubmissionResult {
-  status: 'accepted' | 'wrong_answer' | 'runtime_error' | 'time_limit' | 'compile_error';
+  status:
+    | "accepted"
+    | "wrong_answer"
+    | "runtime_error"
+    | "time_limit"
+    | "compile_error";
   passed: number;
   total: number;
   stdout?: string;
@@ -169,7 +174,7 @@ export interface ClientToServerEvents {
   leave_queue: () => void;
   submit_code: (payload: SubmitCodePayload) => void;
   forfeit: () => void;
-  rejoin_match: (matchId: string) => void;  // Request to rejoin an active match
+  rejoin_match: (matchId: string) => void; // Request to rejoin an active match
 }
 
 // Server -> Client Events
@@ -178,8 +183,16 @@ export interface ServerToClientEvents {
   queue_left: () => void;
   match_found: (data: MatchFoundPayload) => void;
   submission_result: (data: SubmissionResult) => void;
-  opponent_progress: (data: { playerId: string; status: string; testsProgress?: string }) => void;
-  game_over: (data: { winnerId: string | null; reason: string; newElo?: number }) => void;
+  opponent_progress: (data: {
+    playerId: string;
+    status: string;
+    testsProgress?: string;
+  }) => void;
+  game_over: (data: {
+    winnerId: string | null;
+    reason: string;
+    newElo?: number;
+  }) => void;
   error: (data: { message: string; code?: string }) => void;
 }
 
@@ -195,15 +208,40 @@ export interface SocketData {
 }
 
 // ============================================
+// Bot Types
+// ============================================
+
+export interface BotCompletionResult {
+  botId: string;
+  result: "success" | "failed";
+  testsPassed: number;
+  totalTests: number;
+}
+
+export interface BotPlayerInfo {
+  id: string;
+  username: string;
+  stats?: {
+    totalMatches: number;
+    winRate: number;
+  };
+}
+
+// ============================================
 // Game Over Types
 // ============================================
 
 export interface GameOverPayload {
   winnerId: string;
   loserId: string;
-  reason: 'solved' | 'forfeit' | 'timeout' | 'disconnect';
+  reason:
+    | "solved"
+    | "forfeit"
+    | "timeout"
+    | "disconnect"
+    | "bot_won"
+    | "bot_failed";
   matchId: string;
   duration: number;
+  isBotMatch?: boolean;
 }
-
-
