@@ -137,39 +137,44 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({ onFindMatch }) => {
           <ThreeDTilt intensity={15} className="w-full max-w-md">
             <div className="relative bg-[#0a0a0a] border border-stone-800 p-8 rounded-lg overflow-hidden group">
               <div className="absolute top-0 right-0 p-4 opacity-20">
-                <Trophy className="w-32 h-32 text-white" />
+                <Swords className="w-32 h-32 text-white" />
               </div>
 
               <div className="relative z-10">
-                <div className="text-red-500 font-mono text-xs font-bold uppercase tracking-widest mb-4">
-                  Daily Challenge
+                <div className="text-emerald-500 font-mono text-xs font-bold uppercase tracking-widest mb-4">
+                  System Status
                 </div>
-                <h3 className="text-3xl font-bold text-white mb-2">
-                  Invert Binary Tree
+                <h3 className="text-3xl font-bold text-white mb-4">
+                  Instant Match Ready
                 </h3>
-                <div className="flex gap-2 mb-6">
-                  <span className="px-2 py-1 bg-stone-800 text-stone-400 text-[10px] font-mono rounded-sm">
-                    EASY
-                  </span>
-                  <span className="px-2 py-1 bg-stone-800 text-stone-400 text-[10px] font-mono rounded-sm">
-                    TREE
-                  </span>
-                  <span className="px-2 py-1 bg-stone-800 text-stone-400 text-[10px] font-mono rounded-sm">
-                    RECURSION
-                  </span>
-                </div>
-                <div className="p-4 bg-[#050505] border border-stone-800 rounded-sm font-mono text-xs text-stone-500 mb-6">
-                  class Solution:
-                  <br />
-                  &nbsp;&nbsp;def invertTree(self, root):
-                  <br />
-                  &nbsp;&nbsp;&nbsp;&nbsp;if not root: return None
-                  <br />
-                  &nbsp;&nbsp;&nbsp;&nbsp;# Your code here...
+                <p className="text-stone-400 text-sm mb-6 leading-relaxed">
+                  Our intelligent matchmaking system finds you an opponent in
+                  seconds. If no players are available, you'll be matched with
+                  an AI opponent that simulates realistic competitive play.
+                </p>
+                <div className="space-y-3 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs font-mono text-stone-300">
+                      Real-time matchmaking active
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs font-mono text-stone-300">
+                      AI opponents available 24/7
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs font-mono text-stone-300">
+                      Average wait time: ~12 seconds
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 text-stone-400 text-xs font-mono">
                   <Zap className="w-4 h-4 text-yellow-500" />
-                  <span>+15 RP Reward</span>
+                  <span>Earn ELO • Climb Rankings • Track Stats</span>
                 </div>
               </div>
             </div>
