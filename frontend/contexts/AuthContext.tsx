@@ -65,11 +65,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       setIsLoggedIn(!!session?.user);
 
       if (event === "SIGNED_IN" && session?.user) {
-        console.log("✅ User signed in successfully");
+
       }
 
       if (event === "INITIAL_SESSION" && session?.user) {
-        console.log("✅ Found existing session");
+
       }
     });
 
@@ -88,10 +88,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   };
 
   const logout = async () => {
-    console.log("🚪 Logout called");
+
     try {
       if (isSupabaseConfigured()) {
-        console.log("Signing out from Supabase...");
+
 
         // Sign out with scope 'global' to clear all sessions and cookies
         const { error } = await supabase.auth.signOut({ scope: "global" });
@@ -99,7 +99,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         if (error) {
           console.error("Supabase signOut error:", error);
         } else {
-          console.log("✅ Supabase sign out successful");
+
         }
       }
 
@@ -119,12 +119,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       try {
         localStorage.clear();
         sessionStorage.clear();
-        console.log("✅ Cleared all browser storage");
+
       } catch (storageErr) {
         console.warn("Could not clear storage:", storageErr);
       }
 
-      console.log("✅ Logout complete - all session data cleared");
+
     } catch (err) {
       console.error("Logout error:", err);
       // Still clear local state even if Supabase fails
@@ -181,7 +181,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     }
 
     try {
-      console.log("🔐 Attempting sign in for:", email);
+
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -209,7 +209,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       }
 
       if (data.user) {
-        console.log("✅ Sign in successful for:", data.user.email);
+
         setUser(data.user);
         setIsLoggedIn(true);
       }
@@ -230,7 +230,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const signInWithGoogle = async () => {
     if (!isSupabaseConfigured()) {
       // Demo mode - simulate successful Google login
-      console.log("✅ Demo Mode: Simulating Google OAuth login");
+
       setTimeout(() => {
         login();
       }, 500);
@@ -238,7 +238,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     }
 
     try {
-      console.log("🔐 Starting Google OAuth flow...");
+
 
       // Use the simplest possible configuration as per Supabase docs
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -263,7 +263,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         return { error };
       }
 
-      console.log("✅ Google OAuth initiated, redirecting...");
+
       return { error: null };
     } catch (err: any) {
       console.error("❌ Exception in Google OAuth:", err);

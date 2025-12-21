@@ -57,14 +57,6 @@ export class BotPlayer {
       config.problemRating,
       config.difficulty
     );
-
-    console.log(
-      `[Bot ${this.id}] Created - ${this.username} (${
-        this.difficulty
-      }) - Target: ${
-        this.targetTime / 1000
-      }s - Will always win if human doesn't submit first`
-    );
   }
 
   /**
@@ -184,8 +176,6 @@ export class BotPlayer {
    * Start the bot's solving simulation
    */
   public start(): void {
-    console.log(`[Bot ${this.id}] Starting simulation...`);
-
     const checkpoints = this.generateProgressCheckpoints();
 
     checkpoints.forEach((checkpoint) => {
@@ -200,10 +190,6 @@ export class BotPlayer {
           status: checkpoint.status,
           percentage: this.progress,
         });
-
-        console.log(
-          `[Bot ${this.id}] Progress: ${this.progress}% - ${checkpoint.status}`
-        );
 
         // Win condition - bot always wins if it reaches 100%
         if (this.progress >= 100) {
@@ -220,8 +206,6 @@ export class BotPlayer {
    */
   private submitWinningSolution(): void {
     if (this.isStopped) return;
-
-    console.log(`[Bot ${this.id}] Submitting winning solution`);
 
     // Emit final progress
     this.io.to(this.matchId).emit("opponent_progress", {
@@ -248,7 +232,6 @@ export class BotPlayer {
    * Stop the bot (called when human wins first)
    */
   public stop(): void {
-    console.log(`[Bot ${this.id}] Stopping...`);
     this.isStopped = true;
 
     // Clear all timeouts

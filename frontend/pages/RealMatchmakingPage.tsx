@@ -44,11 +44,9 @@ const RealMatchmakingPage: React.FC = () => {
         // Helper to join queue (only once)
         const joinQueueOnce = () => {
           if (hasJoinedQueue) {
-            console.log("Already joined queue, skipping...");
             return;
           }
           hasJoinedQueue = true;
-          console.log("Joining queue...");
           setStatus("searching");
           gameSocket.joinQueue();
 
@@ -60,13 +58,11 @@ const RealMatchmakingPage: React.FC = () => {
 
         // If already connected, join queue immediately
         if (socket.connected) {
-          console.log("Socket already connected");
           joinQueueOnce();
         }
 
         // Wait for connection (for new connections)
         socket.on("connect", () => {
-          console.log("Socket connected");
           joinQueueOnce();
         });
 
@@ -77,11 +73,10 @@ const RealMatchmakingPage: React.FC = () => {
         });
 
         socket.on("queue_joined", (data) => {
-          console.log("Joined queue at position:", data.position);
+          // Queue joined successfully
         });
 
         socket.on("match_found", (data) => {
-          console.log("Match found!", data);
           setMatchData(data);
           setStatus("found");
           clearInterval(timerInterval);

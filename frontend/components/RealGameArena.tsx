@@ -180,7 +180,6 @@ const RealGameArena: React.FC = () => {
 
       // Handle match_found event (for rejoin)
       const handleMatchFound = (data: any) => {
-        console.log("Match data received:", data);
         setCurrentMatchData(data);
         setIsLoading(false);
         setLoadError(null);
@@ -188,20 +187,17 @@ const RealGameArena: React.FC = () => {
 
       // Listen for submission results
       const handleSubmissionResult = (result: any) => {
-        console.log("Submission result:", result);
         setSubmissionResult(result);
         setIsSubmitting(false);
       };
 
       // Listen for opponent progress
       const handleOpponentProgress = (data: any) => {
-        console.log("Opponent progress:", data);
         setOpponentProgress(data.status);
       };
 
       // Listen for game over
       const handleGameOver = (data: any) => {
-        console.log("Game over:", data);
         setGameOver(true);
         setWinner(data.winnerId);
         setGameOverReason(data.reason || "Match ended");
@@ -229,8 +225,6 @@ const RealGameArena: React.FC = () => {
 
       // If no match data (page refresh), request rejoin
       if (!matchData && matchId) {
-        console.log("No match data, requesting rejoin...");
-
         const attemptRejoin = () => {
           if (socket?.connected) {
             gameSocket.rejoinMatch(matchId);
