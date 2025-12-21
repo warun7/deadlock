@@ -145,30 +145,30 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({ onFindMatch }) => {
                   System Status
                 </div>
                 <h3 className="text-3xl font-bold text-white mb-4">
-                  Instant Match Ready
+                  Matchmaking Active
                 </h3>
                 <p className="text-stone-400 text-sm mb-6 leading-relaxed">
-                  Our intelligent matchmaking system finds you an opponent in
-                  seconds. If no players are available, you'll be matched with
-                  an AI opponent that simulates realistic competitive play.
+                  Jump into ranked 1v1 battles and compete against opponents
+                  from around the world. Our intelligent matchmaking system
+                  ensures you're always finding competitive matches.
                 </p>
                 <div className="space-y-3 mb-6">
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                     <span className="text-xs font-mono text-stone-300">
-                      Real-time matchmaking active
+                      Global matchmaking active
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                     <span className="text-xs font-mono text-stone-300">
-                      AI opponents available 24/7
+                      Players online 24/7
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                     <span className="text-xs font-mono text-stone-300">
-                      Average wait time: ~12 seconds
+                      Average wait time: &lt;30 seconds
                     </span>
                   </div>
                 </div>
