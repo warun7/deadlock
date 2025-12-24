@@ -42,9 +42,12 @@ const DashboardPage: React.FC = () => {
   // Check for active match on mount
   useEffect(() => {
     if (!user) {
+      console.log("❌ No user, skipping active match check");
       setCheckingMatch(false);
       return;
     }
+
+    console.log("🔍 Dashboard mounted, checking for active match...");
 
     const checkActiveMatch = async () => {
       try {
@@ -64,21 +67,40 @@ const DashboardPage: React.FC = () => {
 
         // Listen for active match notification from backend
         const handleActiveMatch = (data: { matchId: string }) => {
-          console.log("📍 Active match detected:", data.matchId);
+          console.log("✅ Active match detected:", data.matchId);
           setActiveMatchId(data.matchId);
           setCheckingMatch(false);
+
+          // Clean up listeners
+          socket?.off("active_match_found", handleActiveMatch);
+          socket?.off("connect", requestCheck);
         };
 
-        socket?.once("active_match_found", handleActiveMatch);
+        // Set up listener FIRST
+        socket?.on("active_match_found", handleActiveMatch);
 
-        // Request check for active match
-        socket?.emit("check_active_match");
+        // Function to request check
+        const requestCheck = () => {
+          console.log("📡 Socket connected, requesting active match check...");
+          socket?.emit("check_active_match");
+        };
 
-        // Timeout if no response
-        setTimeout(() => {
+        // Request check when ready
+        if (socket?.connected) {
+          console.log("✅ Socket already connected");
+          requestCheck();
+        } else {
+          console.log("⏳ Waiting for socket to connect...");
+          socket?.once("connect", requestCheck);
+        }
+
+        // Timeout if no response (increased to 5s)
+        const timeout = setTimeout(() => {
+          console.log("⏱️ Active match check timed out (no active match)");
           setCheckingMatch(false);
           socket?.off("active_match_found", handleActiveMatch);
-        }, 2000);
+          socket?.off("connect", requestCheck);
+        }, 5000);
       } catch (error) {
         console.error("Error checking active match:", error);
         setCheckingMatch(false);
