@@ -19,7 +19,22 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, loading } = useAuth();
+
+  // Show nothing while checking auth (prevents flash of redirect)
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <div className="text-white font-mono text-sm">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+            <span>Authenticating...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return isLoggedIn ? <>{children}</> : <Navigate to="/auth" replace />;
 };
 
