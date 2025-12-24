@@ -175,6 +175,7 @@ export interface ClientToServerEvents {
   submit_code: (payload: SubmitCodePayload) => void;
   forfeit: () => void;
   rejoin_match: (matchId: string) => void; // Request to rejoin an active match
+  check_active_match: () => void; // Check if user has an active match
 }
 
 // Server -> Client Events
@@ -194,6 +195,7 @@ export interface ServerToClientEvents {
     newElo?: number;
   }) => void;
   error: (data: { message: string; code?: string }) => void;
+  active_match_found: (data: { matchId: string }) => void; // Notify client of active match
 }
 
 // Inter-Server Events (for Redis adapter)

@@ -9,9 +9,17 @@ import { Profile } from "../types/database";
 
 interface DashboardHeroProps {
   onFindMatch: () => void;
+  activeMatchId?: string | null;
+  onResumeMatch?: () => void;
+  checkingMatch?: boolean;
 }
 
-const DashboardHero: React.FC<DashboardHeroProps> = ({ onFindMatch }) => {
+const DashboardHero: React.FC<DashboardHeroProps> = ({
+  onFindMatch,
+  activeMatchId,
+  onResumeMatch,
+  checkingMatch = false,
+}) => {
   const { user } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,21 +123,40 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({ onFindMatch }) => {
             </div>
           </div>
 
-          <button
-            onClick={onFindMatch}
-            className="group w-full md:w-auto relative px-8 py-6 bg-red-600 hover:bg-red-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-4 shadow-[0_0_40px_rgba(220,38,38,0.3)] hover:shadow-[0_0_60px_rgba(220,38,38,0.5)]"
-          >
-            <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.2)_50%,transparent_75%)] bg-[length:250%_250%,100%_100%] animate-[shine_3s_infinite]"></div>
-            <Swords className="w-8 h-8 text-white group-hover:rotate-12 transition-transform" />
-            <div className="text-left">
-              <div className="text-2xl font-black text-white italic tracking-tighter uppercase">
-                Enter Queue
+          {activeMatchId ? (
+            <button
+              onClick={onResumeMatch}
+              className="group w-full md:w-auto relative px-8 py-6 bg-emerald-600 hover:bg-emerald-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-4 shadow-[0_0_40px_rgba(16,185,129,0.3)] hover:shadow-[0_0_60px_rgba(16,185,129,0.5)] animate-pulse"
+            >
+              <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.2)_50%,transparent_75%)] bg-[length:250%_250%,100%_100%] animate-[shine_3s_infinite]"></div>
+              <Activity className="w-8 h-8 text-white group-hover:scale-110 transition-transform" />
+              <div className="text-left">
+                <div className="text-2xl font-black text-white italic tracking-tighter uppercase">
+                  Resume Match
+                </div>
+                <div className="text-[10px] text-emerald-200 font-mono tracking-widest">
+                  MATCH IN PROGRESS • CLICK TO REJOIN
+                </div>
               </div>
-              <div className="text-[10px] text-red-200 font-mono tracking-widest">
-                RANKED 1v1 • EST 12s
+            </button>
+          ) : (
+            <button
+              onClick={onFindMatch}
+              disabled={checkingMatch}
+              className="group w-full md:w-auto relative px-8 py-6 bg-red-600 hover:bg-red-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-4 shadow-[0_0_40px_rgba(220,38,38,0.3)] hover:shadow-[0_0_60px_rgba(220,38,38,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.2)_50%,transparent_75%)] bg-[length:250%_250%,100%_100%] animate-[shine_3s_infinite]"></div>
+              <Swords className="w-8 h-8 text-white group-hover:rotate-12 transition-transform" />
+              <div className="text-left">
+                <div className="text-2xl font-black text-white italic tracking-tighter uppercase">
+                  {checkingMatch ? "Checking..." : "Enter Queue"}
+                </div>
+                <div className="text-[10px] text-red-200 font-mono tracking-widest">
+                  RANKED 1v1 • EST 12s
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
+          )}
         </div>
 
         {/* Right: 3D Featured Card */}

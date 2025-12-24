@@ -174,6 +174,11 @@ export class DeadlockSocketServer {
         await this.handleRejoinMatch(authSocket, matchId);
       });
 
+      socket.on("check_active_match", async () => {
+        console.log(`🔍 ${user.username} checking for active match`);
+        await this.handleCheckActiveMatch(authSocket);
+      });
+
       // ============================================
       // Disconnect
       // ============================================
@@ -312,6 +317,38 @@ export class DeadlockSocketServer {
         message: "Failed to rejoin match",
         code: "REJOIN_ERROR",
       });
+    }
+  }
+
+  /**
+   * Handle check for active match - used when user loads dashboard
+   * Notifies client if they have an active match they should rejoin
+   */
+  private async handleCheckActiveMatch(
+    socket: AuthenticatedSocket
+  ): Promise<void> {
+    const user = socket.user;
+
+    try {
+      // Check if user has an active match stored in Redis
+      const matchId = await redisService.getUserMatchId(user.id);
+
+      if (matchId) {
+        const match = await redisService.getMatch(matchId);
+
+        if (match && match.status === "active") {
+          // Notify client they have an active match
+          socket.emit("active_match_found", { matchId });
+          console.log(`✅ ${user.username} has active match ${matchId}`);
+          return;
+        }
+      }
+
+      // No active match found - this is not an error, just means user is free
+      console.log(`ℹ️  ${user.username} has no active match`);
+    } catch (error: any) {
+      console.error(`❌ Error checking active match: ${error.message}`);
+      // Don't emit error - this is not critical
     }
   }
 
