@@ -446,7 +446,7 @@ export class GameService {
    * Save match to PostgreSQL
    * Creates TWO records - one for each player with their perspective
    */
-  private async saveMatchToDatabase(data: {
+  public async saveMatchToDatabase(data: {
     matchId: string;
     winnerId: string;
     loserId: string;
@@ -512,7 +512,7 @@ export class GameService {
    * Save bot match to PostgreSQL
    * Only creates ONE record for the human player
    */
-  private async saveBotMatchToDatabase(data: {
+  public async saveBotMatchToDatabase(data: {
     matchId: string;
     humanId: string;
     botId: string;

@@ -24,14 +24,14 @@ export class MatchmakingService {
   private processInterval: NodeJS.Timeout | null = null;
   private isProcessing = false;
   private activeBots: Map<string, BotPlayer> = new Map(); // Track active bots by matchId
-  private gameService: any; // Will be set by GameService
+  private gameService: any; // Will be set by GameService (for saving match results)
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
   }
 
   /**
-   * Set GameService reference (called by GameService)
+   * Set GameService reference (called by SocketServer)
    */
   setGameService(gameService: any): void {
     this.gameService = gameService;
@@ -529,17 +529,76 @@ export class MatchmakingService {
         // Player disconnected during active match - opponent wins
         const winnerId =
           match.player1.id === user.id ? match.player2.id : match.player1.id;
+        const loserId = user.id;
 
         const won = await redisService.setMatchWinner(matchId, winnerId);
 
         if (won) {
+          console.log(`🏆 ${winnerId} wins by disconnect in match ${matchId}`);
+
+          // Calculate match duration
+          const duration = Math.floor((Date.now() - match.startedAt) / 1000);
+
+          // Save match to database
+          if (this.gameService) {
+            // Check if this is a bot match (bot is always player2 with socketId "bot")
+            const isBotMatch = match.player2.socketId === "bot";
+
+            if (isBotMatch) {
+              // Bot match - save only for human player
+              const bot = this.activeBots.get(matchId);
+              const botDifficulty = bot?.getDifficulty() || "medium";
+
+              await this.gameService.saveBotMatchToDatabase({
+                matchId,
+                humanId: match.player1.id,
+                botId: match.player2.id,
+                winnerId,
+                problemId: match.problemId,
+                problemTitle: match.problemTitle,
+                duration,
+                botDifficulty,
+              });
+
+              // Clean up bot
+              this.cleanupBot(matchId);
+            } else {
+              // Human vs human match - save for both players
+              const winnerElo =
+                winnerId === match.player1.id
+                  ? match.player1.elo
+                  : match.player2.elo;
+              const loserElo =
+                loserId === match.player1.id
+                  ? match.player1.elo
+                  : match.player2.elo;
+
+              // Calculate ELO change (simplified K=32 formula)
+              const K = 32;
+              const expectedScore =
+                1 / (1 + Math.pow(10, (loserElo - winnerElo) / 400));
+              const eloChange = Math.round(K * (1 - expectedScore));
+
+              await this.gameService.saveMatchToDatabase({
+                matchId,
+                winnerId,
+                loserId,
+                problemId: match.problemId,
+                problemTitle: match.problemTitle,
+                duration,
+                player1Id: match.player1.id,
+                player2Id: match.player2.id,
+                eloChange,
+                language: "unknown", // Disconnected - no language tracked
+              });
+            }
+          }
+
           // Notify the remaining player
           this.io.to(matchId).emit("game_over", {
             winnerId,
             reason: "Opponent disconnected",
           });
-
-          console.log(`🏆 ${winnerId} wins by disconnect in match ${matchId}`);
         }
       }
     }
