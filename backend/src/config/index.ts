@@ -41,7 +41,7 @@ export const config = {
   // Bot configuration
   bot: {
     enabled: process.env.BOT_ENABLED !== "false", // Enabled by default
-    triggerDelay: parseInt(process.env.BOT_TRIGGER_DELAY || "90000", 10), // 90 seconds
+    triggerDelay: parseInt(process.env.BOT_TRIGGER_DELAY || "60000", 10), // 60 seconds
     defaultDifficulty: (process.env.BOT_DEFAULT_DIFFICULTY || "medium") as
       | "easy"
       | "medium"

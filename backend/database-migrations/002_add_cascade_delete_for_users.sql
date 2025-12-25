@@ -68,3 +68,4 @@ ALTER TABLE profiles
 -- ==========================================
 
 -- DONE! Users can now be deleted from Supabase Dashboard without errors.
+
