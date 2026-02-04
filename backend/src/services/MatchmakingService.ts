@@ -553,6 +553,7 @@ export class MatchmakingService {
                 matchId,
                 humanId: match.player1.id,
                 botId: match.player2.id,
+                botUsername: match.player2.username, // Get bot username from match state
                 winnerId,
                 problemId: match.problemId,
                 problemTitle: match.problemTitle,

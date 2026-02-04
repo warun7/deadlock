@@ -294,27 +294,52 @@ export class GameService {
     if (wonTheRace) {
       console.log(`🏳️ ${user.username} forfeited match ${matchId}`);
 
-      // Calculate ELO change
-      const winnerElo =
-        winnerId === match.player1.id ? match.player1.elo : match.player2.elo;
-      const loserElo =
-        user.id === match.player1.id ? match.player1.elo : match.player2.elo;
-      const eloChange = this.calculateEloChange(winnerElo, loserElo);
+      // Check if this is a bot match (bot is always player2 with socketId "bot")
+      const isBotMatch = match.player2.socketId === "bot";
 
-      // Save to database
-      await this.saveMatchToDatabase({
-        matchId,
-        winnerId,
-        loserId: user.id,
-        problemId: match.problemId,
-        problemTitle: match.problemTitle,
-        duration: Math.floor((Date.now() - match.startedAt) / 1000),
-        player1Id: match.player1.id,
-        player2Id: match.player2.id,
-        result: "forfeit",
-        eloChange,
-        language: "unknown", // Forfeit - no language tracked
-      });
+      if (isBotMatch) {
+        // Bot match - save using bot match method
+        const bot = this.matchmakingService?.getBot(matchId);
+        const botDifficulty = bot?.getDifficulty() || "medium";
+
+        await this.saveBotMatchToDatabase({
+          matchId,
+          humanId: match.player1.id,
+          botId: match.player2.id,
+          botUsername: match.player2.username, // Get bot username from match state
+          winnerId,
+          problemId: match.problemId,
+          problemTitle: match.problemTitle,
+          duration: Math.floor((Date.now() - match.startedAt) / 1000),
+          botDifficulty,
+        });
+
+        // Clean up bot
+        if (this.matchmakingService) {
+          this.matchmakingService.cleanupBot(matchId);
+        }
+      } else {
+        // Human vs human match
+        const winnerElo =
+          winnerId === match.player1.id ? match.player1.elo : match.player2.elo;
+        const loserElo =
+          user.id === match.player1.id ? match.player1.elo : match.player2.elo;
+        const eloChange = this.calculateEloChange(winnerElo, loserElo);
+
+        await this.saveMatchToDatabase({
+          matchId,
+          winnerId,
+          loserId: user.id,
+          problemId: match.problemId,
+          problemTitle: match.problemTitle,
+          duration: Math.floor((Date.now() - match.startedAt) / 1000),
+          player1Id: match.player1.id,
+          player2Id: match.player2.id,
+          result: "forfeit",
+          eloChange,
+          language: "unknown", // Forfeit - no language tracked
+        });
+      }
 
       // Get winner and loser sockets
       const winnerSocket =
@@ -404,16 +429,17 @@ export class GameService {
       );
 
       // Save to database (only for human player)
+      const bot = this.matchmakingService?.getBot(matchId);
       await this.saveBotMatchToDatabase({
         matchId,
         humanId: match.player1.id,
         botId: result.botId,
+        botUsername: match.player2.username, // Get bot username from match state
         winnerId,
         problemId: match.problemId,
         problemTitle: match.problemTitle,
         duration: Math.floor((Date.now() - match.startedAt) / 1000),
-        botDifficulty:
-          this.matchmakingService?.getBot(matchId)?.getDifficulty() || "medium",
+        botDifficulty: bot?.getDifficulty() || "medium",
       });
 
       // Get human socket
@@ -516,6 +542,7 @@ export class GameService {
     matchId: string;
     humanId: string;
     botId: string;
+    botUsername?: string; // Optional bot display name
     winnerId: string;
     problemId: string;
     problemTitle: string;
@@ -537,6 +564,7 @@ export class GameService {
         duration_seconds: data.duration,
         is_bot_match: true,
         bot_difficulty: data.botDifficulty,
+        bot_username: data.botUsername || "Bot Player", // Store actual bot name
         completed_at: new Date().toISOString(),
       });
 
