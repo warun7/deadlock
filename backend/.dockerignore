@@ -1,0 +1,34 @@
+# Dependencies
+node_modules
+
+# Source files (we use compiled dist/)
+src
+
+# Development files
+*.md
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# Test files
+*.test.ts
+*.spec.ts
+__tests__
+coverage
+
+# Build artifacts
+*.log
+npm-debug.log*
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore

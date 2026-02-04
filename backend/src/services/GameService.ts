@@ -528,7 +528,7 @@ export class GameService {
       // Insert match record for human player
       const { error } = await supabase.from("matches").insert({
         player_id: data.humanId,
-        opponent_id: data.botId,
+        opponent_id: "00000000-0000-0000-0000-000000000000", // Dummy bot profile UUID
         problem_id: data.problemId,
         problem_title: data.problemTitle,
         language: "unknown", // We don't track language for bot matches yet
