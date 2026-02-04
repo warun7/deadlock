@@ -95,17 +95,9 @@ async function main(): Promise<void> {
       const client = redisService.getClient();
       const queueData = await client.lrange('queue:global', 0, -1);
       const parsed = queueData.map(entry => JSON.parse(entry));
-      
-      // Also check if sockets are still connected
-      const queueWithStatus = parsed.map(entry => ({
-        ...entry,
-        socketConnected: socketServer.isSocketConnected(entry.socketId),
-        waitTime: Date.now() - entry.joinedAt,
-      }));
-      
       res.json({
         status: 'ok',
-        queue: queueWithStatus,
+        queue: parsed,
         count: parsed.length,
         timestamp: new Date().toISOString(),
       });
