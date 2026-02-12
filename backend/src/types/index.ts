@@ -19,12 +19,15 @@ export interface AuthenticatedSocket extends Socket {
 // Queue Types
 // ============================================
 
+export type MatchMode = "ranked" | "unranked";
+
 export interface QueueEntry {
   userId: string;
   socketId: string;
   username: string;
   elo: number;
   joinedAt: number;
+  mode: MatchMode;
 }
 
 // ============================================
@@ -53,10 +56,12 @@ export interface MatchState {
   winnerId: string | null;
   startedAt: number;
   finishedAt: number | null;
+  matchType: MatchMode;
 }
 
 export interface MatchFoundPayload {
   matchId: string;
+  matchType: MatchMode;
   problem: {
     id: string;
     title: string;
@@ -68,6 +73,7 @@ export interface MatchFoundPayload {
     id: string;
     username: string;
     elo: number;
+    rankTier?: string;
   };
   startTime: number;
 }
@@ -170,7 +176,7 @@ export interface Judge0Response {
 
 // Client -> Server Events
 export interface ClientToServerEvents {
-  join_queue: () => void;
+  join_queue: (payload?: { mode?: MatchMode }) => void;
   leave_queue: () => void;
   submit_code: (payload: SubmitCodePayload) => void;
   forfeit: () => void;
@@ -193,6 +199,9 @@ export interface ServerToClientEvents {
     winnerId: string | null;
     reason: string;
     newElo?: number;
+    eloChange?: number;
+    matchType?: MatchMode;
+    newRankTier?: string;
   }) => void;
   error: (data: { message: string; code?: string }) => void;
   active_match_found: (data: { matchId: string }) => void; // Notify client of active match

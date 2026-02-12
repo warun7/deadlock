@@ -5,7 +5,7 @@ import GlitchText from "./GlitchText";
 import ThreeDTilt from "./ThreeDTilt";
 import { useAuth } from "../contexts/AuthContext";
 import { getCurrentUserProfile } from "../lib/api";
-import { Profile } from "../types/database";
+import { Profile, RANK_TIERS } from "../types/database";
 
 interface DashboardHeroProps {
   onFindMatch: () => void;
@@ -78,38 +78,31 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
           </div>
 
           <div className="grid grid-cols-3 gap-4">
-            <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-sm relative">
+            <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-sm">
               <div className="text-xs text-stone-500 font-mono uppercase mb-1">
-                Global Rank
+                Rank Tier
               </div>
-              <div className="text-lg font-bold text-stone-600 flex items-center gap-2">
-                {loading ? "..." : "COMING SOON"}
-                <Activity className="w-4 h-4 text-stone-700" />
+              <div className="text-2xl font-bold" style={{ 
+                color: loading ? "#78716c" : (RANK_TIERS[profile?.rank_tier as keyof typeof RANK_TIERS]?.color || "#ffd700")
+              }}>
+                {loading ? "..." : (profile?.rank_tier || "UNRANKED")}
               </div>
-              {!loading && (
-                <div className="absolute top-2 right-2 bg-stone-800 text-stone-500 text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest">
-                  SOON
+              {!loading && profile?.current_rating && (
+                <div className="text-[10px] text-stone-500 font-mono mt-1">
+                  {profile.current_rating} ELO
                 </div>
               )}
             </div>
-            <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-sm relative">
+            <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-sm">
               <div className="text-xs text-stone-500 font-mono uppercase mb-1">
-                Global Rank
+                Total Matches
               </div>
-              <div
-                className={`text-lg font-bold ${
-                  profile?.global_rank ? "text-white" : "text-stone-600"
-                }`}
-              >
-                {loading
-                  ? "..."
-                  : profile?.global_rank
-                  ? `#${profile.global_rank.toLocaleString()}`
-                  : "COMING SOON"}
+              <div className="text-2xl font-bold text-white">
+                {loading ? "..." : (profile?.total_matches || 0)}
               </div>
-              {!loading && !profile?.global_rank && (
-                <div className="absolute top-2 right-2 bg-stone-800 text-stone-500 text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest">
-                  SOON
+              {!loading && profile && profile.ranked_matches > 0 && (
+                <div className="text-[10px] text-amber-600 font-mono mt-1">
+                  {profile.ranked_matches} Ranked
                 </div>
               )}
             </div>
@@ -152,7 +145,7 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                   {checkingMatch ? "Checking..." : "Enter Queue"}
                 </div>
                 <div className="text-[10px] text-red-200 font-mono tracking-widest">
-                  RANKED 1v1 • EST 12s
+                  SELECT MODE • 1v1
                 </div>
               </div>
             </button>

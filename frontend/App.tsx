@@ -12,6 +12,7 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import ProfilePage from "./pages/ProfilePage";
 import RealMatchmakingPage from "./pages/RealMatchmakingPage";
+import PricingPage from "./pages/PricingPage";
 import GamePage from "./pages/GamePage";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
@@ -78,6 +79,7 @@ const AppContent: React.FC = () => {
             </ProtectedRoute>
           }
         />
+        <Route path="/pricing" element={<PricingPage />} />
         <Route
           path="/matchmaking"
           element={

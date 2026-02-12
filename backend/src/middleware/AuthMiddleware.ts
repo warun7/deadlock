@@ -4,7 +4,7 @@ import { config } from '../config';
 import { AuthUser, AuthenticatedSocket } from '../types';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase client for user data lookup
+// Initialize Supabase client for user data lookup (service role for getUser + DB queries)
 const supabase = createClient(
   config.supabase.url,
   config.supabase.serviceRoleKey || config.supabase.anonKey
@@ -27,6 +27,46 @@ interface SupabaseJwtPayload {
 }
 
 /**
+ * Verify a Supabase JWT token.
+ * Tries local jwt.verify first (fast, works with legacy HS256 secret).
+ * Falls back to Supabase getUser() for projects using new JWT signing keys.
+ */
+async function verifyToken(token: string): Promise<SupabaseJwtPayload> {
+  // Try local verification first (HS256 with JWT secret)
+  if (config.supabase.jwtSecret) {
+    try {
+      const decoded = jwt.verify(token, config.supabase.jwtSecret, {
+        algorithms: ['HS256'],
+      }) as SupabaseJwtPayload;
+      return decoded;
+    } catch (localErr: any) {
+      // If it's specifically an algorithm mismatch, fall through to Supabase auth
+      if (!localErr.message.includes('algorithm')) {
+        throw localErr;
+      }
+      console.log('ℹ️  Local JWT verify failed (algorithm mismatch), falling back to Supabase auth');
+    }
+  }
+
+  // Fallback: validate via Supabase getUser() (works with all signing key types)
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) {
+    throw new Error(error?.message || 'Invalid token');
+  }
+
+  const user = data.user;
+  return {
+    sub: user.id,
+    email: user.email,
+    user_metadata: user.user_metadata as SupabaseJwtPayload['user_metadata'],
+    app_metadata: user.app_metadata as SupabaseJwtPayload['app_metadata'],
+    iat: 0,
+    exp: 0,
+    aud: '',
+  };
+}
+
+/**
  * Socket.io Authentication Middleware
  * 
  * Verifies the Supabase JWT token from the handshake auth payload.
@@ -44,21 +84,14 @@ export async function authMiddleware(
       return next(new Error('Authentication required'));
     }
     
-    // Verify JWT
+    // Verify JWT (local or via Supabase)
     let decoded: SupabaseJwtPayload;
     
     try {
-      // Supabase JWTs are signed with the JWT secret
-      decoded = jwt.verify(token, config.supabase.jwtSecret) as SupabaseJwtPayload;
+      decoded = await verifyToken(token);
     } catch (jwtError: any) {
       console.log('❌ Auth failed: Invalid token -', jwtError.message);
       return next(new Error('Invalid authentication token'));
-    }
-    
-    // Check expiration
-    if (decoded.exp && decoded.exp * 1000 < Date.now()) {
-      console.log('❌ Auth failed: Token expired');
-      return next(new Error('Token expired'));
     }
     
     // Get user ID from sub claim
@@ -75,7 +108,7 @@ export async function authMiddleware(
                    decoded.email?.split('@')[0] ||
                    'Player';
     
-    // Optionally fetch additional user data from database
+    // Fetch additional user data from database
     let elo = 1200; // Default ELO for new players
     
     try {

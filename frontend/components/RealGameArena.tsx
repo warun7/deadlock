@@ -93,6 +93,12 @@ const RealGameArena: React.FC = () => {
   const [winner, setWinner] = useState<string | null>(null);
   const [gameOverReason, setGameOverReason] = useState<string>("");
   const [showForfeitModal, setShowForfeitModal] = useState(false);
+  const [eloChangeData, setEloChangeData] = useState<{
+    eloChange: number;
+    newElo: number;
+    matchType: string;
+    newRankTier?: string;
+  } | null>(null);
 
   /* State */
   const [resultsHeight, setResultsHeight] = useState(192); // Default h-48 equivalent
@@ -201,6 +207,15 @@ const RealGameArena: React.FC = () => {
         setGameOver(true);
         setWinner(data.winnerId);
         setGameOverReason(data.reason || "Match ended");
+        // Store ELO change data for display
+        if (data.eloChange !== undefined) {
+          setEloChangeData({
+            eloChange: data.eloChange,
+            newElo: data.newElo,
+            matchType: data.matchType,
+            newRankTier: data.newRankTier,
+          });
+        }
       };
 
       // Listen for errors
@@ -302,17 +317,23 @@ const RealGameArena: React.FC = () => {
   }
 
   if (gameOver) {
+    const isRanked = eloChangeData?.matchType === "ranked";
+
     return (
-      <div className="fixed inset-0 z-50 bg-[#050505]/95 backdrop-blur-sm flex items-center justify-center">
-        {/* Background code pattern effect */}
-        <div className="absolute inset-0 opacity-10 overflow-hidden pointer-events-none">
-          <pre className="text-[8px] text-stone-500 whitespace-pre-wrap leading-tight">
-            {`for (int i = 0; i < n; i++) { double ans = 0; for (int j = 0; j < m; j++) { ans += a[i][j]; } } 
-int main() { scanf("%d", &n); for (int i = 0; i < n; i++) { printf("%d\\n", solve(i)); } return 0; }
-while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid, left = mid + 1; else right = mid - 1; }`.repeat(
-              50
-            )}
-          </pre>
+      <div className="fixed inset-0 z-50 bg-[#050505]/95 backdrop-blur-sm flex items-center justify-center crt-scanlines pixel-grid-bg">
+        {/* Floating pixel particles */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {[...Array(20)].map((_, i) => (
+            <div
+              key={i}
+              className={`absolute w-1.5 h-1.5 ${didWin ? 'bg-emerald-500/40' : 'bg-red-500/40'}`}
+              style={{
+                left: `${5 + i * 4.5}%`,
+                top: `${5 + (i % 7) * 14}%`,
+                animation: `pixel-float ${2 + (i % 4)}s ease-in-out ${i * 0.2}s infinite`,
+              }}
+            />
+          ))}
         </div>
 
         <motion.div
@@ -321,31 +342,77 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
           transition={{ type: "spring", duration: 0.5 }}
           className="relative z-10 text-center px-12 py-10 bg-gradient-to-b from-stone-900/80 to-stone-950/90 border border-stone-800 rounded-2xl shadow-2xl"
         >
+          {/* Ranked badge */}
+          {isRanked && (
+            <div className="mb-4 inline-flex items-center gap-2 px-3 py-1 bg-amber-900/30 border border-amber-700/40 rounded-full">
+              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                Ranked
+              </span>
+            </div>
+          )}
+
           {didWin ? (
             <>
-              {/* Victory */}
-              <div className="text-7xl mb-4">🏆</div>
-              <h1 className="text-5xl font-black text-emerald-400 mb-3 tracking-tight">
+              <div className="text-7xl mb-4 animate-pixel-bounce">🏆</div>
+              <h1 className="pixel-font text-3xl md:text-4xl text-emerald-400 mb-3 tracking-tight animate-retro-glow animate-pixel-expand">
                 VICTORY
               </h1>
-              <p className="text-stone-400 text-lg mb-8">{gameOverReason}</p>
+              <p className="text-stone-400 text-sm mb-2 font-mono">{gameOverReason}</p>
             </>
           ) : (
             <>
-              {/* Defeat */}
-              <div className="text-7xl mb-4">💀</div>
-              <h1 className="text-5xl font-black text-red-500 mb-3 tracking-tight">
+              <div className="text-7xl mb-4 animate-pixel-shake">💀</div>
+              <h1 className="pixel-font text-3xl md:text-4xl text-red-500 mb-3 tracking-tight animate-retro-glow animate-pixel-expand">
                 DEFEAT
               </h1>
-              <p className="text-stone-400 text-lg mb-8">{gameOverReason}</p>
+              <p className="text-stone-400 text-sm mb-2 font-mono">{gameOverReason}</p>
             </>
           )}
 
+          {/* ELO Change Display */}
+          {isRanked && eloChangeData && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="mt-4 mb-6 py-3 px-6 bg-stone-800/50 rounded-lg border border-stone-700"
+            >
+              <div className="flex items-center justify-center gap-4">
+                <div className="animate-score-count">
+                  <span
+                    className={`pixel-font text-xl ${
+                      eloChangeData.eloChange > 0
+                        ? "text-emerald-400 animate-retro-glow"
+                        : "text-red-400 animate-retro-glow"
+                    }`}
+                  >
+                    {eloChangeData.eloChange > 0 ? "+" : ""}
+                    {eloChangeData.eloChange}
+                  </span>
+                  <span className="text-stone-500 text-xs ml-1 font-mono">ELO</span>
+                </div>
+                <div className="w-px h-8 bg-stone-700" />
+                <div>
+                  <span className="pixel-font text-sm text-white">
+                    {eloChangeData.newElo}
+                  </span>
+                  {eloChangeData.newRankTier && (
+                    <span className="pixel-font text-[10px] text-stone-500 ml-2">
+                      {eloChangeData.newRankTier}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {!isRanked && <div className="mb-6" />}
+
           <button
             onClick={() => navigate("/dashboard")}
-            className="px-8 py-3 bg-white text-stone-900 font-bold rounded-lg hover:bg-stone-200 transition-colors"
+            className="pixel-font text-xs px-8 py-3 bg-white text-stone-900 font-bold rounded-none border-2 border-white hover:bg-stone-200 transition-colors"
           >
-            Return to Dashboard
+            CONTINUE
           </button>
         </motion.div>
       </div>
@@ -443,7 +510,7 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
               <div className="flex items-center gap-3 text-xs">
                 <span
                   className={`px-3 py-1 rounded-full font-medium bg-opacity-10 border border-opacity-20 ${getDifficultyColor(
-                    currentMatchData?.problem?.difficulty || 1500
+                    currentMatchData?.problem?.difficulty || 1500,
                   )}`}
                 >
                   ★ {currentMatchData?.problem?.difficulty || "1000"}
@@ -516,7 +583,8 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
                 }}
               >
                 {convertCodeforcesMath(
-                  currentMatchData?.problem?.description || "Loading problem..."
+                  currentMatchData?.problem?.description ||
+                    "Loading problem...",
                 )}
               </ReactMarkdown>
             </div>

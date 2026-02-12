@@ -29,6 +29,7 @@ import {
   MatchDetailed,
   Achievement,
   UserAchievement,
+  RANK_TIERS,
 } from "../types/database";
 import MatchHistoryModal from "./MatchHistoryModal";
 
@@ -388,15 +389,41 @@ const ProfilePage: React.FC = () => {
           <div className="flex gap-8">
             <div className="text-right relative">
               <div className="text-[10px] text-stone-500 uppercase tracking-widest mb-1">
-                Global Rank
+                Rank Tier
               </div>
-              <div className="text-lg font-black text-stone-600 flex items-center justify-end gap-2">
-                COMING SOON
-                <Shield className="w-6 h-6 text-stone-700 fill-stone-800/20" />
+              <div className="text-lg font-black flex items-center justify-end gap-2">
+                {loading ? (
+                  <span className="text-stone-600">...</span>
+                ) : profile?.rank_tier ? (
+                  <>
+                    <span 
+                      className="font-black"
+                      style={{ 
+                        color: RANK_TIERS[profile.rank_tier as keyof typeof RANK_TIERS]?.color || "#ffd700" 
+                      }}
+                    >
+                      {profile.rank_tier.toUpperCase()}
+                    </span>
+                    <Shield 
+                      className="w-6 h-6" 
+                      style={{ 
+                        color: RANK_TIERS[profile.rank_tier as keyof typeof RANK_TIERS]?.color || "#ffd700",
+                        fill: `${RANK_TIERS[profile.rank_tier as keyof typeof RANK_TIERS]?.color || "#ffd700"}20`
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <span className="text-stone-600">UNRANKED</span>
+                    <Shield className="w-6 h-6 text-stone-700 fill-stone-800/20" />
+                  </>
+                )}
               </div>
-              <div className="absolute top-0 right-0 bg-stone-800 text-stone-500 text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest">
-                SOON
-              </div>
+              {!loading && profile?.current_rating && (
+                <div className="text-xs text-stone-500 mt-1">
+                  {profile.current_rating} ELO
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -473,6 +500,59 @@ const ProfilePage: React.FC = () => {
                 </motion.div>
               ))}
             </div>
+
+            {/* Ranked Stats Section */}
+            {profile && (profile.ranked_matches || 0) > 0 && (
+              <div className="bg-gradient-to-br from-amber-950/20 via-stone-950/40 to-stone-950/20 border border-amber-900/30 p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <Trophy className="w-5 h-5 text-amber-500" />
+                  <h2 className="text-lg font-black text-amber-400 uppercase tracking-wider">
+                    Ranked Performance
+                  </h2>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <div className="text-[10px] text-stone-500 uppercase tracking-widest mb-1">
+                      Rank Tier
+                    </div>
+                    <div 
+                      className="text-xl font-black"
+                      style={{ 
+                        color: RANK_TIERS[profile.rank_tier as keyof typeof RANK_TIERS]?.color || "#ffd700" 
+                      }}
+                    >
+                      {profile.rank_tier}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-stone-500 uppercase tracking-widest mb-1">
+                      Current ELO
+                    </div>
+                    <div className="text-xl font-black text-white">
+                      {profile.current_rating || 1200}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-stone-500 uppercase tracking-widest mb-1">
+                      Ranked Matches
+                    </div>
+                    <div className="text-xl font-black text-cyan-400">
+                      {profile.ranked_matches || 0}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-stone-500 uppercase tracking-widest mb-1">
+                      Ranked Win Rate
+                    </div>
+                    <div className="text-xl font-black text-emerald-400">
+                      {profile.ranked_matches && profile.ranked_matches > 0
+                        ? ((profile.ranked_wins || 0) / profile.ranked_matches * 100).toFixed(1)
+                        : "0.0"}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Match History */}
             <div className="bg-[#0a0a0a] border border-stone-800 p-6 relative">

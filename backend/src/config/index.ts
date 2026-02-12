@@ -1,7 +1,9 @@
 import dotenv from "dotenv";
 import path from "path";
 
-// Load environment variables
+// Load environment variables (.env.local takes priority over .env)
+// dotenv won't overwrite existing values, so load .env.local first
+dotenv.config({ path: path.resolve(__dirname, "../../.env.local") });
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 export const config = {
@@ -34,7 +36,7 @@ export const config = {
     timeoutMs: parseInt(process.env.MATCH_TIMEOUT_MS || "1800000", 10), // 30 minutes default
     matchmakingIntervalMs: parseInt(
       process.env.MATCHMAKING_INTERVAL_MS || "1000",
-      10
+      10,
     ),
   },
 
@@ -55,9 +57,27 @@ export const config = {
     },
   },
 
+  // Stripe
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY || "",
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || "",
+    priceId: process.env.STRIPE_PRICE_ID || "",
+    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "",
+  },
+
+  // Ranked matchmaking
+  ranked: {
+    initialEloRange: 200, // +/- 200 ELO to start
+    expandIntervalMs: 30000, // Widen range every 30 seconds
+    expandAmount: 100, // Widen by 100 each interval
+    maxEloRange: 500, // Max +/- 500 ELO
+  },
+
   // Redis keys
   redisKeys: {
-    queue: "queue:global",
+    queue: "queue:global", // Legacy - used for unranked
+    queueUnranked: "queue:unranked",
+    queueRanked: "queue:ranked",
     match: (matchId: string) => `match:${matchId}`,
     userMatch: (userId: string) => `user:${userId}:match`,
     userSocket: (userId: string) => `user:${userId}:socket`,

@@ -23,6 +23,7 @@
     "jsonwebtoken": "^9.0.2",
     "railway": "^2.0.17",
     "socket.io": "^4.7.2",
+    "stripe": "^17.5.0",
     "uuid": "^9.0.1",
     "winston": "^3.19.0"
   },

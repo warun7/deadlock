@@ -3,6 +3,7 @@ import React, {
   useContext,
   useState,
   useEffect,
+  useCallback,
   ReactNode,
 } from "react";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
@@ -12,16 +13,22 @@ interface AuthContextType {
   isLoggedIn: boolean;
   user: User | null;
   loading: boolean;
+  // Premium & ranked info
+  isPremium: boolean;
+  currentRating: number;
+  rankTier: string;
+  refreshProfile: () => Promise<void>;
+  // Auth methods
   login: () => void;
   logout: () => void;
   signUp: (
     email: string,
     password: string,
-    username?: string
+    username?: string,
   ) => Promise<{ error: AuthError | null }>;
   signIn: (
     email: string,
-    password: string
+    password: string,
   ) => Promise<{ error: AuthError | null }>;
   signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   resetPassword: (email: string) => Promise<{ error: AuthError | null }>;
@@ -35,9 +42,42 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isPremium, setIsPremium] = useState(false);
+  const [currentRating, setCurrentRating] = useState(1200);
+  const [rankTier, setRankTier] = useState("Gold");
+
+  // Fetch premium/rating info from profile
+  const refreshProfile = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+
+    try {
+      const {
+        data: { user: currentUser },
+      } = await supabase.auth.getUser();
+      if (!currentUser) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_premium, premium_expires_at, current_rating, rank_tier")
+        .eq("id", currentUser.id)
+        .single();
+
+      if (profile) {
+        // Check if premium is still valid
+        let premium = profile.is_premium || false;
+        if (premium && profile.premium_expires_at) {
+          premium = new Date(profile.premium_expires_at) > new Date();
+        }
+        setIsPremium(premium);
+        setCurrentRating(profile.current_rating || 1200);
+        setRankTier(profile.rank_tier || "Gold");
+      }
+    } catch (error) {
+      console.error("Error fetching profile for premium/rating:", error);
+    }
+  }, []);
 
   useEffect(() => {
-    // Check if Supabase is configured
     if (!isSupabaseConfigured()) {
       console.warn("⚠️ Supabase not configured. Running in demo mode.");
       setLoading(false);
@@ -49,6 +89,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       setUser(session?.user ?? null);
       setIsLoggedIn(!!session?.user);
       setLoading(false);
+      if (session?.user) {
+        refreshProfile();
+      }
     });
 
     // Listen for auth changes (including OAuth callbacks)
@@ -58,23 +101,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       console.log(
         "Auth state changed:",
         event,
-        session?.user?.email || "no user"
+        session?.user?.email || "no user",
       );
 
       setUser(session?.user ?? null);
       setIsLoggedIn(!!session?.user);
 
       if (event === "SIGNED_IN" && session?.user) {
-
+        refreshProfile();
       }
 
       if (event === "INITIAL_SESSION" && session?.user) {
-
+        refreshProfile();
       }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [refreshProfile]);
 
   // Demo mode login (fallback when Supabase not configured)
   const login = () => {
@@ -88,18 +131,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   };
 
   const logout = async () => {
-
     try {
       if (isSupabaseConfigured()) {
-
-
         // Sign out with scope 'global' to clear all sessions and cookies
         const { error } = await supabase.auth.signOut({ scope: "global" });
 
         if (error) {
           console.error("Supabase signOut error:", error);
         } else {
-
         }
       }
 
@@ -119,12 +158,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       try {
         localStorage.clear();
         sessionStorage.clear();
-
       } catch (storageErr) {
         console.warn("Could not clear storage:", storageErr);
       }
-
-
     } catch (err) {
       console.error("Logout error:", err);
       // Still clear local state even if Supabase fails
@@ -181,8 +217,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     }
 
     try {
-
-
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -209,7 +243,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       }
 
       if (data.user) {
-
         setUser(data.user);
         setIsLoggedIn(true);
       }
@@ -238,8 +271,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     }
 
     try {
-
-
       // Use the simplest possible configuration as per Supabase docs
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -262,7 +293,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 
         return { error };
       }
-
 
       return { error: null };
     } catch (err: any) {
@@ -296,6 +326,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         isLoggedIn,
         user,
         loading,
+        isPremium,
+        currentRating,
+        rankTier,
+        refreshProfile,
         login,
         logout,
         signUp,

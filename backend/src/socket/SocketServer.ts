@@ -92,7 +92,7 @@ export class DeadlockSocketServer {
       console.log("✅ Redis adapter configured");
     } catch (error) {
       console.warn(
-        "⚠️  Redis adapter setup failed, running without clustering"
+        "⚠️  Redis adapter setup failed, running without clustering",
       );
       console.warn("   This is fine for single-instance deployments");
     }
@@ -135,7 +135,7 @@ export class DeadlockSocketServer {
       socket.onAny((eventName, ...args) => {
         console.log(
           `🔔 Event received: "${eventName}" from ${user.username} (${socket.id})`,
-          args.length > 0 ? args : ""
+          args.length > 0 ? args : "",
         );
       });
 
@@ -143,9 +143,10 @@ export class DeadlockSocketServer {
       // Queue Events
       // ============================================
 
-      socket.on("join_queue", async () => {
-        console.log(`📥 ${user.username} requesting to join queue`);
-        await this.matchmakingService.joinQueue(authSocket);
+      socket.on("join_queue", async (payload) => {
+        const mode = payload?.mode || "unranked";
+        console.log(`📥 ${user.username} requesting to join ${mode} queue`);
+        await this.matchmakingService.joinQueue(authSocket, mode);
       });
 
       socket.on("leave_queue", async () => {
@@ -169,7 +170,7 @@ export class DeadlockSocketServer {
 
       socket.on("rejoin_match", async (matchId: string) => {
         console.log(
-          `🔄 ${user.username} requesting to rejoin match ${matchId}`
+          `🔄 ${user.username} requesting to rejoin match ${matchId}`,
         );
         await this.handleRejoinMatch(authSocket, matchId);
       });
@@ -222,7 +223,7 @@ export class DeadlockSocketServer {
         await redisService.updateMatchSocketId(matchId, user.id, socket.id);
 
         console.log(
-          `🔄 ${user.username} reconnected - has active match ${matchId}`
+          `🔄 ${user.username} reconnected - has active match ${matchId}`,
         );
       }
     }
@@ -234,7 +235,7 @@ export class DeadlockSocketServer {
    */
   private async handleRejoinMatch(
     socket: AuthenticatedSocket,
-    matchId: string
+    matchId: string,
   ): Promise<void> {
     const user = socket.user;
 
@@ -295,12 +296,13 @@ export class DeadlockSocketServer {
       // Emit match_found with full data
       socket.emit("match_found", {
         matchId: match.id,
+        matchType: match.matchType,
         problem: {
           id: problem.id,
           title: problem.title,
           description: problem.description,
           difficulty: problem.difficulty,
-          testCases: problem.testCases.filter((tc) => !tc.isHidden), // Only visible test cases
+          testCases: problem.testCases.filter((tc) => !tc.isHidden),
         },
         opponent: {
           id: opponent.id,
@@ -325,7 +327,7 @@ export class DeadlockSocketServer {
    * Notifies client if they have an active match they should rejoin
    */
   private async handleCheckActiveMatch(
-    socket: AuthenticatedSocket
+    socket: AuthenticatedSocket,
   ): Promise<void> {
     const user = socket.user;
 

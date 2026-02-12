@@ -17,7 +17,7 @@ import {
 // Initialize Supabase client for persistence
 const supabase = createClient(
   config.supabase.url,
-  config.supabase.serviceRoleKey || config.supabase.anonKey
+  config.supabase.serviceRoleKey || config.supabase.anonKey,
 );
 
 /**
@@ -51,7 +51,7 @@ export class GameService {
    */
   async handleSubmission(
     socket: AuthenticatedSocket,
-    payload: SubmitCodePayload
+    payload: SubmitCodePayload,
   ): Promise<void> {
     const user = socket.user;
     const matchId = socket.data.currentMatchId;
@@ -121,7 +121,7 @@ export class GameService {
         payload.languageId,
         problem.testCases,
         problem.checkerType || "exact", // Default to exact match
-        problem.checkerCode
+        problem.checkerCode,
       );
 
       // Broadcast progress (e.g., "3/10 tests passed")
@@ -140,7 +140,7 @@ export class GameService {
           socket,
           match,
           result,
-          payload.languageId
+          payload.languageId,
         );
       } else {
         // Broadcast failed attempt
@@ -176,7 +176,7 @@ export class GameService {
     socket: AuthenticatedSocket,
     match: MatchState,
     result: SubmissionResult,
-    languageId: number
+    languageId: number,
   ): Promise<void> {
     const user = socket.user;
     const matchId = match.id;
@@ -220,12 +220,16 @@ export class GameService {
       match.player1.id === user.id ? match.player2.id : match.player1.id;
 
     // === PERSIST TO POSTGRESQL ===
+    const isRanked = match.matchType === "ranked";
+
     // Calculate ELO changes (simplified K=32 formula)
     const winnerElo =
       user.id === match.player1.id ? match.player1.elo : match.player2.elo;
     const loserElo =
       user.id === match.player1.id ? match.player2.elo : match.player1.elo;
-    const eloChange = this.calculateEloChange(winnerElo, loserElo);
+    const eloChange = isRanked
+      ? this.calculateEloChange(winnerElo, loserElo)
+      : 0;
 
     await this.saveMatchToDatabase({
       matchId,
@@ -236,9 +240,16 @@ export class GameService {
       duration,
       player1Id: match.player1.id,
       player2Id: match.player2.id,
-      eloChange, // Pass the calculated ELO change
-      language: this.getLanguageName(languageId), // Track language used
+      eloChange,
+      language: this.getLanguageName(languageId),
+      matchType: match.matchType,
     });
+
+    // Compute new rank tiers
+    const newWinnerElo = winnerElo + eloChange;
+    const newLoserElo = Math.max(0, loserElo - eloChange);
+    const winnerTier = this.computeRankTier(newWinnerElo);
+    const loserTier = this.computeRankTier(newLoserElo);
 
     // Get winner and loser sockets
     const winnerSocket = socket; // The one who solved it
@@ -253,7 +264,10 @@ export class GameService {
       winnerSocket.emit("game_over", {
         winnerId: user.id,
         reason: "You solved it first!",
-        newElo: winnerElo + eloChange,
+        newElo: newWinnerElo,
+        eloChange: isRanked ? eloChange : undefined,
+        matchType: match.matchType,
+        newRankTier: isRanked ? winnerTier : undefined,
       });
     }
 
@@ -261,7 +275,10 @@ export class GameService {
       loserSocket.emit("game_over", {
         winnerId: user.id,
         reason: "Opponent solved first",
-        newElo: loserElo - eloChange,
+        newElo: newLoserElo,
+        eloChange: isRanked ? -eloChange : undefined,
+        matchType: match.matchType,
+        newRankTier: isRanked ? loserTier : undefined,
       });
     }
 
@@ -294,6 +311,8 @@ export class GameService {
     if (wonTheRace) {
       console.log(`🏳️ ${user.username} forfeited match ${matchId}`);
 
+      const isRanked = match.matchType === "ranked";
+
       // Check if this is a bot match (bot is always player2 with socketId "bot")
       const isBotMatch = match.player2.socketId === "bot";
 
@@ -306,12 +325,13 @@ export class GameService {
           matchId,
           humanId: match.player1.id,
           botId: match.player2.id,
-          botUsername: match.player2.username, // Get bot username from match state
+          botUsername: match.player2.username,
           winnerId,
           problemId: match.problemId,
           problemTitle: match.problemTitle,
           duration: Math.floor((Date.now() - match.startedAt) / 1000),
           botDifficulty,
+          matchType: match.matchType,
         });
 
         // Clean up bot
@@ -324,7 +344,9 @@ export class GameService {
           winnerId === match.player1.id ? match.player1.elo : match.player2.elo;
         const loserElo =
           user.id === match.player1.id ? match.player1.elo : match.player2.elo;
-        const eloChange = this.calculateEloChange(winnerElo, loserElo);
+        const eloChange = isRanked
+          ? this.calculateEloChange(winnerElo, loserElo)
+          : 0;
 
         await this.saveMatchToDatabase({
           matchId,
@@ -337,9 +359,19 @@ export class GameService {
           player2Id: match.player2.id,
           result: "forfeit",
           eloChange,
-          language: "unknown", // Forfeit - no language tracked
+          language: "unknown",
+          matchType: match.matchType,
         });
       }
+
+      // Compute ELO info for game_over payload
+      const winnerElo =
+        winnerId === match.player1.id ? match.player1.elo : match.player2.elo;
+      const loserElo =
+        user.id === match.player1.id ? match.player1.elo : match.player2.elo;
+      const eloChange = isRanked
+        ? this.calculateEloChange(winnerElo, loserElo)
+        : 0;
 
       // Get winner and loser sockets
       const winnerSocket =
@@ -354,6 +386,12 @@ export class GameService {
         winnerSocket.emit("game_over", {
           winnerId,
           reason: "Opponent forfeited",
+          newElo: isRanked ? winnerElo + eloChange : undefined,
+          eloChange: isRanked ? eloChange : undefined,
+          matchType: match.matchType,
+          newRankTier: isRanked
+            ? this.computeRankTier(winnerElo + eloChange)
+            : undefined,
         });
       }
 
@@ -361,6 +399,12 @@ export class GameService {
         loserSocket.emit("game_over", {
           winnerId,
           reason: "You forfeited",
+          newElo: isRanked ? Math.max(0, loserElo - eloChange) : undefined,
+          eloChange: isRanked ? -eloChange : undefined,
+          matchType: match.matchType,
+          newRankTier: isRanked
+            ? this.computeRankTier(Math.max(0, loserElo - eloChange))
+            : undefined,
         });
       }
 
@@ -378,7 +422,7 @@ export class GameService {
    */
   async handleBotCompletion(
     matchId: string,
-    result: BotCompletionResult
+    result: BotCompletionResult,
   ): Promise<void> {
     try {
       console.log(`🤖 Bot completion for match ${matchId}:`, result);
@@ -392,7 +436,7 @@ export class GameService {
 
       if (match.status !== "active") {
         console.warn(
-          `[Bot] Match ${matchId} is not active (status: ${match.status})`
+          `[Bot] Match ${matchId} is not active (status: ${match.status})`,
         );
         return;
       }
@@ -425,7 +469,7 @@ export class GameService {
       console.log(
         `🏆 Bot match ${matchId} ended - Winner: ${
           winnerId === result.botId ? "BOT" : "HUMAN"
-        }`
+        }`,
       );
 
       // Save to database (only for human player)
@@ -484,9 +528,11 @@ export class GameService {
     result?: string;
     language?: string;
     eloChange?: number;
+    matchType?: string;
   }): Promise<void> {
     try {
-      const ratingChange = data.eloChange || 25; // Use calculated ELO or default to 25
+      const ratingChange = data.eloChange ?? 0;
+      const matchType = data.matchType || "unranked";
 
       // Insert match record for winner
       const { error: winnerError } = await supabase.from("matches").insert({
@@ -496,8 +542,9 @@ export class GameService {
         problem_title: data.problemTitle || "Unknown Problem",
         language: data.language || "unknown",
         result: "won",
-        rating_change: ratingChange, // Winner gains rating
+        rating_change: ratingChange,
         duration_seconds: data.duration,
+        match_type: matchType,
         completed_at: new Date().toISOString(),
       });
 
@@ -513,8 +560,9 @@ export class GameService {
         problem_title: data.problemTitle || "Unknown Problem",
         language: data.language || "unknown",
         result: "lost",
-        rating_change: -ratingChange, // Loser loses rating
+        rating_change: -ratingChange,
         duration_seconds: data.duration,
+        match_type: matchType,
         completed_at: new Date().toISOString(),
       });
 
@@ -523,12 +571,18 @@ export class GameService {
       }
 
       if (!winnerError && !loserError) {
-        console.log(`💾 Match records saved for both players`);
+        console.log(
+          `💾 Match records saved for both players [${matchType}${
+            matchType === "ranked"
+              ? ` ELO: +${ratingChange}/-${ratingChange}`
+              : ""
+          }]`,
+        );
         console.log(`📊 Stats will be auto-updated by database trigger`);
       }
 
-      // NOTE: Stats are automatically updated by the database trigger
-      // `update_user_stats_after_match` - no need to manually update here!
+      // NOTE: Stats (including ELO for ranked) are automatically updated
+      // by the database trigger `update_user_stats_after_match`
     } catch (error) {
       console.error("❌ Error in saveMatchToDatabase:", error);
     }
@@ -542,36 +596,66 @@ export class GameService {
     matchId: string;
     humanId: string;
     botId: string;
-    botUsername?: string; // Optional bot display name
+    botUsername?: string;
     winnerId: string;
     problemId: string;
     problemTitle: string;
     duration: number;
     botDifficulty: "easy" | "medium" | "hard";
+    matchType?: string;
   }): Promise<void> {
     try {
       const result = data.winnerId === data.humanId ? "won" : "lost";
+      const matchType = data.matchType || "unranked";
+      const isRanked = matchType === "ranked";
+
+      // For ranked bot matches, calculate ELO change
+      // Bot ELO is 1000, human ELO needs to be fetched
+      let ratingChange = 0;
+      if (isRanked) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("current_rating")
+          .eq("id", data.humanId)
+          .single();
+
+        const humanElo = profile?.current_rating || 1200;
+        const botElo = 1000;
+
+        if (result === "won") {
+          ratingChange = this.calculateEloChange(humanElo, botElo);
+        } else {
+          ratingChange = -this.calculateEloChange(botElo, humanElo);
+        }
+      }
 
       // Insert match record for human player
       const { error } = await supabase.from("matches").insert({
         player_id: data.humanId,
-        opponent_id: "00000000-0000-0000-0000-000000000000", // Dummy bot profile UUID
+        opponent_id: "00000000-0000-0000-0000-000000000000",
         problem_id: data.problemId,
         problem_title: data.problemTitle,
-        language: "unknown", // We don't track language for bot matches yet
+        language: "unknown",
         result,
-        rating_change: 0, // No rating change for bot matches
+        rating_change: ratingChange,
         duration_seconds: data.duration,
         is_bot_match: true,
         bot_difficulty: data.botDifficulty,
-        bot_username: data.botUsername || "Bot Player", // Store actual bot name
+        bot_username: data.botUsername || "Bot Player",
+        match_type: matchType,
         completed_at: new Date().toISOString(),
       });
 
       if (error) {
         console.error("❌ Error saving bot match record:", error);
       } else {
-        console.log(`💾 Bot match record saved for human player`);
+        console.log(
+          `💾 Bot match record saved [${matchType}${
+            isRanked
+              ? ` ELO: ${ratingChange > 0 ? "+" : ""}${ratingChange}`
+              : ""
+          }]`,
+        );
         console.log(`📊 Stats will be auto-updated by database trigger`);
       }
     } catch (error) {
@@ -590,11 +674,11 @@ export class GameService {
    */
   private async updatePlayerStats(
     playerId: string,
-    won: boolean
+    won: boolean,
   ): Promise<void> {
     // This function is deprecated - stats are handled by DB trigger
     console.warn(
-      `⚠️ updatePlayerStats called but is deprecated - using DB trigger instead`
+      `⚠️ updatePlayerStats called but is deprecated - using DB trigger instead`,
     );
     return;
 
@@ -655,6 +739,19 @@ export class GameService {
     const K = 32;
     const expectedScore = 1 / (1 + Math.pow(10, (loserElo - winnerElo) / 400));
     return Math.round(K * (1 - expectedScore));
+  }
+
+  /**
+   * Compute rank tier from ELO rating (mirrors DB function)
+   */
+  private computeRankTier(elo: number): string {
+    if (elo >= 1800) return "Master";
+    if (elo >= 1600) return "Diamond";
+    if (elo >= 1400) return "Platinum";
+    if (elo >= 1200) return "Gold";
+    if (elo >= 1000) return "Silver";
+    if (elo >= 800) return "Bronze";
+    return "Iron";
   }
 
   /**

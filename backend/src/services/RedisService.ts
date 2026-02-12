@@ -1,12 +1,14 @@
 import Redis from "ioredis";
 import { config } from "../config";
-import { QueueEntry, MatchState } from "../types";
+import { QueueEntry, MatchState, MatchMode } from "../types";
 
-// Redis connection options for Upstash (TLS required)
+// Only enable TLS if using a rediss:// URL (e.g. Upstash)
+const needsTls = config.redisUrl.startsWith("rediss://");
+
 const REDIS_OPTIONS = {
   maxRetriesPerRequest: null, // Disable per-request retry limit to prevent unhandled rejections
   enableReadyCheck: false, // Faster reconnect
-  tls: {}, // Required for Upstash - enables TLS connection
+  ...(needsTls ? { tls: {} } : {}), // TLS only for rediss:// connections
   retryStrategy: (times: number) => {
     // Exponential backoff: 100ms, 200ms, 400ms... max 5 seconds
     const delay = Math.min(times * 100, 5000);
@@ -78,35 +80,42 @@ export class RedisService {
   }
 
   // ============================================
-  // Queue Operations
+  // Queue Operations (supports ranked + unranked)
   // ============================================
+
+  /**
+   * Get the Redis key for a specific queue mode
+   */
+  private getQueueKey(mode: MatchMode = "unranked"): string {
+    return mode === "ranked"
+      ? config.redisKeys.queueRanked
+      : config.redisKeys.queueUnranked;
+  }
 
   /**
    * Add user to the matchmaking queue
    * Uses RPUSH for FIFO ordering
    */
   async enqueue(entry: QueueEntry): Promise<number> {
-    // First check if user is already in queue
+    // First check if user is already in any queue
     const isInQueue = await this.isUserInQueue(entry.userId);
     if (isInQueue) {
       console.log(`⚠️  User ${entry.userId} already in queue, skipping`);
       return -1;
     }
 
-    const position = await this.client.rpush(
-      config.redisKeys.queue,
-      JSON.stringify(entry)
-    );
+    const queueKey = this.getQueueKey(entry.mode);
+    const position = await this.client.rpush(queueKey, JSON.stringify(entry));
 
     console.log(
-      `📥 Enqueued user ${entry.username} (${entry.userId}) at position ${position}`
+      `📥 Enqueued user ${entry.username} (${entry.userId}) at position ${position} in ${entry.mode} queue`,
     );
     return position;
   }
 
   /**
    * Remove user from queue (if they cancel)
-   * Uses Lua script for atomic read-remove operation
+   * Checks both queues since user might be in either
    */
   async dequeue(userId: string): Promise<boolean> {
     const luaScript = `
@@ -121,36 +130,61 @@ export class RedisService {
       return 0
     `;
 
-    const result = await this.client.eval(
+    // Try unranked queue first
+    let result = await this.client.eval(
       luaScript,
       1,
-      config.redisKeys.queue,
-      userId
+      config.redisKeys.queueUnranked,
+      userId,
     );
 
     if (result === 1) {
-      console.log(`📤 Dequeued user ${userId}`);
+      console.log(`📤 Dequeued user ${userId} from unranked queue`);
       return true;
     }
+
+    // Try ranked queue
+    result = await this.client.eval(
+      luaScript,
+      1,
+      config.redisKeys.queueRanked,
+      userId,
+    );
+
+    if (result === 1) {
+      console.log(`📤 Dequeued user ${userId} from ranked queue`);
+      return true;
+    }
+
     return false;
   }
 
   /**
-   * Get queue length
+   * Get queue length for a specific mode
    */
-  async getQueueLength(): Promise<number> {
-    return this.client.llen(config.redisKeys.queue);
+  async getQueueLength(mode?: MatchMode): Promise<number> {
+    if (mode) {
+      return this.client.llen(this.getQueueKey(mode));
+    }
+    // Return total across both queues
+    const [unranked, ranked] = await Promise.all([
+      this.client.llen(config.redisKeys.queueUnranked),
+      this.client.llen(config.redisKeys.queueRanked),
+    ]);
+    return unranked + ranked;
   }
 
   /**
-   * Pop two players from the queue atomically
+   * Pop two players from the unranked queue atomically
    * Returns null if less than 2 players available
    */
   async popTwoPlayers(): Promise<[QueueEntry, QueueEntry] | null> {
+    const queueKey = config.redisKeys.queueUnranked;
+
     // Use MULTI/EXEC for atomicity
     const multi = this.client.multi();
-    multi.lpop(config.redisKeys.queue);
-    multi.lpop(config.redisKeys.queue);
+    multi.lpop(queueKey);
+    multi.lpop(queueKey);
 
     const results = await multi.exec();
 
@@ -171,7 +205,7 @@ export class RedisService {
     ) {
       // If only one popped, push it back
       if (result1 && result1[1] && (!result2 || !result2[1])) {
-        await this.client.lpush(config.redisKeys.queue, result1[1] as string);
+        await this.client.lpush(queueKey, result1[1] as string);
       }
       return null;
     }
@@ -180,17 +214,23 @@ export class RedisService {
     const player2: QueueEntry = JSON.parse(result2[1] as string);
 
     console.log(
-      `🎮 Popped two players: ${player1.username} vs ${player2.username}`
+      `🎮 Popped two players: ${player1.username} vs ${player2.username}`,
     );
     return [player1, player2];
   }
 
   /**
-   * Check if user is already in queue
+   * Check if user is already in any queue
    */
   async isUserInQueue(userId: string): Promise<boolean> {
-    const queueData = await this.client.lrange(config.redisKeys.queue, 0, -1);
-    return queueData.some((entry) => {
+    // Check both queues
+    const [unrankedData, rankedData] = await Promise.all([
+      this.client.lrange(config.redisKeys.queueUnranked, 0, -1),
+      this.client.lrange(config.redisKeys.queueRanked, 0, -1),
+    ]);
+
+    const allEntries = [...unrankedData, ...rankedData];
+    return allEntries.some((entry) => {
       const parsed: QueueEntry = JSON.parse(entry);
       return parsed.userId === userId;
     });
@@ -200,8 +240,25 @@ export class RedisService {
    * Get user's position in queue (1-indexed)
    */
   async getQueuePosition(userId: string): Promise<number> {
-    const queueData = await this.client.lrange(config.redisKeys.queue, 0, -1);
-    const index = queueData.findIndex((entry) => {
+    // Check unranked first
+    const unrankedData = await this.client.lrange(
+      config.redisKeys.queueUnranked,
+      0,
+      -1,
+    );
+    let index = unrankedData.findIndex((entry) => {
+      const parsed: QueueEntry = JSON.parse(entry);
+      return parsed.userId === userId;
+    });
+    if (index !== -1) return index + 1;
+
+    // Check ranked
+    const rankedData = await this.client.lrange(
+      config.redisKeys.queueRanked,
+      0,
+      -1,
+    );
+    index = rankedData.findIndex((entry) => {
       const parsed: QueueEntry = JSON.parse(entry);
       return parsed.userId === userId;
     });
@@ -209,11 +266,91 @@ export class RedisService {
   }
 
   /**
-   * Get all queue entries
+   * Get all queue entries for a specific mode
    */
-  async getQueue(): Promise<QueueEntry[]> {
-    const queueData = await this.client.lrange(config.redisKeys.queue, 0, -1);
-    return queueData.map((entry) => JSON.parse(entry) as QueueEntry);
+  async getQueue(mode?: MatchMode): Promise<QueueEntry[]> {
+    if (mode) {
+      const queueData = await this.client.lrange(this.getQueueKey(mode), 0, -1);
+      return queueData.map((entry) => JSON.parse(entry) as QueueEntry);
+    }
+    // Return all entries from both queues
+    const [unrankedData, rankedData] = await Promise.all([
+      this.client.lrange(config.redisKeys.queueUnranked, 0, -1),
+      this.client.lrange(config.redisKeys.queueRanked, 0, -1),
+    ]);
+    return [
+      ...unrankedData.map((e) => JSON.parse(e) as QueueEntry),
+      ...rankedData.map((e) => JSON.parse(e) as QueueEntry),
+    ];
+  }
+
+  /**
+   * Find the best ELO match in the ranked queue for a given player
+   * Returns the matched pair, or null if no suitable match found
+   */
+  async findRankedMatch(
+    eloRange: number,
+  ): Promise<[QueueEntry, QueueEntry] | null> {
+    const queueData = await this.client.lrange(
+      config.redisKeys.queueRanked,
+      0,
+      -1,
+    );
+    const entries = queueData.map((e) => JSON.parse(e) as QueueEntry);
+
+    if (entries.length < 2) return null;
+
+    // Sort by ELO for efficient matching
+    entries.sort((a, b) => a.elo - b.elo);
+
+    // Find the closest ELO pair within range
+    let bestPair: [QueueEntry, QueueEntry] | null = null;
+    let bestDiff = Infinity;
+
+    for (let i = 0; i < entries.length - 1; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const diff = Math.abs(entries[i].elo - entries[j].elo);
+        if (diff <= eloRange && diff < bestDiff) {
+          bestDiff = diff;
+          bestPair = [entries[i], entries[j]];
+        }
+      }
+    }
+
+    if (!bestPair) return null;
+
+    // Remove both players from queue atomically
+    const luaScript = `
+      local queue = redis.call('LRANGE', KEYS[1], 0, -1)
+      local removed = 0
+      for i, entry in ipairs(queue) do
+        local parsed = cjson.decode(entry)
+        if parsed.userId == ARGV[1] or parsed.userId == ARGV[2] then
+          redis.call('LREM', KEYS[1], 1, entry)
+          removed = removed + 1
+        end
+      end
+      return removed
+    `;
+
+    const removed = await this.client.eval(
+      luaScript,
+      1,
+      config.redisKeys.queueRanked,
+      bestPair[0].userId,
+      bestPair[1].userId,
+    );
+
+    if (removed !== 2) {
+      // Race condition — someone left, abort
+      console.log(`⚠️ Ranked match race condition, only removed ${removed}`);
+      return null;
+    }
+
+    console.log(
+      `🎯 Ranked match: ${bestPair[0].username} (${bestPair[0].elo}) vs ${bestPair[1].username} (${bestPair[1].elo}) [diff: ${bestDiff}]`,
+    );
+    return bestPair;
   }
 
   // ============================================
@@ -243,12 +380,13 @@ export class RedisService {
       winnerId: matchState.winnerId || "",
       startedAt: matchState.startedAt.toString(),
       finishedAt: matchState.finishedAt?.toString() || "",
+      matchType: matchState.matchType || "unranked",
     });
 
     // Set expiry (match + buffer time)
     await this.client.expire(
       key,
-      Math.ceil(config.match.timeoutMs / 1000) + 300
+      Math.ceil(config.match.timeoutMs / 1000) + 300,
     );
 
     // Map users to match
@@ -256,17 +394,17 @@ export class RedisService {
       config.redisKeys.userMatch(matchState.player1.id),
       matchState.id,
       "EX",
-      Math.ceil(config.match.timeoutMs / 1000) + 300
+      Math.ceil(config.match.timeoutMs / 1000) + 300,
     );
     await this.client.set(
       config.redisKeys.userMatch(matchState.player2.id),
       matchState.id,
       "EX",
-      Math.ceil(config.match.timeoutMs / 1000) + 300
+      Math.ceil(config.match.timeoutMs / 1000) + 300,
     );
 
     console.log(
-      `🎮 Created match ${matchState.id}: ${matchState.player1.username} vs ${matchState.player2.username}`
+      `🎮 Created match ${matchState.id}: ${matchState.player1.username} vs ${matchState.player2.username}`,
     );
   }
 
@@ -301,6 +439,7 @@ export class RedisService {
       winnerId: data.winnerId || null,
       startedAt: parseInt(data.startedAt, 10),
       finishedAt: data.finishedAt ? parseInt(data.finishedAt, 10) : null,
+      matchType: (data.matchType as MatchState["matchType"]) || "unranked",
     };
   }
 
@@ -317,7 +456,7 @@ export class RedisService {
   async updateMatchSocketId(
     matchId: string,
     playerId: string,
-    newSocketId: string
+    newSocketId: string,
   ): Promise<void> {
     const key = config.redisKeys.match(matchId);
     const match = await this.getMatch(matchId);
@@ -356,7 +495,7 @@ export class RedisService {
       1,
       key,
       winnerId,
-      Date.now().toString()
+      Date.now().toString(),
     );
 
     return result === 1;
@@ -367,7 +506,7 @@ export class RedisService {
    */
   async updateMatchStatus(
     matchId: string,
-    status: MatchState["status"]
+    status: MatchState["status"],
   ): Promise<void> {
     const key = config.redisKeys.match(matchId);
     await this.client.hset(key, "status", status);
@@ -395,7 +534,7 @@ export class RedisService {
       config.redisKeys.userSocket(userId),
       socketId,
       "EX",
-      3600 // 1 hour
+      3600, // 1 hour
     );
   }
 
@@ -415,11 +554,18 @@ export class RedisService {
    * Clear the entire queue (for development/testing)
    */
   async clearQueue(): Promise<number> {
-    const length = await this.client.llen(config.redisKeys.queue);
-    if (length > 0) {
-      await this.client.del(config.redisKeys.queue);
+    const [unrankedLen, rankedLen] = await Promise.all([
+      this.client.llen(config.redisKeys.queueUnranked),
+      this.client.llen(config.redisKeys.queueRanked),
+    ]);
+    const total = unrankedLen + rankedLen;
+    if (total > 0) {
+      await Promise.all([
+        this.client.del(config.redisKeys.queueUnranked),
+        this.client.del(config.redisKeys.queueRanked),
+      ]);
     }
-    return length;
+    return total;
   }
 
   /**
@@ -430,7 +576,7 @@ export class RedisService {
     if (matchId) {
       await this.client.del(config.redisKeys.userMatch(userId));
       console.log(
-        `🧹 Cleared match association for user ${userId} (was: ${matchId})`
+        `🧹 Cleared match association for user ${userId} (was: ${matchId})`,
       );
       return true;
     }
@@ -457,7 +603,7 @@ export class RedisService {
         "MATCH",
         "match:*",
         "COUNT",
-        100
+        100,
       );
       cursor = newCursor;
       matchKeys.push(...keys);
@@ -477,7 +623,7 @@ export class RedisService {
         "MATCH",
         "user:*:match",
         "COUNT",
-        100
+        100,
       );
       cursor = newCursor;
       userMatchKeys.push(...keys);
@@ -492,7 +638,7 @@ export class RedisService {
     const queue = await this.clearQueue();
 
     console.log(
-      `🧹 Cleared: ${matches} matches, ${userMatches} user-match associations, ${queue} queue entries`
+      `🧹 Cleared: ${matches} matches, ${userMatches} user-match associations, ${queue} queue entries`,
     );
 
     return { matches, userMatches, queue };

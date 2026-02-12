@@ -1,5 +1,6 @@
 import { Server as SocketServer } from "socket.io";
 import { v4 as uuidv4 } from "uuid";
+import { createClient } from "@supabase/supabase-js";
 import { redisService } from "./RedisService";
 import { problemService } from "./ProblemService";
 import { BotPlayer, BotCompletionResult } from "./BotPlayer";
@@ -8,23 +9,31 @@ import {
   QueueEntry,
   MatchState,
   MatchFoundPayload,
+  MatchMode,
   AuthenticatedSocket,
   ServerToClientEvents,
   ClientToServerEvents,
 } from "../types";
 
+// Supabase client for premium checks
+const supabase = createClient(
+  config.supabase.url,
+  config.supabase.serviceRoleKey || config.supabase.anonKey,
+);
+
 /**
  * MatchmakingService - Handles the queue and match creation
  *
- * Runs a FIFO queue with periodic processing to match players.
- * Future: Can be extended to support ELO-based matchmaking.
+ * Supports two modes:
+ * - Unranked: FIFO queue, open to all users
+ * - Ranked: ELO-based matchmaking, premium users only
  */
 export class MatchmakingService {
   private io: SocketServer<ClientToServerEvents, ServerToClientEvents>;
   private processInterval: NodeJS.Timeout | null = null;
   private isProcessing = false;
-  private activeBots: Map<string, BotPlayer> = new Map(); // Track active bots by matchId
-  private gameService: any; // Will be set by GameService (for saving match results)
+  private activeBots: Map<string, BotPlayer> = new Map();
+  private gameService: any;
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
@@ -47,12 +56,12 @@ export class MatchmakingService {
     }
 
     console.log(
-      `🎮 Starting matchmaking loop (interval: ${config.match.matchmakingIntervalMs}ms)`
+      `🎮 Starting matchmaking loop (interval: ${config.match.matchmakingIntervalMs}ms)`,
     );
 
     this.processInterval = setInterval(
       () => this.processQueue(),
-      config.match.matchmakingIntervalMs
+      config.match.matchmakingIntervalMs,
     );
   }
 
@@ -69,16 +78,34 @@ export class MatchmakingService {
 
   /**
    * Add player to queue
+   * @param mode - 'ranked' or 'unranked' (default: 'unranked')
    */
-  async joinQueue(socket: AuthenticatedSocket): Promise<void> {
+  async joinQueue(
+    socket: AuthenticatedSocket,
+    mode: MatchMode = "unranked",
+  ): Promise<void> {
     const user = socket.user;
 
-    console.log(`\n🎮 JOIN_QUEUE request from ${user.username} (${user.id})`);
+    console.log(
+      `\n🎮 JOIN_QUEUE request from ${user.username} (${user.id}) [${mode}]`,
+    );
+
+    // Premium gate for ranked mode
+    if (mode === "ranked") {
+      const isPremium = await this.checkPremiumStatus(user.id);
+      if (!isPremium) {
+        console.log(`   ❌ ${user.username} is not premium - ranked denied`);
+        socket.emit("error", {
+          message: "Premium subscription required for ranked mode",
+          code: "PREMIUM_REQUIRED",
+        });
+        return;
+      }
+    }
 
     // Check if user is already in a match
     const existingMatchId = await redisService.getUserMatchId(user.id);
     if (existingMatchId) {
-      // Check if the match is still active
       const match = await redisService.getMatch(existingMatchId);
       if (match && match.status === "active") {
         console.log(`   ❌ User already in active match: ${existingMatchId}`);
@@ -88,9 +115,8 @@ export class MatchmakingService {
         });
         return;
       }
-      // Match is finished or doesn't exist - allow joining queue
       console.log(
-        `   ✅ Previous match ${existingMatchId} is finished, allowing queue join`
+        `   ✅ Previous match ${existingMatchId} is finished, allowing queue join`,
       );
     }
 
@@ -103,27 +129,55 @@ export class MatchmakingService {
       return;
     }
 
-    // Create queue entry
+    // Create queue entry with mode
     const entry: QueueEntry = {
       userId: user.id,
       socketId: socket.id,
       username: user.username,
       elo: user.elo,
       joinedAt: Date.now(),
+      mode,
     };
 
-    // Add to queue
+    // Add to the appropriate queue
     const position = await redisService.enqueue(entry);
 
     if (position > 0) {
       socket.emit("queue_joined", { position });
-      console.log(`   ✅ Added to queue at position ${position}`);
+      console.log(`   ✅ Added to ${mode} queue at position ${position}`);
 
-      // Log current queue state
-      const queueLength = await redisService.getQueueLength();
-      console.log(`   📊 Current queue size: ${queueLength}`);
+      const queueLength = await redisService.getQueueLength(mode);
+      console.log(`   📊 Current ${mode} queue size: ${queueLength}`);
     } else {
       console.log(`   ❌ Failed to add to queue (position: ${position})`);
+    }
+  }
+
+  /**
+   * Check if a user has an active premium subscription
+   */
+  private async checkPremiumStatus(userId: string): Promise<boolean> {
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_premium, premium_expires_at")
+        .eq("id", userId)
+        .single();
+
+      if (!profile) return false;
+
+      // Check if premium and not expired
+      if (profile.is_premium) {
+        if (profile.premium_expires_at) {
+          return new Date(profile.premium_expires_at) > new Date();
+        }
+        return true; // Premium with no expiry (lifetime or active sub)
+      }
+
+      return false;
+    } catch (error) {
+      console.error(`❌ Error checking premium status for ${userId}:`, error);
+      return false;
     }
   }
 
@@ -142,107 +196,156 @@ export class MatchmakingService {
   }
 
   /**
-   * Process the queue - called periodically
-   * Matches players in FIFO order, or creates bot matches after timeout
+   * Process both queues - called periodically
    */
   private async processQueue(): Promise<void> {
-    // Prevent overlapping processing
     if (this.isProcessing) return;
     this.isProcessing = true;
 
     try {
-      // Check queue length
-      const queueLength = await redisService.getQueueLength();
-
-      // Log queue status periodically (every 5 seconds worth of checks)
-      if (queueLength > 0) {
-        console.log(`🔍 Queue check: ${queueLength} player(s) waiting`);
-      }
-
-      // Check for players who have waited too long and need bot matches
-      if (config.bot.enabled && queueLength > 0) {
-        await this.checkForBotMatches();
-      }
-
-      if (queueLength < 2) {
-        return;
-      }
-
-      console.log(
-        `\n🎯 MATCHMAKING: Found ${queueLength} players, attempting to match...`
-      );
-
-      // Pop two players atomically
-      const players = await redisService.popTwoPlayers();
-
-      if (!players) {
-        return;
-      }
-
-      const [player1, player2] = players;
-
-      // Validate sockets are still connected
-      const socket1 = this.io.sockets.sockets.get(player1.socketId);
-      const socket2 = this.io.sockets.sockets.get(player2.socketId);
-
-      if (!socket1 || !socket2) {
-        // One or both players disconnected, re-queue the connected one
-        if (socket1) {
-          console.log(`⚠️  Player 2 disconnected, re-queuing player 1`);
-          await redisService.enqueue(player1);
-        }
-        if (socket2) {
-          console.log(`⚠️  Player 1 disconnected, re-queuing player 2`);
-          await redisService.enqueue(player2);
-        }
-        return;
-      }
-
-      // Create the match!
-      await this.createMatch(
-        socket1 as AuthenticatedSocket,
-        socket2 as AuthenticatedSocket,
-        player1,
-        player2
-      );
+      // Process both queues
+      await Promise.all([
+        this.processUnrankedQueue(),
+        this.processRankedQueue(),
+      ]);
     } catch (error) {
-      console.error("❌ Error processing queue:", error);
+      console.error("❌ Error processing queues:", error);
     } finally {
       this.isProcessing = false;
     }
   }
 
   /**
+   * Process the unranked queue (FIFO)
+   */
+  private async processUnrankedQueue(): Promise<void> {
+    const queueLength = await redisService.getQueueLength("unranked");
+
+    if (queueLength > 0) {
+      console.log(`🔍 Unranked queue check: ${queueLength} player(s) waiting`);
+    }
+
+    // Check for bot matches in unranked queue
+    if (config.bot.enabled && queueLength > 0) {
+      await this.checkForBotMatches("unranked");
+    }
+
+    if (queueLength < 2) return;
+
+    console.log(
+      `\n🎯 UNRANKED MATCHMAKING: Found ${queueLength} players, attempting to match...`,
+    );
+
+    const players = await redisService.popTwoPlayers();
+    if (!players) return;
+
+    const [player1, player2] = players;
+
+    const socket1 = this.io.sockets.sockets.get(player1.socketId);
+    const socket2 = this.io.sockets.sockets.get(player2.socketId);
+
+    if (!socket1 || !socket2) {
+      if (socket1) await redisService.enqueue(player1);
+      if (socket2) await redisService.enqueue(player2);
+      return;
+    }
+
+    await this.createMatch(
+      socket1 as AuthenticatedSocket,
+      socket2 as AuthenticatedSocket,
+      player1,
+      player2,
+      "unranked",
+    );
+  }
+
+  /**
+   * Process the ranked queue (ELO-based matching)
+   */
+  private async processRankedQueue(): Promise<void> {
+    const queueLength = await redisService.getQueueLength("ranked");
+
+    if (queueLength > 0) {
+      console.log(`🔍 Ranked queue check: ${queueLength} player(s) waiting`);
+    }
+
+    // Check for bot matches in ranked queue too
+    if (config.bot.enabled && queueLength > 0) {
+      await this.checkForBotMatches("ranked");
+    }
+
+    if (queueLength < 2) return;
+
+    // Calculate dynamic ELO range based on longest waiter
+    const rankedQueue = await redisService.getQueue("ranked");
+    const now = Date.now();
+    let maxWaitTime = 0;
+    for (const entry of rankedQueue) {
+      const waitTime = now - entry.joinedAt;
+      if (waitTime > maxWaitTime) maxWaitTime = waitTime;
+    }
+
+    // Widen ELO range based on wait time
+    const expansions = Math.floor(maxWaitTime / config.ranked.expandIntervalMs);
+    const eloRange = Math.min(
+      config.ranked.initialEloRange + expansions * config.ranked.expandAmount,
+      config.ranked.maxEloRange,
+    );
+
+    console.log(
+      `\n🎯 RANKED MATCHMAKING: ${queueLength} players, ELO range: ±${eloRange} (longest wait: ${Math.round(maxWaitTime / 1000)}s)`,
+    );
+
+    const players = await redisService.findRankedMatch(eloRange);
+    if (!players) return;
+
+    const [player1, player2] = players;
+
+    const socket1 = this.io.sockets.sockets.get(player1.socketId);
+    const socket2 = this.io.sockets.sockets.get(player2.socketId);
+
+    if (!socket1 || !socket2) {
+      if (socket1) await redisService.enqueue(player1);
+      if (socket2) await redisService.enqueue(player2);
+      return;
+    }
+
+    await this.createMatch(
+      socket1 as AuthenticatedSocket,
+      socket2 as AuthenticatedSocket,
+      player1,
+      player2,
+      "ranked",
+    );
+  }
+
+  /**
    * Check if any players have waited too long and create bot matches
    */
-  private async checkForBotMatches(): Promise<void> {
+  private async checkForBotMatches(mode: MatchMode): Promise<void> {
     try {
-      const queue = await redisService.getQueue();
+      const queue = await redisService.getQueue(mode);
       const now = Date.now();
 
       for (const entry of queue) {
         const waitTime = now - entry.joinedAt;
 
-        // If player has waited longer than bot trigger delay, create bot match
         if (waitTime >= config.bot.triggerDelay) {
           console.log(
-            `\n🤖 BOT MATCH: Player ${entry.username} waited ${
+            `\n🤖 BOT MATCH [${mode}]: Player ${entry.username} waited ${
               waitTime / 1000
-            }s, creating bot match...`
+            }s, creating bot match...`,
           );
 
-          // Remove from queue
           await redisService.dequeue(entry.userId);
 
-          // Get socket
           const socket = this.io.sockets.sockets.get(entry.socketId);
           if (!socket) {
             console.log(`   ❌ Player socket not found, skipping`);
             continue;
           }
 
-          // Create bot match
-          await this.createBotMatch(socket as AuthenticatedSocket, entry);
+          await this.createBotMatch(socket as AuthenticatedSocket, entry, mode);
         }
       }
     } catch (error) {
@@ -255,7 +358,8 @@ export class MatchmakingService {
    */
   private async createBotMatch(
     socket: AuthenticatedSocket,
-    player: QueueEntry
+    player: QueueEntry,
+    mode: MatchMode = "unranked",
   ): Promise<void> {
     try {
       // Generate match ID
@@ -304,9 +408,9 @@ export class MatchmakingService {
         },
         player2: {
           id: bot.id,
-          socketId: "bot", // Bots don't have real socket IDs
+          socketId: "bot",
           username: bot.username,
-          elo: 1000, // Default bot ELO
+          elo: 1000,
         },
         problemId: problem.id,
         problemTitle: problem.title,
@@ -314,6 +418,7 @@ export class MatchmakingService {
         winnerId: null,
         startedAt: Date.now(),
         finishedAt: null,
+        matchType: mode,
       };
 
       // Store match in Redis
@@ -326,6 +431,7 @@ export class MatchmakingService {
       // Prepare match found payload
       const matchFoundPayload: MatchFoundPayload = {
         matchId,
+        matchType: mode,
         problem: {
           id: problem.id,
           title: problem.title,
@@ -340,7 +446,7 @@ export class MatchmakingService {
       // Emit match_found to player
       socket.emit("match_found", matchFoundPayload);
 
-      console.log(`   ✅ Bot match created: ${matchId}`);
+      console.log(`   ✅ Bot match created: ${matchId} [${mode}]`);
       console.log(`   🤖 Bot: ${bot.username} (${botDifficulty})`);
       console.log(`   👤 Human: ${player.username}`);
       console.log(`   📝 Problem: ${problem.title} (${problem.difficulty})`);
@@ -383,23 +489,21 @@ export class MatchmakingService {
     socket1: AuthenticatedSocket,
     socket2: AuthenticatedSocket,
     player1: QueueEntry,
-    player2: QueueEntry
+    player2: QueueEntry,
+    mode: MatchMode = "unranked",
   ): Promise<void> {
-    // Generate match ID
     const matchId = uuidv4();
 
-    // Get a random problem for the match
     const problem = await problemService.getRandomProblem();
 
     if (!problem) {
       console.error("❌ Failed to get problem for match");
-      // Re-queue both players
       await redisService.enqueue(player1);
       await redisService.enqueue(player2);
       return;
     }
 
-    // Create match state
+    // Create match state with mode
     const matchState: MatchState = {
       id: matchId,
       player1: {
@@ -420,28 +524,26 @@ export class MatchmakingService {
       winnerId: null,
       startedAt: Date.now(),
       finishedAt: null,
+      matchType: mode,
     };
 
-    // Store match in Redis
     await redisService.createMatch(matchState);
 
-    // Join both sockets to the match room
     socket1.join(matchId);
     socket2.join(matchId);
-
-    // Store match reference on sockets
     socket1.data.currentMatchId = matchId;
     socket2.data.currentMatchId = matchId;
 
     // Prepare payloads (each player sees the other as opponent)
     const payload1: MatchFoundPayload = {
       matchId,
+      matchType: mode,
       problem: {
         id: problem.id,
         title: problem.title,
         description: problem.description,
         difficulty: problem.difficulty,
-        testCases: problem.testCases.filter((tc) => !tc.isHidden), // Only visible test cases
+        testCases: problem.testCases.filter((tc) => !tc.isHidden),
       },
       opponent: {
         id: player2.userId,
@@ -453,6 +555,7 @@ export class MatchmakingService {
 
     const payload2: MatchFoundPayload = {
       matchId,
+      matchType: mode,
       problem: {
         id: problem.id,
         title: problem.title,
@@ -468,17 +571,15 @@ export class MatchmakingService {
       startTime: matchState.startedAt,
     };
 
-    // Emit match found to each player
     socket1.emit("match_found", payload1);
     socket2.emit("match_found", payload2);
 
-    console.log(`🎮 Match created: ${matchId}`);
+    console.log(`🎮 ${mode.toUpperCase()} match created: ${matchId}`);
     console.log(
-      `   ${player1.username} (${player1.elo}) vs ${player2.username} (${player2.elo})`
+      `   ${player1.username} (${player1.elo}) vs ${player2.username} (${player2.elo})`,
     );
     console.log(`   Problem: ${problem.title}`);
 
-    // Set match timeout to prevent infinite matches
     this.setMatchTimeout(matchId, matchState);
   }
 
@@ -514,7 +615,7 @@ export class MatchmakingService {
   async handleDisconnect(socket: AuthenticatedSocket): Promise<void> {
     const user = socket.user;
 
-    // Remove from queue if present
+    // Remove from queue if present (checks both queues)
     await redisService.dequeue(user.id);
 
     // Check if in match
@@ -526,26 +627,22 @@ export class MatchmakingService {
       const match = await redisService.getMatch(matchId);
 
       if (match && match.status === "active") {
-        // Player disconnected during active match - opponent wins
         const winnerId =
           match.player1.id === user.id ? match.player2.id : match.player1.id;
         const loserId = user.id;
+        const isRanked = match.matchType === "ranked";
 
         const won = await redisService.setMatchWinner(matchId, winnerId);
 
         if (won) {
           console.log(`🏆 ${winnerId} wins by disconnect in match ${matchId}`);
 
-          // Calculate match duration
           const duration = Math.floor((Date.now() - match.startedAt) / 1000);
 
-          // Save match to database
           if (this.gameService) {
-            // Check if this is a bot match (bot is always player2 with socketId "bot")
             const isBotMatch = match.player2.socketId === "bot";
 
             if (isBotMatch) {
-              // Bot match - save only for human player
               const bot = this.activeBots.get(matchId);
               const botDifficulty = bot?.getDifficulty() || "medium";
 
@@ -553,18 +650,17 @@ export class MatchmakingService {
                 matchId,
                 humanId: match.player1.id,
                 botId: match.player2.id,
-                botUsername: match.player2.username, // Get bot username from match state
+                botUsername: match.player2.username,
                 winnerId,
                 problemId: match.problemId,
                 problemTitle: match.problemTitle,
                 duration,
                 botDifficulty,
+                matchType: match.matchType,
               });
 
-              // Clean up bot
               this.cleanupBot(matchId);
             } else {
-              // Human vs human match - save for both players
               const winnerElo =
                 winnerId === match.player1.id
                   ? match.player1.elo
@@ -574,11 +670,12 @@ export class MatchmakingService {
                   ? match.player1.elo
                   : match.player2.elo;
 
-              // Calculate ELO change (simplified K=32 formula)
               const K = 32;
               const expectedScore =
                 1 / (1 + Math.pow(10, (loserElo - winnerElo) / 400));
-              const eloChange = Math.round(K * (1 - expectedScore));
+              const eloChange = isRanked
+                ? Math.round(K * (1 - expectedScore))
+                : 0;
 
               await this.gameService.saveMatchToDatabase({
                 matchId,
@@ -590,21 +687,21 @@ export class MatchmakingService {
                 player1Id: match.player1.id,
                 player2Id: match.player2.id,
                 eloChange,
-                language: "unknown", // Disconnected - no language tracked
+                language: "unknown",
+                matchType: match.matchType,
               });
             }
           }
 
-          // Notify the remaining player
           this.io.to(matchId).emit("game_over", {
             winnerId,
             reason: "Opponent disconnected",
+            matchType: match.matchType,
           });
         }
       }
     }
 
-    // Clean up socket mappings
     await redisService.deleteUserSocket(user.id);
   }
 }
