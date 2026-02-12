@@ -27,11 +27,13 @@ class StripeService {
     if (!this.stripe) {
       if (!config.stripe.secretKey) {
         throw new Error(
-          "Stripe is not configured. Set STRIPE_SECRET_KEY in your .env file."
+          "Stripe is not configured. Set STRIPE_SECRET_KEY in your .env file.",
         );
       }
       this.stripe = new Stripe(config.stripe.secretKey, {
-        apiVersion: "2025-12-18",
+        // Must match the exact string literal type from the installed
+        // Stripe SDK typings, otherwise TypeScript will complain.
+        apiVersion: "2025-02-24.acacia",
       });
     }
     return this.stripe;
