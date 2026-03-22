@@ -123,9 +123,9 @@ class RazorpayService {
       plan_id: config.razorpay.planId,
       customer_notify: 1,
       quantity: 1,
-      // Razorpay rejects checkout if computed subscription end_time exceeds ~2121 (unix 4765046400).
-      // 1200 monthly cycles from ~2026 exceeds that; ~600 months (~50y) stays within the window.
-      total_count: 600,
+      // Razorpay global cap: subscription end must be before ~2121 (unix 4765046400).
+      // UPI additionally: expire_at cannot exceed 30 years → cap monthly plans at 360 cycles.
+      total_count: 360,
       notes: {
         supabase_user_id: userId,
       },
