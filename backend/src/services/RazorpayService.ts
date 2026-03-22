@@ -123,8 +123,9 @@ class RazorpayService {
       plan_id: config.razorpay.planId,
       customer_notify: 1,
       quantity: 1,
-      // Razorpay caps total_count based on plan interval; 1200 covers 100 years for monthly plans.
-      total_count: 1200,
+      // Razorpay rejects checkout if computed subscription end_time exceeds ~2121 (unix 4765046400).
+      // 1200 monthly cycles from ~2026 exceeds that; ~600 months (~50y) stays within the window.
+      total_count: 600,
       notes: {
         supabase_user_id: userId,
       },
