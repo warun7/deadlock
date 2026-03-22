@@ -2,9 +2,11 @@ import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
 
-// Ensure logs directory exists
+const logToFiles = process.env.LOG_TO_FILES !== 'false';
+
+// Ensure logs directory exists when file logging is enabled
 const logsDir = path.join(process.cwd(), 'logs');
-if (!fs.existsSync(logsDir)) {
+if (logToFiles && !fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
@@ -33,28 +35,32 @@ const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: fileFormat,
   defaultMeta: { service: 'deadlock-server' },
-  transports: [
-    // Error logs
+  transports: [],
+});
+
+logger.add(
+  new winston.transports.Console({
+    format:
+      process.env.NODE_ENV === 'production'
+        ? fileFormat
+        : consoleFormat,
+  })
+);
+
+if (logToFiles) {
+  logger.add(
     new winston.transports.File({
       filename: path.join(logsDir, 'error.log'),
       level: 'error',
       maxsize: 5242880, // 5MB
       maxFiles: 5,
-    }),
-    // Combined logs
+    })
+  );
+  logger.add(
     new winston.transports.File({
       filename: path.join(logsDir, 'combined.log'),
       maxsize: 5242880, // 5MB
       maxFiles: 5,
-    }),
-  ],
-});
-
-// Add console transport in development
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
-    new winston.transports.Console({
-      format: consoleFormat,
     })
   );
 }

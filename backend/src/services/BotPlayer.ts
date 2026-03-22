@@ -6,6 +6,8 @@ interface BotConfig {
   socketServer: SocketServer;
   matchId: string;
   onComplete: (result: BotCompletionResult) => void;
+  /** Shown as opponent ELO (should match Redis match.player2.elo) */
+  displayElo?: number;
 }
 
 interface ProgressCheckpoint {
@@ -36,6 +38,7 @@ export class BotPlayer {
   public isBot: boolean = true;
 
   private difficulty: "easy" | "medium" | "hard";
+  private displayElo: number;
   private targetTime: number;
   private io: SocketServer;
   private matchId: string;
@@ -48,6 +51,7 @@ export class BotPlayer {
     this.id = `bot_${Math.random().toString(36).substr(2, 9)}`;
     this.username = this.generateUsername();
     this.difficulty = config.difficulty;
+    this.displayElo = config.displayElo ?? 1000;
     this.io = config.socketServer;
     this.matchId = config.matchId;
     this.onComplete = config.onComplete;
@@ -247,7 +251,7 @@ export class BotPlayer {
     return {
       id: this.id,
       username: this.username,
-      elo: 1000, // Default bot ELO (not shown in UI anymore)
+      elo: this.displayElo,
       // Optional: Add fake stats to make it look real
       stats: {
         totalMatches: Math.floor(Math.random() * 50) + 10,

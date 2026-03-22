@@ -1,6 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config';
-import { Problem, TestCase } from '../types';
+import { CheckerType, MatchMode, Problem, TestCase } from '../types';
+import { problemHalfBand } from '../utils/ratingBand';
+import {
+  difficultyRatingAsInt,
+  normalizeProblemRating,
+} from '../utils/problemRating';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -12,62 +17,139 @@ const supabase = createClient(
  * ProblemService - Fetches problems and test cases for matches
  */
 export class ProblemService {
-  
-  /**
-   * Get a random problem for a match
-   * Capped at 1200 difficulty until ELO system is implemented
-   */
-  async getRandomProblem(options?: {
-    difficulty?: string;
-    minRating?: number;
-    maxRating?: number;
-  }): Promise<Problem | null> {
-    try {
-      // Build query - cap at 1200 difficulty for now
-      let query = supabase
-        .from('problems')
-        .select('*')
-        .lte('difficulty', options?.maxRating || 1200); // Cap at 1200
-      
-      // Apply minimum rating if specified
-      if (options?.minRating) {
-        query = query.gte('difficulty', options.minRating);
+  private async randomProblemIdViaRpc(
+    minRating: number,
+    maxRating: number,
+  ): Promise<number | null> {
+    const { data, error } = await supabase.rpc('random_problem_id_in_rating_band', {
+      p_min: minRating,
+      p_max: maxRating,
+    });
+    if (error) {
+      if (error.code !== 'PGRST202') {
+        console.warn('random_problem_id_in_rating_band RPC:', error.message);
       }
-      
-      // Get all matching problems
-      const { data: problems, error } = await query;
-      
+      return null;
+    }
+    if (data === null || data === undefined) return null;
+    const id = typeof data === 'number' ? data : parseInt(String(data), 10);
+    return Number.isFinite(id) ? id : null;
+  }
+
+  private async buildProblemFromDbRow(problem: {
+    id: number | string;
+    title: string;
+    description: string;
+    difficulty: unknown;
+    checker_type?: string;
+    checker_code?: string | null;
+  }): Promise<Problem> {
+    const testCases = await this.getTestCases(problem.id);
+    return {
+      id: problem.id.toString(),
+      title: problem.title,
+      description: problem.description,
+      difficulty: normalizeProblemRating(problem.difficulty),
+      testCases,
+      checkerType: (problem.checker_type || 'exact') as CheckerType,
+      checkerCode: problem.checker_code || undefined,
+    };
+  }
+
+  /**
+   * Fetch one random problem in [minRating, maxRating] or null if none.
+   * Prefers DB RPC (one row) when migration 008 is applied; otherwise loads the pool
+   * and filters by numeric difficulty so text columns do not use lexicographic gte/lte.
+   */
+  private async pickRandomProblemInRatingRange(
+    minRating: number,
+    maxRating: number,
+  ): Promise<Problem | null> {
+    try {
+      const rpcId = await this.randomProblemIdViaRpc(minRating, maxRating);
+      if (rpcId !== null) {
+        const { data: problem, error } = await supabase
+          .from('problems')
+          .select('*')
+          .eq('id', rpcId)
+          .maybeSingle();
+
+        if (!error && problem) {
+          return this.buildProblemFromDbRow(problem);
+        }
+      }
+
+      const { data: problems, error } = await supabase.from('problems').select('*');
+
       if (error) {
         console.error('Error fetching problems:', error);
         return null;
       }
-      
-      if (!problems || problems.length === 0) {
-        console.warn('No problems found in database with rating <= 1200');
-        return this.getFallbackProblem();
-      }
-      
-      // Pick random problem
-      const randomIndex = Math.floor(Math.random() * problems.length);
-      const problem = problems[randomIndex];
-      
-      // Fetch test cases for this problem
-      const testCases = await this.getTestCases(problem.id);
-      
-      return {
-        id: problem.id.toString(),
-        title: problem.title,
-        description: problem.description,
-        difficulty: problem.difficulty || '1000', // Use rating number directly
-        testCases: testCases,
-        checkerType: problem.checker_type || 'exact',
-        checkerCode: problem.checker_code || undefined,
-      };
-      
-    } catch (error) {
-      console.error('Error in getRandomProblem:', error);
-      return this.getFallbackProblem();
+
+      const inBand = (problems ?? []).filter((row) => {
+        const n = difficultyRatingAsInt(row.difficulty);
+        return n !== null && n >= minRating && n <= maxRating;
+      });
+
+      if (!inBand.length) return null;
+
+      const problem = inBand[Math.floor(Math.random() * inBand.length)];
+      return this.buildProblemFromDbRow(problem);
+    } catch (e) {
+      console.error('pickRandomProblemInRatingRange:', e);
+      return null;
     }
+  }
+
+  /**
+   * Legacy helper — prefer getRandomProblemForSkill for matches.
+   */
+  async getRandomProblem(options?: {
+    minRating?: number;
+    maxRating?: number;
+  }): Promise<Problem | null> {
+    const min = options?.minRating ?? config.problems.globalMin;
+    const max =
+      options?.maxRating ?? Math.min(2000, config.problems.globalMax);
+    const p = await this.pickRandomProblemInRatingRange(min, max);
+    return p ?? this.getFallbackProblem();
+  }
+
+  /**
+   * Pick a problem near player skill: widens the rating band until something matches.
+   */
+  async getRandomProblemForSkill(
+    centerElo: number,
+    mode: MatchMode,
+  ): Promise<Problem | null> {
+    const baseHalf = problemHalfBand(mode);
+    const step = config.problems.bandWidenStep;
+    const maxExtra = config.problems.bandMaxExtra;
+
+    for (let extra = 0; extra <= maxExtra; extra += step) {
+      const half = baseHalf + extra;
+      const min = Math.max(
+        config.problems.globalMin,
+        Math.round(centerElo - half),
+      );
+      const max = Math.min(
+        config.problems.globalMax,
+        Math.round(centerElo + half),
+      );
+      const p = await this.pickRandomProblemInRatingRange(min, max);
+      if (p) {
+        console.log(
+          `📝 Problem band [${mode}] ${min}–${max} (center ${centerElo}, +${extra} widen) → ${p.title}`,
+        );
+        return p;
+      }
+    }
+
+    const wide = await this.pickRandomProblemInRatingRange(
+      config.problems.globalMin,
+      config.problems.globalMax,
+    );
+    return wide ?? this.getFallbackProblem();
   }
   
   /**
@@ -80,6 +162,7 @@ export class ProblemService {
         .from('problem_test_cases')
         .select('*')
         .eq('problem_id', problemId)
+        .order('order_index')
         .order('id');
       
       if (error) {
@@ -126,7 +209,7 @@ export class ProblemService {
         id: problem.id.toString(),
         title: problem.title,
         description: problem.description,
-        difficulty: problem.difficulty || '1000', // Use rating number directly
+        difficulty: normalizeProblemRating(problem.difficulty),
         testCases: testCases,
         checkerType: problem.checker_type || 'exact',
         checkerCode: problem.checker_code || undefined,

@@ -1,11 +1,13 @@
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { Request, Response, NextFunction } from 'express';
+import { config } from '../config';
 
 // General API rate limiter
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per window
+  skip: (req: Request) => req.path === '/health' || req.path === '/ready',
   message: { error: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -24,6 +26,28 @@ export const debugLimiter = rateLimit({
   max: 10,
   message: { error: 'Too many debug requests' },
 });
+
+export const requireDebugAccess = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  if (!config.operational.enableDebugRoutes) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  const secret = config.operational.debugApiSecret;
+  if (secret) {
+    const provided = req.header('x-debug-secret');
+    if (provided !== secret) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+  }
+
+  next();
+};
 
 // Security headers using helmet
 export const securityHeaders = helmet({

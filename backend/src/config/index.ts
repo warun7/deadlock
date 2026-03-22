@@ -6,6 +6,26 @@ import path from "path";
 dotenv.config({ path: path.resolve(__dirname, "../../.env.local") });
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
+function parseBooleanEnv(name: string, defaultValue: boolean): boolean {
+  const value = process.env[name];
+  if (value === undefined) return defaultValue;
+  return value === "true";
+}
+
+function parseTrustProxy(
+  value: string | undefined,
+): boolean | number | string {
+  if (!value || value === "false") return false;
+  if (value === "true") return true;
+
+  const asNumber = Number(value);
+  if (Number.isInteger(asNumber) && asNumber >= 0) {
+    return asNumber;
+  }
+
+  return value;
+}
+
 export const config = {
   // Server
   port: parseInt(process.env.PORT || "3001", 10),
@@ -13,6 +33,13 @@ export const config = {
 
   // Frontend
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
+
+  // Operational settings
+  operational: {
+    enableDebugRoutes: parseBooleanEnv("ENABLE_DEBUG_ROUTES", false),
+    debugApiSecret: process.env.DEBUG_API_SECRET || "",
+    trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
+  },
 
   // Redis
   redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
@@ -43,7 +70,8 @@ export const config = {
   // Bot configuration
   bot: {
     enabled: process.env.BOT_ENABLED !== "false", // Enabled by default
-    triggerDelay: parseInt(process.env.BOT_TRIGGER_DELAY || "60000", 10), // 60 seconds
+    // After human pairing runs first; default > unranked FIFO fallback (90s) so bots do not beat it for solo waiters.
+    triggerDelay: parseInt(process.env.BOT_TRIGGER_DELAY || "95000", 10),
     defaultDifficulty: (process.env.BOT_DEFAULT_DIFFICULTY || "medium") as
       | "easy"
       | "medium"
@@ -55,22 +83,66 @@ export const config = {
       medium: { min: 1.2, max: 1.6 },
       hard: { min: 0.9, max: 1.1 },
     },
+
+    /** ELO upper bounds for easy / medium bot (hard is above mediumMax). */
+    eloThresholds: {
+      easyMax: parseInt(process.env.BOT_ELO_EASY_MAX || "1100", 10),
+      mediumMax: parseInt(process.env.BOT_ELO_MEDIUM_MAX || "1500", 10),
+    },
+
+    /** Synthetic bot ELO shown in match + used for ranked K math. */
+    syntheticElo: {
+      anchorMin: parseInt(process.env.BOT_SYNTHETIC_ELO_MIN || "800", 10),
+      anchorMax: parseInt(process.env.BOT_SYNTHETIC_ELO_MAX || "2400", 10),
+      /** 0 = bot ELO = human; 1 = bot ELO pinned toward 1200 */
+      pullStrength: parseFloat(process.env.BOT_SYNTHETIC_ELO_PULL || "0.35"),
+    },
   },
 
-  // Stripe
-  stripe: {
-    secretKey: process.env.STRIPE_SECRET_KEY || "",
-    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || "",
-    priceId: process.env.STRIPE_PRICE_ID || "",
-    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "",
+  // Razorpay (subscriptions — create Plan in Dashboard, set RAZORPAY_PLAN_ID)
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID || "",
+    keySecret: process.env.RAZORPAY_KEY_SECRET || "",
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || "",
+    planId: process.env.RAZORPAY_PLAN_ID || "",
   },
 
-  // Ranked matchmaking
+  // Ranked matchmaking (human vs human ELO window)
   ranked: {
-    initialEloRange: 200, // +/- 200 ELO to start
-    expandIntervalMs: 30000, // Widen range every 30 seconds
-    expandAmount: 100, // Widen by 100 each interval
-    maxEloRange: 500, // Max +/- 500 ELO
+    initialEloRange: parseInt(process.env.RANKED_ELO_INITIAL_RANGE || "200", 10),
+    expandIntervalMs: parseInt(
+      process.env.RANKED_ELO_EXPAND_INTERVAL_MS || "30000",
+      10,
+    ),
+    expandAmount: parseInt(process.env.RANKED_ELO_EXPAND_AMOUNT || "100", 10),
+    maxEloRange: parseInt(process.env.RANKED_ELO_MAX_RANGE || "500", 10),
+  },
+
+  // Unranked: still prefer similar ELO, but wider search than ranked
+  unranked: {
+    initialEloRange: parseInt(
+      process.env.UNRANKED_ELO_INITIAL_RANGE || "400",
+      10,
+    ),
+    expandIntervalMs: parseInt(
+      process.env.UNRANKED_ELO_EXPAND_INTERVAL_MS || "25000",
+      10,
+    ),
+    expandAmount: parseInt(process.env.UNRANKED_ELO_EXPAND_AMOUNT || "100", 10),
+    maxEloRange: parseInt(process.env.UNRANKED_ELO_MAX_RANGE || "1000", 10),
+  },
+
+  // Problem pool vs player skill (Codeforces-style problem ratings)
+  problems: {
+    rankedHalfBand: parseInt(process.env.PROBLEM_RANKED_HALF_BAND || "150", 10),
+    unrankedHalfBand: parseInt(
+      process.env.PROBLEM_UNRANKED_HALF_BAND || "280",
+      10,
+    ),
+    globalMin: parseInt(process.env.PROBLEM_RATING_MIN || "800", 10),
+    globalMax: parseInt(process.env.PROBLEM_RATING_MAX || "3500", 10),
+    bandWidenStep: parseInt(process.env.PROBLEM_BAND_WIDEN_STEP || "100", 10),
+    bandMaxExtra: parseInt(process.env.PROBLEM_BAND_MAX_EXTRA || "500", 10),
   },
 
   // Redis keys
@@ -81,12 +153,13 @@ export const config = {
     match: (matchId: string) => `match:${matchId}`,
     userMatch: (userId: string) => `user:${userId}:match`,
     userSocket: (userId: string) => `user:${userId}:socket`,
+    botMatchLock: (userId: string) => `lock:bot_match:${userId}`,
   },
 } as const;
 
 // Validate required config
 export function validateConfig(): void {
-  const required = ["SUPABASE_URL", "SUPABASE_JWT_SECRET"];
+  const required = ["SUPABASE_URL"];
 
   const missing = required.filter((key) => !process.env[key]);
 

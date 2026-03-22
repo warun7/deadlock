@@ -208,7 +208,7 @@ export class DeadlockSocketServer {
     const user = socket.user;
 
     // Check if user has an active match stored
-    const matchId = await redisService.getUserMatchId(user.id);
+    const matchId = await redisService.getActiveMatchIdForUser(user.id);
 
     if (matchId) {
       const match = await redisService.getMatch(matchId);
@@ -333,7 +333,7 @@ export class DeadlockSocketServer {
 
     try {
       // Check if user has an active match stored in Redis
-      const matchId = await redisService.getUserMatchId(user.id);
+      const matchId = await redisService.getActiveMatchIdForUser(user.id);
 
       if (matchId) {
         const match = await redisService.getMatch(matchId);

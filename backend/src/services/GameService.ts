@@ -332,6 +332,8 @@ export class GameService {
           duration: Math.floor((Date.now() - match.startedAt) / 1000),
           botDifficulty,
           matchType: match.matchType,
+          humanElo: match.player1.elo,
+          botElo: match.player2.elo,
         });
 
         // Clean up bot
@@ -478,12 +480,15 @@ export class GameService {
         matchId,
         humanId: match.player1.id,
         botId: result.botId,
-        botUsername: match.player2.username, // Get bot username from match state
+        botUsername: match.player2.username,
         winnerId,
         problemId: match.problemId,
         problemTitle: match.problemTitle,
         duration: Math.floor((Date.now() - match.startedAt) / 1000),
         botDifficulty: bot?.getDifficulty() || "medium",
+        matchType: match.matchType,
+        humanElo: match.player1.elo,
+        botElo: match.player2.elo,
       });
 
       // Get human socket
@@ -603,14 +608,15 @@ export class GameService {
     duration: number;
     botDifficulty: "easy" | "medium" | "hard";
     matchType?: string;
+    /** From match state (queue snapshot); falls back to DB if omitted */
+    humanElo?: number;
+    botElo?: number;
   }): Promise<void> {
     try {
       const result = data.winnerId === data.humanId ? "won" : "lost";
       const matchType = data.matchType || "unranked";
       const isRanked = matchType === "ranked";
 
-      // For ranked bot matches, calculate ELO change
-      // Bot ELO is 1000, human ELO needs to be fetched
       let ratingChange = 0;
       if (isRanked) {
         const { data: profile } = await supabase
@@ -619,8 +625,9 @@ export class GameService {
           .eq("id", data.humanId)
           .single();
 
-        const humanElo = profile?.current_rating || 1200;
-        const botElo = 1000;
+        const humanElo: number =
+          data.humanElo ?? profile?.current_rating ?? 1200;
+        const botElo: number = data.botElo ?? 1000;
 
         if (result === "won") {
           ratingChange = this.calculateEloChange(humanElo, botElo);

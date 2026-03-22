@@ -9,13 +9,15 @@ const requiredEnvVars = [
   'SUPABASE_SERVICE_ROLE_KEY',
   'REDIS_URL',
   'JUDGE0_URL',
-  'PORT',
-  'NODE_ENV',
 ];
 
 const optionalEnvVars = [
   'FRONTEND_URL',
   'LOG_LEVEL',
+  'SUPABASE_JWT_SECRET',
+  'ENABLE_DEBUG_ROUTES',
+  'DEBUG_API_SECRET',
+  'TRUST_PROXY',
 ];
 
 export function validateEnv(): void {

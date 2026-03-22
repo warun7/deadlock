@@ -5,11 +5,14 @@ import { validateEnv } from "./config/validation";
 import { config, validateConfig } from "./config";
 import { redisService } from "./services/RedisService";
 import { DeadlockSocketServer } from "./socket/SocketServer";
-import stripeRoutes from "./routes/stripe";
+import razorpayRoutes, {
+  handleRazorpayWebhook,
+} from "./routes/razorpay";
 import {
   securityHeaders,
   apiLimiter,
   debugLimiter,
+  requireDebugAccess,
   requestLogger,
   errorHandler,
 } from "./middleware/security";
@@ -42,6 +45,7 @@ async function main(): Promise<void> {
 
   // Create Express app
   const app = express();
+  app.set("trust proxy", config.operational.trustProxy);
 
   // Security middleware
   app.use(securityHeaders);
@@ -55,17 +59,14 @@ async function main(): Promise<void> {
     }),
   );
 
-  // Stripe webhook needs raw body - must be before express.json()
-  app.use("/api/stripe/webhook", express.raw({ type: "application/json" }));
+  // Razorpay webhook: raw body only on this path (must be before express.json)
+  app.post(
+    "/api/razorpay/webhook",
+    express.raw({ type: "application/json" }),
+    (req, res) => void handleRazorpayWebhook(req, res),
+  );
 
-  // Body parser for everything else
   app.use(express.json({ limit: "1mb" }));
-
-  // Rate limiting on all routes
-  app.use(apiLimiter);
-
-  // Stripe routes
-  app.use("/api/stripe", stripeRoutes);
 
   // Health check endpoint
   app.get("/health", (req, res) => {
@@ -75,6 +76,24 @@ async function main(): Promise<void> {
       uptime: process.uptime(),
     });
   });
+
+  app.get("/ready", (req, res) => {
+    const redisStatus = redisService.getClient().status;
+    const ready = redisStatus === "ready";
+
+    res.status(ready ? 200 : 503).json({
+      status: ready ? "ready" : "degraded",
+      dependencies: {
+        redis: redisStatus,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // Rate limiting on all routes except explicit health checks
+  app.use(apiLimiter);
+
+  app.use("/api/razorpay", razorpayRoutes);
 
   // Stats endpoint
   app.get("/stats", async (req, res) => {
@@ -95,98 +114,103 @@ async function main(): Promise<void> {
     }
   });
 
-  // Debug endpoints - with stricter rate limiting
-  app.use("/debug/", debugLimiter);
+  if (config.operational.enableDebugRoutes) {
+    app.use("/debug/", debugLimiter, requireDebugAccess);
 
-  // Debug endpoint - shows full queue contents
-  app.get("/debug/queue", async (req, res) => {
-    try {
-      const client = redisService.getClient();
-      const queueData = await client.lrange("queue:global", 0, -1);
-      const parsed = queueData.map((entry) => JSON.parse(entry));
-      res.json({
-        status: "ok",
-        queue: parsed,
-        count: parsed.length,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        status: "error",
-        message: error.message,
-      });
-    }
-  });
-
-  // Debug endpoint - shows all matches
-  app.get("/debug/matches", async (req, res) => {
-    try {
-      const client = redisService.getClient();
-      const matchKeys = await client.keys("match:*");
-      const userMatchKeys = await client.keys("user:*:match");
-
-      const matches: any[] = [];
-      for (const key of matchKeys) {
-        const data = await client.hgetall(key);
-        matches.push({ key, ...data });
+    app.get("/debug/queue", async (req, res) => {
+      try {
+        const client = redisService.getClient();
+        const [unrankedData, rankedData] = await Promise.all([
+          client.lrange(config.redisKeys.queueUnranked, 0, -1),
+          client.lrange(config.redisKeys.queueRanked, 0, -1),
+        ]);
+        const parsed = {
+          unranked: unrankedData.map((entry) => JSON.parse(entry)),
+          ranked: rankedData.map((entry) => JSON.parse(entry)),
+        };
+        res.json({
+          status: "ok",
+          queue: parsed,
+          count: parsed.unranked.length + parsed.ranked.length,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        res.status(500).json({
+          status: "error",
+          message: error.message,
+        });
       }
+    });
 
-      const userMatches: any[] = [];
-      for (const key of userMatchKeys) {
-        const matchId = await client.get(key);
-        userMatches.push({ key, matchId });
+    app.get("/debug/matches", async (req, res) => {
+      try {
+        const client = redisService.getClient();
+        const matchKeys = await client.keys("match:*");
+        const userMatchKeys = await client.keys("user:*:match");
+
+        const matches: any[] = [];
+        for (const key of matchKeys) {
+          const data = await client.hgetall(key);
+          matches.push({ key, ...data });
+        }
+
+        const userMatches: any[] = [];
+        for (const key of userMatchKeys) {
+          const matchId = await client.get(key);
+          userMatches.push({ key, matchId });
+        }
+
+        res.json({
+          status: "ok",
+          matches,
+          userMatches,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        res.status(500).json({
+          status: "error",
+          message: error.message,
+        });
       }
+    });
 
-      res.json({
-        status: "ok",
-        matches,
-        userMatches,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        status: "error",
-        message: error.message,
-      });
-    }
-  });
+    app.post("/debug/clear-all", async (req, res) => {
+      try {
+        const result = await redisService.clearAllMatchData();
+        console.log("🧹 Manual clear-all triggered via API");
+        res.json({
+          status: "ok",
+          cleared: result,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        res.status(500).json({
+          status: "error",
+          message: error.message,
+        });
+      }
+    });
 
-  // Debug endpoint - CLEAR all stale data (use with caution!)
-  app.post("/debug/clear-all", async (req, res) => {
-    try {
-      const result = await redisService.clearAllMatchData();
-      console.log("🧹 Manual clear-all triggered via API");
-      res.json({
-        status: "ok",
-        cleared: result,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        status: "error",
-        message: error.message,
-      });
-    }
-  });
-
-  // Debug endpoint - Clear specific user's match association
-  app.post("/debug/clear-user/:userId", async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const cleared = await redisService.clearUserMatch(userId);
-      res.json({
-        status: "ok",
-        userId,
-        cleared,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        status: "error",
-        message: error.message,
-      });
-    }
-  });
+    app.post("/debug/clear-user/:userId", async (req, res) => {
+      try {
+        const { userId } = req.params;
+        const cleared = await redisService.clearUserMatch(userId);
+        res.json({
+          status: "ok",
+          userId,
+          cleared,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        res.status(500).json({
+          status: "error",
+          message: error.message,
+        });
+      }
+    });
+  } else {
+    logger.info("Debug routes disabled");
+  }
 
   // Create HTTP server
   const httpServer = createServer(app);
@@ -198,6 +222,9 @@ async function main(): Promise<void> {
     console.log("✅ Redis connected");
   } catch (error: any) {
     console.error("❌ Redis connection failed:", error.message);
+    if (config.nodeEnv === "production") {
+      throw error;
+    }
     console.log("⚠️  Continuing without Redis (limited functionality)");
   }
 

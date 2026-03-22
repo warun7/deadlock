@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Redis from "ioredis";
 import { config } from "../config";
 import { QueueEntry, MatchState, MatchMode } from "../types";
@@ -160,6 +161,32 @@ export class RedisService {
   }
 
   /**
+   * Cross-instance guard so at most one node creates a bot match for a user.
+   * Value is a unique token; release only deletes the key if the token still matches
+   * (avoids deleting another holder's lock after TTL expiry).
+   */
+  async acquireBotMatchLock(
+    userId: string,
+    ttlSec = 25,
+  ): Promise<string | null> {
+    const key = config.redisKeys.botMatchLock(userId);
+    const token = randomUUID();
+    const ok = await this.client.set(key, token, "EX", ttlSec, "NX");
+    return ok === "OK" ? token : null;
+  }
+
+  async releaseBotMatchLock(userId: string, token: string): Promise<void> {
+    const key = config.redisKeys.botMatchLock(userId);
+    const script = `
+      if redis.call('GET', KEYS[1]) == ARGV[1] then
+        return redis.call('DEL', KEYS[1])
+      end
+      return 0
+    `;
+    await this.client.eval(script, 1, key, token);
+  }
+
+  /**
    * Get queue length for a specific mode
    */
   async getQueueLength(mode?: MatchMode): Promise<number> {
@@ -266,7 +293,8 @@ export class RedisService {
   }
 
   /**
-   * Get all queue entries for a specific mode
+   * Get all queue entries for a specific mode.
+   * NOTE: Uses full LRANGE each tick; at high concurrency consider capped windows or a secondary index (e.g. sorted sets).
    */
   async getQueue(mode?: MatchMode): Promise<QueueEntry[]> {
     if (mode) {
@@ -286,7 +314,8 @@ export class RedisService {
 
   /**
    * Find the best ELO match in the ranked queue for a given player
-   * Returns the matched pair, or null if no suitable match found
+   * Returns the matched pair, or null if no suitable match found.
+   * NOTE: O(n²) over the full list per tick; replace with a sorted ELO structure when queues grow.
    */
   async findRankedMatch(
     eloRange: number,
@@ -349,6 +378,68 @@ export class RedisService {
 
     console.log(
       `🎯 Ranked match: ${bestPair[0].username} (${bestPair[0].elo}) vs ${bestPair[1].username} (${bestPair[1].elo}) [diff: ${bestDiff}]`,
+    );
+    return bestPair;
+  }
+
+  /**
+   * Same as findRankedMatch but for the unranked queue (wider ELO bands from config).
+   * NOTE: Same scaling characteristics as findRankedMatch (full list + O(n²) scan).
+   */
+  async findUnrankedMatch(
+    eloRange: number,
+  ): Promise<[QueueEntry, QueueEntry] | null> {
+    const queueKey = config.redisKeys.queueUnranked;
+    const queueData = await this.client.lrange(queueKey, 0, -1);
+    const entries = queueData.map((e) => JSON.parse(e) as QueueEntry);
+
+    if (entries.length < 2) return null;
+
+    entries.sort((a, b) => a.elo - b.elo);
+
+    let bestPair: [QueueEntry, QueueEntry] | null = null;
+    let bestDiff = Infinity;
+
+    for (let i = 0; i < entries.length - 1; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const diff = Math.abs(entries[i].elo - entries[j].elo);
+        if (diff <= eloRange && diff < bestDiff) {
+          bestDiff = diff;
+          bestPair = [entries[i], entries[j]];
+        }
+      }
+    }
+
+    if (!bestPair) return null;
+
+    const luaScript = `
+      local queue = redis.call('LRANGE', KEYS[1], 0, -1)
+      local removed = 0
+      for i, entry in ipairs(queue) do
+        local parsed = cjson.decode(entry)
+        if parsed.userId == ARGV[1] or parsed.userId == ARGV[2] then
+          redis.call('LREM', KEYS[1], 1, entry)
+          removed = removed + 1
+        end
+      end
+      return removed
+    `;
+
+    const removed = await this.client.eval(
+      luaScript,
+      1,
+      queueKey,
+      bestPair[0].userId,
+      bestPair[1].userId,
+    );
+
+    if (removed !== 2) {
+      console.log(`⚠️ Unranked match race condition, only removed ${removed}`);
+      return null;
+    }
+
+    console.log(
+      `🎯 Unranked ELO match: ${bestPair[0].username} (${bestPair[0].elo}) vs ${bestPair[1].username} (${bestPair[1].elo}) [diff: ${bestDiff}]`,
     );
     return bestPair;
   }
@@ -448,6 +539,28 @@ export class RedisService {
    */
   async getUserMatchId(userId: string): Promise<string | null> {
     return this.client.get(config.redisKeys.userMatch(userId));
+  }
+
+  /**
+   * Returns the match id only if user→match points at an existing active match.
+   * Otherwise deletes the user→match key (missing match, finished match, or TTL skew).
+   */
+  async getActiveMatchIdForUser(userId: string): Promise<string | null> {
+    const matchId = await this.getUserMatchId(userId);
+    if (!matchId) return null;
+
+    const match = await this.getMatch(matchId);
+    if (match?.status === "active") {
+      return matchId;
+    }
+
+    await this.client.del(config.redisKeys.userMatch(userId));
+    console.log(
+      `🧹 Cleared stale user→match for ${userId} (was ${matchId}${
+        match ? `, status=${match.status}` : ", match record missing"
+      })`,
+    );
+    return null;
   }
 
   /**
