@@ -11,6 +11,22 @@ const supabaseAdmin = createClient(
 
 const router = Router();
 
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown error";
+  }
+}
+
 router.use((req: Request, res: Response, next: Function) => {
   if (!razorpayService.isConfigured()) {
     res.status(503).json({
@@ -99,9 +115,12 @@ router.post(
         shortUrl,
       });
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Unknown error";
+      const msg = describeUnknownError(error);
       console.error("❌ Razorpay create-subscription:", msg);
-      res.status(500).json({ error: "Failed to start subscription checkout" });
+      res.status(500).json({
+        error: "Failed to start subscription checkout",
+        ...(config.nodeEnv === "development" && { details: msg }),
+      });
     }
   },
 );
