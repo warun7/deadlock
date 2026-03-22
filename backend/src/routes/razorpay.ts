@@ -74,7 +74,10 @@ async function authenticateRequest(
   }
 }
 
-/** POST /api/razorpay/create-subscription — returns { url } for redirect (Razorpay hosted mandate). */
+/**
+ * POST /api/razorpay/create-subscription
+ * Returns the subscription id + public key for Razorpay Standard Checkout.
+ */
 router.post(
   "/create-subscription",
   authenticateRequest,
@@ -87,9 +90,14 @@ router.post(
         return;
       }
 
-      const { shortUrl } = await razorpayService.createPremiumSubscription(userId);
+      const { shortUrl, subscriptionId } =
+        await razorpayService.createPremiumSubscription(userId);
 
-      res.json({ url: shortUrl });
+      res.json({
+        keyId: config.razorpay.keyId,
+        subscriptionId,
+        shortUrl,
+      });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : "Unknown error";
       console.error("❌ Razorpay create-subscription:", msg);
