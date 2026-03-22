@@ -123,7 +123,8 @@ class RazorpayService {
       plan_id: config.razorpay.planId,
       customer_notify: 1,
       quantity: 1,
-      total_count: 9999,
+      // Razorpay caps total_count based on plan interval; 1200 covers 100 years for monthly plans.
+      total_count: 1200,
       notes: {
         supabase_user_id: userId,
       },
