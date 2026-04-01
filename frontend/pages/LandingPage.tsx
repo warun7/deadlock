@@ -38,7 +38,7 @@ const LandingPage: React.FC = () => {
           <FeatureGrid />
         </div>
         {/* CTA Section */}
-        <section className="py-40 relative overflow-hidden border-t border-stone-900">
+        <section className="py-20 sm:py-40 relative overflow-hidden border-t border-stone-900">
           <div className="absolute inset-0 bg-[#050505]">
              {/* Noise texture */}
              <div 
@@ -55,11 +55,11 @@ const LandingPage: React.FC = () => {
           <div className="max-w-4xl mx-auto px-4 relative z-10 text-center">
             {/* Glitch-style heading */}
             <div className="relative mb-12">
-              <h2 className="text-5xl md:text-8xl font-black font-mono tracking-tighter uppercase text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-stone-600">
+              <h2 className="text-4xl sm:text-5xl md:text-8xl font-black font-mono tracking-tighter uppercase text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-stone-600">
                 Ready?
               </h2>
               {/* Glitch layers */}
-              <h2 className="absolute inset-0 text-5xl md:text-8xl font-black font-mono tracking-tighter uppercase text-red-500/20 animate-pulse" style={{ transform: 'translate(2px, 2px)' }}>
+              <h2 className="absolute inset-0 text-4xl sm:text-5xl md:text-8xl font-black font-mono tracking-tighter uppercase text-red-500/20 animate-pulse" style={{ transform: 'translate(2px, 2px)' }}>
                 Ready?
               </h2>
             </div>

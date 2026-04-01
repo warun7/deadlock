@@ -143,7 +143,7 @@ const BentoCard: React.FC<BentoCardProps> = ({
 
 const FeatureGrid: React.FC = () => {
   return (
-    <section className="py-24 md:py-32 relative z-10 bg-[#050505]">
+    <section className="py-16 sm:py-24 md:py-32 relative z-10 bg-[#050505]">
       {/* Background texture */}
       <div className="absolute inset-0 pointer-events-none">
         <div
@@ -161,14 +161,14 @@ const FeatureGrid: React.FC = () => {
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
           viewport={{ once: true }}
-          className="mb-16 md:mb-20"
+          className="mb-10 sm:mb-16 md:mb-20"
         >
           <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
             <div>
               <span className="inline-block px-3 py-1 mb-4 text-xs font-mono uppercase tracking-wider text-red-500 bg-red-500/10 border border-red-500/20 rounded-full">
                 ▸ Feature Set
               </span>
-              <h2 className="text-4xl md:text-5xl lg:text-6xl font-black text-white font-mono uppercase tracking-tighter">
+              <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white font-mono uppercase tracking-tighter">
                 Built for
                 <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-500">
@@ -188,7 +188,7 @@ const FeatureGrid: React.FC = () => {
         </motion.div>
 
         {/* Bento Grid Layout */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
           {/* Row 1 */}
           <BentoCard
             index={0}
@@ -196,7 +196,7 @@ const FeatureGrid: React.FC = () => {
             description="Race against your opponent in real-time. First to pass all test cases wins. Pure skill, no luck involved."
             icon={<Swords className="w-6 h-6" />}
             variant="featured"
-            className="lg:col-span-2 lg:row-span-2"
+            className="sm:col-span-2 lg:col-span-2 lg:row-span-2"
           />
 
           <BentoCard
@@ -259,13 +259,13 @@ const FeatureGrid: React.FC = () => {
               />
 
               {/* Animated background bars */}
-              <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                {[...Array(5)].map((_, i) => (
+              <div className="absolute inset-0 overflow-hidden pointer-events-none hidden sm:block">
+                {[...Array(3)].map((_, i) => (
                   <div
                     key={i}
                     className="absolute h-full w-[1px] bg-gradient-to-b from-transparent via-red-500/10 to-transparent"
                     style={{
-                      left: `${20 + i * 15}%`,
+                      left: `${25 + i * 20}%`,
                       animation: `pulse ${2 + i * 0.5}s ease-in-out infinite`,
                       animationDelay: `${i * 0.3}s`,
                     }}

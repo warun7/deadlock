@@ -3,11 +3,18 @@ import { motion, useSpring, useMotionValue } from 'framer-motion';
 
 const Cursor: React.FC = () => {
   const [hovered, setHovered] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
   
   const mouseX = useMotionValue(-100);
   const mouseY = useMotionValue(-100);
 
-  const springConfig = { damping: 25, stiffness: 400 };
+  useEffect(() => {
+    // Detect touch devices
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches;
+    setIsTouchDevice(isTouch);
+  }, []);
+
+  const springConfig = { damping: 30, stiffness: 300, mass: 0.5 };
   const cursorX = useSpring(mouseX, springConfig);
   const cursorY = useSpring(mouseY, springConfig);
 
@@ -26,14 +33,17 @@ const Cursor: React.FC = () => {
       }
     };
 
-    window.addEventListener('mousemove', moveCursor);
-    window.addEventListener('mouseover', handleMouseOver);
+    window.addEventListener('mousemove', moveCursor, { passive: true });
+    window.addEventListener('mouseover', handleMouseOver, { passive: true });
 
     return () => {
       window.removeEventListener('mousemove', moveCursor);
       window.removeEventListener('mouseover', handleMouseOver);
     };
   }, [mouseX, mouseY]);
+
+  // Don't render custom cursor on touch devices
+  if (isTouchDevice) return null;
 
   return (
     <>

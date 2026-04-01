@@ -91,7 +91,7 @@ const ResetPasswordPage: React.FC = () => {
       {/* Back Button */}
       <button
         onClick={handleBack}
-        className="fixed top-8 left-8 flex items-center gap-2 text-stone-500 hover:text-white transition-colors z-10"
+        className="fixed top-4 left-4 sm:top-8 sm:left-8 flex items-center gap-2 text-stone-500 hover:text-white transition-colors z-10"
       >
         <ChevronLeft className="w-5 h-5" />
         <span className="text-sm font-bold uppercase tracking-wider">Back</span>

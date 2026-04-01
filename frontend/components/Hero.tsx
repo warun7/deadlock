@@ -40,12 +40,12 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
               System Online
             </div>
             
-            <h1 className="text-7xl md:text-[10rem] font-black text-white leading-[0.8] tracking-tighter font-mono mix-blend-difference">
+            <h1 className="text-5xl sm:text-7xl md:text-[10rem] font-black text-white leading-[0.8] tracking-tighter font-mono mix-blend-difference">
               <GlitchText text="DEAD" />
               <GlitchText text="LOCK" className="text-red-600" />
             </h1>
             
-            <p className="mt-6 text-stone-400 font-mono tracking-[0.2em] text-sm md:text-base uppercase">
+            <p className="mt-4 sm:mt-6 text-stone-400 font-mono tracking-[0.15em] sm:tracking-[0.2em] text-xs sm:text-sm md:text-base uppercase">
               Competitve Coding <span className="text-red-500">//</span> 1v1 Ladder
             </p>
         </motion.div>
@@ -53,7 +53,7 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
         {/* 3D Battle Scene */}
         <motion.div 
           style={{ y: yBg, rotateX: rotate }}
-          className="relative w-full max-w-5xl h-[300px] md:h-[400px] perspective-2000 flex items-center justify-center"
+          className="relative w-full max-w-5xl h-[250px] sm:h-[300px] md:h-[400px] perspective-2000 flex items-center justify-center"
         >
            {/* Center Ring System */}
            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

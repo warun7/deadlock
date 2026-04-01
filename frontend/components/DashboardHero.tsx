@@ -49,14 +49,14 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
     fetchProfile();
   }, []);
   return (
-    <div className="relative min-h-[90vh] flex flex-col items-center justify-center pt-16 overflow-hidden bg-[#050505]">
+    <div className="relative min-h-[90vh] flex flex-col items-center justify-center pt-20 sm:pt-16 overflow-hidden bg-[#050505]">
       {/* Background Grid */}
       <div className="absolute inset-0 overflow-hidden perspective-1000 opacity-30">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:40px_40px] [transform:rotateX(60deg)_translateY(-20%)_scale(2)] origin-top"></div>
         <div className="absolute inset-0 bg-gradient-to-b from-[#050505] via-transparent to-[#050505]"></div>
       </div>
 
-      <div className="max-w-6xl w-full mx-auto px-4 z-10 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+      <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 z-10 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
         {/* Left: User Stats */}
         <div className="space-y-8">
           <div>
@@ -66,9 +66,9 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                 Connection Stable
               </span>
             </div>
-            <h1 className="text-5xl md:text-7xl font-black text-white font-mono tracking-tighter mb-2">
+            <h1 className="text-3xl sm:text-5xl md:text-7xl font-black text-white font-mono tracking-tighter mb-2">
               WELCOME, <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-stone-500 uppercase">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-stone-500 uppercase break-all sm:break-normal">
                 {loading ? "LOADING..." : username}
               </span>
             </h1>
@@ -77,12 +77,12 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-sm relative">
               <div className="text-xs text-stone-500 font-mono uppercase mb-1">
                 Global Rank
               </div>
-              <div className="text-lg font-bold text-stone-600 flex items-center gap-2">
+              <div className="text-sm sm:text-lg font-bold text-stone-600 flex items-center gap-2">
                 {loading ? "..." : "COMING SOON"}
                 <Activity className="w-4 h-4 text-stone-700" />
               </div>
@@ -117,7 +117,7 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
               <div className="text-xs text-stone-500 font-mono uppercase mb-1">
                 Win Rate
               </div>
-              <div className="text-2xl font-bold text-red-500">
+              <div className="text-xl sm:text-2xl font-bold text-red-500">
                 {loading ? "..." : `${profile?.win_rate?.toFixed(1) || "0.0"}%`}
               </div>
             </div>
@@ -126,12 +126,12 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
           {activeMatchId ? (
             <button
               onClick={onResumeMatch}
-              className="group w-full md:w-auto relative px-8 py-6 bg-emerald-600 hover:bg-emerald-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-4 shadow-[0_0_40px_rgba(16,185,129,0.3)] hover:shadow-[0_0_60px_rgba(16,185,129,0.5)] animate-pulse"
+              className="group w-full relative px-6 sm:px-8 py-5 sm:py-6 bg-emerald-600 hover:bg-emerald-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-3 sm:gap-4 shadow-[0_0_40px_rgba(16,185,129,0.3)] hover:shadow-[0_0_60px_rgba(16,185,129,0.5)] animate-pulse"
             >
               <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.2)_50%,transparent_75%)] bg-[length:250%_250%,100%_100%] animate-[shine_3s_infinite]"></div>
               <Activity className="w-8 h-8 text-white group-hover:scale-110 transition-transform" />
               <div className="text-left">
-                <div className="text-2xl font-black text-white italic tracking-tighter uppercase">
+                <div className="text-xl sm:text-2xl font-black text-white italic tracking-tighter uppercase">
                   Resume Match
                 </div>
                 <div className="text-[10px] text-emerald-200 font-mono tracking-widest">
@@ -143,12 +143,12 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
             <button
               onClick={onFindMatch}
               disabled={checkingMatch}
-              className="group w-full md:w-auto relative px-8 py-6 bg-red-600 hover:bg-red-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-4 shadow-[0_0_40px_rgba(220,38,38,0.3)] hover:shadow-[0_0_60px_rgba(220,38,38,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="group w-full relative px-6 sm:px-8 py-5 sm:py-6 bg-red-600 hover:bg-red-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-3 sm:gap-4 shadow-[0_0_40px_rgba(220,38,38,0.3)] hover:shadow-[0_0_60px_rgba(220,38,38,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.2)_50%,transparent_75%)] bg-[length:250%_250%,100%_100%] animate-[shine_3s_infinite]"></div>
               <Swords className="w-8 h-8 text-white group-hover:rotate-12 transition-transform" />
               <div className="text-left">
-                <div className="text-2xl font-black text-white italic tracking-tighter uppercase">
+                <div className="text-xl sm:text-2xl font-black text-white italic tracking-tighter uppercase">
                   {checkingMatch ? "Checking..." : "Enter Queue"}
                 </div>
                 <div className="text-[10px] text-red-200 font-mono tracking-widest">

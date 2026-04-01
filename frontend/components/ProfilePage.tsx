@@ -275,17 +275,17 @@ const ProfilePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] pt-24 pb-12 font-mono relative overflow-hidden">
+    <div className="min-h-screen bg-[#050505] pt-20 sm:pt-24 pb-12 font-mono relative overflow-hidden">
       {/* Background Grid */}
       <div className="absolute inset-0 pointer-events-none opacity-20">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:40px_40px]"></div>
         <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-red-900/10 to-transparent"></div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 relative z-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
         {/* Profile Header */}
-        <div className="flex flex-col md:flex-row gap-8 items-end mb-16 pb-8 border-b border-stone-800">
-          <ThreeDTilt intensity={10} className="w-full md:w-auto">
+        <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-start md:items-end mb-12 md:mb-16 pb-6 md:pb-8 border-b border-stone-800">
+          <ThreeDTilt intensity={10} className="w-auto mx-auto md:mx-0">
             <div className="relative group w-40 h-40 bg-stone-900 rounded-sm border-2 border-stone-800 p-1">
               <div className="w-full h-full overflow-hidden bg-black relative">
                 <img
@@ -341,33 +341,35 @@ const ProfilePage: React.FC = () => {
             </div>
 
             {isEditingProfile ? (
-              <div className="flex items-center gap-4 mb-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 mb-2">
                 <input
                   type="text"
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
                   placeholder={username}
-                  className="text-2xl md:text-4xl font-black text-white uppercase tracking-tighter bg-black/50 border border-stone-800 rounded px-4 py-2 focus:border-red-600 focus:outline-none"
+                  className="text-xl sm:text-2xl md:text-4xl font-black text-white uppercase tracking-tighter bg-black/50 border border-stone-800 rounded px-3 sm:px-4 py-2 focus:border-red-600 focus:outline-none w-full sm:w-auto"
                 />
-                <button
-                  onClick={handleUsernameUpdate}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-sm uppercase tracking-wider transition-colors"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={() => {
-                    setIsEditingProfile(false);
-                    setNewUsername("");
-                  }}
-                  className="px-4 py-2 bg-stone-800 hover:bg-stone-700 text-white font-bold text-sm uppercase tracking-wider transition-colors"
-                >
-                  Cancel
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleUsernameUpdate}
+                    className="flex-1 sm:flex-none px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-sm uppercase tracking-wider transition-colors"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsEditingProfile(false);
+                      setNewUsername("");
+                    }}
+                    className="flex-1 sm:flex-none px-4 py-2 bg-stone-800 hover:bg-stone-700 text-white font-bold text-sm uppercase tracking-wider transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex items-center gap-4 mb-2">
-                <h1 className="text-4xl md:text-6xl font-black text-white uppercase tracking-tighter">
+                <h1 className="text-3xl sm:text-4xl md:text-6xl font-black text-white uppercase tracking-tighter break-all sm:break-normal">
                   {username}
                 </h1>
                 <button
@@ -385,12 +387,12 @@ const ProfilePage: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex gap-8">
+          <div className="flex gap-4 sm:gap-8">
             <div className="text-right relative">
-              <div className="text-[10px] text-stone-500 uppercase tracking-widest mb-1">
+              <div className="text-[9px] sm:text-[10px] text-stone-500 uppercase tracking-widest mb-1">
                 Global Rank
               </div>
-              <div className="text-lg font-black text-stone-600 flex items-center justify-end gap-2">
+              <div className="text-sm sm:text-lg font-black text-stone-600 flex items-center justify-end gap-2">
                 COMING SOON
                 <Shield className="w-6 h-6 text-stone-700 fill-stone-800/20" />
               </div>
@@ -405,7 +407,7 @@ const ProfilePage: React.FC = () => {
           {/* Left Col: Stats */}
           <div className="lg:col-span-2 space-y-8">
             {/* Stat Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
               {[
                 {
                   label: "Global Rank",
@@ -513,7 +515,7 @@ const ProfilePage: React.FC = () => {
                     return (
                       <div
                         key={match.id}
-                        className="grid grid-cols-12 gap-4 items-center p-3 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600 group"
+                        className="hidden sm:grid grid-cols-12 gap-4 items-center p-3 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600 group"
                       >
                         <div className="col-span-1">
                           <span
@@ -541,6 +543,46 @@ const ProfilePage: React.FC = () => {
                             {match.rating_change} RP
                           </span>
                         </div>
+                      </div>
+                    );
+                  }),
+                  /* Mobile match cards */
+                  recentMatches.map((match, i) => {
+                    const isWin = match.result === "won";
+                    const isDraw = match.result === "draw";
+                    const resultLetter = isWin ? "W" : isDraw ? "D" : "L";
+                    const resultColor = isWin
+                      ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                      : isDraw
+                      ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                      : "bg-red-500/10 text-red-500 border-red-500/20";
+
+                    return (
+                      <div
+                        key={`mobile-${match.id}`}
+                        className="sm:hidden flex items-center gap-3 p-3 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600"
+                      >
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm shrink-0 ${resultColor}`}
+                        >
+                          {resultLetter}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold text-stone-300 truncate">
+                            {match.opponent_username}
+                          </div>
+                          <div className="text-[10px] text-stone-600 truncate">
+                            {match.problem_title} · {match.language}
+                          </div>
+                        </div>
+                        <span
+                          className={`text-xs font-mono font-bold shrink-0 ${
+                            isWin ? "text-emerald-500" : "text-red-500"
+                          }`}
+                        >
+                          {match.rating_change > 0 ? "+" : ""}
+                          {match.rating_change} RP
+                        </span>
                       </div>
                     );
                   })

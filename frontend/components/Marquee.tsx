@@ -15,7 +15,7 @@ const Marquee = () => {
   return (
     <div className="w-full bg-red-950/20 border-y border-red-900/30 overflow-hidden py-2 relative z-20">
       <div className="animate-marquee whitespace-nowrap flex gap-12 items-center">
-        {[...items, ...items, ...items].map((item, i) => (
+      {[...items, ...items].map((item, i) => (
           <div
             key={i}
             className="flex items-center gap-3 text-xs font-mono font-bold text-red-500/70 tracking-widest"

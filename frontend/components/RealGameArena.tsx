@@ -59,6 +59,9 @@ int main() {
 
 type Language = keyof typeof STARTER_CODE;
 
+// Mobile tab state for switching between problem/editor
+type MobileTab = 'problem' | 'code';
+
 // Codeforces difficulty color mapping
 const getDifficultyColor = (difficulty: string | number) => {
   const rating =
@@ -85,6 +88,7 @@ const RealGameArena: React.FC = () => {
   const [language, setLanguage] = useState<Language>("python");
   const [code, setCode] = useState(STARTER_CODE.python);
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>('problem');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState<any>(null);
@@ -360,7 +364,7 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-gradient-to-b from-stone-900 to-stone-950 border border-stone-700 rounded-xl p-8 max-w-sm w-full mx-4 shadow-2xl"
+            className="bg-gradient-to-b from-stone-900 to-stone-950 border border-stone-700 rounded-xl p-6 sm:p-8 max-w-sm w-full mx-4 shadow-2xl"
           >
             <div className="text-center">
               <div className="text-5xl mb-4">🏳️</div>
@@ -394,24 +398,24 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
       )}
 
       {/* Game Header */}
-      <div className="h-14 border-b border-stone-800 bg-[#0a0a0a] flex items-center justify-between px-4 z-20">
-        <div className="flex items-center gap-4">
-          <div className="bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-sm uppercase">
-            Ranked Match
+      <div className="h-12 sm:h-14 border-b border-stone-800 bg-[#0a0a0a] flex items-center justify-between px-2 sm:px-4 z-20 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <div className="bg-red-600 text-white text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-1 rounded-sm uppercase">
+            Ranked
           </div>
-          <div className="flex items-center gap-2 text-stone-400 text-xs">
+          <div className="hidden sm:flex items-center gap-2 text-stone-400 text-xs">
             <Clock className="w-3 h-3" />
             <span>LIVE</span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-xs text-stone-500">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <div className="hidden sm:block text-xs text-stone-500">
             Opponent: <span className="text-white">{opponentProgress}</span>
           </div>
           <button
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold px-4 py-1.5 rounded-sm flex items-center gap-2 transition-colors"
+            className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold px-3 sm:px-4 py-1.5 rounded-sm flex items-center gap-2 transition-colors"
           >
             {isSubmitting ? (
               <Loader2 className="w-3 h-3 animate-spin" />
@@ -423,10 +427,36 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
         </div>
       </div>
 
+      {/* Mobile Tab Switcher */}
+      <div className="md:hidden flex border-b border-stone-800 bg-[#0a0a0a] shrink-0">
+        <button
+          onClick={() => setMobileTab('problem')}
+          className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors ${
+            mobileTab === 'problem'
+              ? 'text-white border-b-2 border-red-500 bg-white/5'
+              : 'text-stone-500 hover:text-stone-300'
+          }`}
+        >
+          📄 Problem
+        </button>
+        <button
+          onClick={() => setMobileTab('code')}
+          className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors ${
+            mobileTab === 'code'
+              ? 'text-white border-b-2 border-emerald-500 bg-white/5'
+              : 'text-stone-500 hover:text-stone-300'
+          }`}
+        >
+          💻 Editor
+        </button>
+      </div>
+
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel: Problem */}
-        <div className="w-1/2 border-r border-stone-800 flex flex-col bg-[#050505]">
+        <div className={`${
+          mobileTab === 'problem' ? 'flex' : 'hidden'
+        } md:flex w-full md:w-1/2 border-r border-stone-800 flex-col bg-[#050505]`}>
           {/* Tabs */}
           <div className="flex items-center h-10 bg-[#0a0a0a] border-b border-stone-800 px-2">
             <button className="flex items-center gap-2 px-4 h-full text-xs font-medium text-white border-b-2 border-white bg-white/5 transition-colors">
@@ -434,9 +464,9 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
             <div className="mb-6">
-              <h1 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
+              <h1 className="text-xl sm:text-2xl font-bold text-white mb-4 flex items-center gap-3">
                 {currentMatchData?.problem?.title || "Loading..."}
               </h1>
 
@@ -526,10 +556,12 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
         {/* Right Panel: Editor & Results */}
         <div
           ref={editorPanelRef}
-          className="w-1/2 flex flex-col h-full bg-[#080808]"
+          className={`${
+            mobileTab === 'code' ? 'flex' : 'hidden'
+          } md:flex w-full md:w-1/2 flex-col h-full bg-[#080808]`}
         >
           {/* Code Editor Header */}
-          <div className="h-10 bg-[#0a0a0a] border-b border-stone-800 flex items-center justify-between px-4">
+          <div className="h-10 bg-[#0a0a0a] border-b border-stone-800 flex items-center justify-between px-2 sm:px-4 shrink-0">
             <div className="flex items-center gap-4">
               <div className="relative">
                 <button
@@ -560,9 +592,9 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
             </div>
 
             {/* Sub-Header Actions (Opponent Info + Reset) */}
-            <div className="flex items-center gap-6">
-              {/* Opponent Info */}
-              <div className="flex items-center gap-3 px-3 py-1 bg-stone-900/50 rounded border border-stone-800">
+            <div className="flex items-center gap-2 sm:gap-6">
+              {/* Opponent Info - hidden on mobile */}
+              <div className="hidden lg:flex items-center gap-3 px-3 py-1 bg-stone-900/50 rounded border border-stone-800">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
                   <span className="text-xs font-bold text-stone-400 uppercase">
@@ -583,7 +615,7 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
                 </div>
               </div>
 
-              <div className="h-4 w-px bg-stone-800"></div>
+              <div className="hidden lg:block h-4 w-px bg-stone-800"></div>
 
               <button
                 onClick={() => setShowForfeitModal(true)}

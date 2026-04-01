@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Deadlock - 1v1 Competitive Coding</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -15,12 +15,17 @@
         background-color: #050505;
         color: white;
         overflow-x: hidden;
-        cursor: none; /* Hide default cursor */
+        -webkit-overflow-scrolling: touch;
       }
-      
-      /* Hide cursor on interactive elements too */
-      a, button, input, textarea, [role="button"] {
-        cursor: none;
+
+      /* Hide cursor only on non-touch (pointer:fine) devices */
+      @media (pointer: fine) {
+        body {
+          cursor: none;
+        }
+        a, button, input, textarea, [role="button"] {
+          cursor: none;
+        }
       }
 
       h1, h2, h3, h4, .brand-font {
@@ -124,6 +129,33 @@
       /* Glitch Text Effect Utility */
       .glitch-wrapper {
         position: relative;
+      }
+
+      /* Performance: GPU acceleration for animated elements */
+      .animate-grid,
+      .animate-marquee {
+        will-change: transform;
+      }
+
+      /* Performance: Reduce animations on mobile and for users who prefer reduced motion */
+      @media (prefers-reduced-motion: reduce) {
+        .animate-grid,
+        .animate-marquee,
+        .animate-pulse,
+        .crt-flicker {
+          animation: none !important;
+        }
+      }
+
+      /* Performance: Disable heavy effects on small screens */
+      @media (max-width: 640px) {
+        .animate-grid {
+          animation-duration: 8s;
+        }
+        .perspective-1000,
+        .perspective-2000 {
+          perspective: none;
+        }
       }
     </style>
   <script type="importmap">

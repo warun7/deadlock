@@ -36,12 +36,12 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
           >
-            <div className="bg-[#0a0a0a] border-2 border-stone-800 w-full max-w-4xl max-h-[80vh] flex flex-col font-mono">
+            <div className="bg-[#0a0a0a] border-2 border-stone-800 w-full max-w-4xl max-h-[90vh] sm:max-h-[80vh] flex flex-col font-mono mx-2 sm:mx-4">
               {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b border-stone-800">
+              <div className="flex items-center justify-between p-4 sm:p-6 border-b border-stone-800">
                 <div className="flex items-center gap-3">
                   <Clock className="w-5 h-5 text-red-500" />
-                  <h2 className="text-2xl font-black text-white uppercase tracking-tighter">
+                  <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tighter">
                     Match History
                   </h2>
                   <span className="text-xs text-stone-500 font-bold">
@@ -58,7 +58,7 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
               </div>
 
               {/* Content */}
-              <div className="flex-1 overflow-y-auto p-6">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6">
                 {loading ? (
                   <div className="text-center text-stone-500 py-12">
                     <div className="animate-spin w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full mx-auto mb-4"></div>
@@ -95,12 +95,13 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
                       });
 
                       return (
-                        <motion.div
+                        <>
+                         <motion.div
                           key={match.id}
                           initial={{ opacity: 0, x: -20 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: index * 0.03 }}
-                          className="grid grid-cols-12 gap-4 items-center p-4 bg-black/40 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600 group"
+                          className="hidden sm:grid grid-cols-12 gap-4 items-center p-4 bg-black/40 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600 group"
                         >
                           {/* Result Badge */}
                           <div className="col-span-1 flex justify-center">
@@ -153,7 +154,44 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
                             </div>
                             <div className="text-[10px] text-stone-600">RP</div>
                           </div>
-                        </motion.div>
+                      </motion.div>
+                      {/* Mobile card version */}
+                      <motion.div
+                        key={`mobile-${match.id}`}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        className="sm:hidden flex items-center gap-3 p-3 bg-black/40 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600"
+                      >
+                        <span
+                          className={`text-[10px] font-bold px-2 py-1 rounded-sm shrink-0 ${resultColor}`}
+                        >
+                          {resultLetter}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold text-stone-300 truncate">
+                            {match.opponent_username}
+                          </div>
+                          <div className="text-[10px] text-stone-600 truncate">
+                            {match.problem_title}
+                          </div>
+                          <div className="text-[10px] text-stone-700 mt-0.5">
+                            {formattedDate} · {match.language}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div
+                            className={`text-sm font-mono font-bold ${
+                              isWin ? 'text-emerald-500' : 'text-red-500'
+                            }`}
+                          >
+                            {match.rating_change > 0 ? '+' : ''}
+                            {match.rating_change}
+                          </div>
+                          <div className="text-[10px] text-stone-600">RP</div>
+                        </div>
+                      </motion.div>
+                        </>
                       );
                     })}
                   </div>
@@ -161,7 +199,7 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
               </div>
 
               {/* Footer */}
-              <div className="p-4 border-t border-stone-800 bg-black/40">
+              <div className="p-3 sm:p-4 border-t border-stone-800 bg-black/40">
                 <div className="flex items-center justify-between text-xs text-stone-500">
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">

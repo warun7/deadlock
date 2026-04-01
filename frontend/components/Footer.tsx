@@ -12,7 +12,7 @@ const Footer: React.FC = () => {
             <h1 className="text-[20vw] font-black text-white whitespace-nowrap translate-y-[20%]">DEADLOCK</h1>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 relative z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-20 relative z-10">
             <div className="grid grid-cols-1 md:grid-cols-12 gap-12">
                 
                 {/* Brand Column */}
@@ -34,7 +34,7 @@ const Footer: React.FC = () => {
                 </div>
 
                 {/* Links Grid */}
-                <div className="md:col-span-8 grid grid-cols-2 md:grid-cols-3 gap-8">
+                <div className="md:col-span-8 grid grid-cols-2 sm:grid-cols-3 gap-6 sm:gap-8">
                     {[
                         { title: "Battle", links: ["Ranked Match", "Custom Game", "Tournaments", "Leaderboard"] },
                         { title: "Resources", links: ["Documentation", "API Status", "Algorithm Wiki", "Community"] },
@@ -60,7 +60,7 @@ const Footer: React.FC = () => {
 
             </div>
 
-            <div className="mt-20 pt-8 border-t border-stone-900 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="mt-12 sm:mt-20 pt-6 sm:pt-8 border-t border-stone-900 flex flex-col md:flex-row justify-between items-center gap-4">
                 <p className="text-stone-700 text-xs font-mono uppercase">
                     © 2024 Deadlock Inc. All systems normal.
                 </p>
