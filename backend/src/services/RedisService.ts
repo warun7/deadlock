@@ -1,6 +1,30 @@
 import Redis from "ioredis";
 import { config } from "../config";
-import { QueueEntry, MatchState } from "../types";
+import { MatchState } from "../types";
+import { createModuleLogger } from "../utils/logger";
+
+interface RedisMetricBucket {
+  calls: number;
+  success: number;
+  failure: number;
+  totalDurationMs: number;
+  maxDurationMs: number;
+  lastDurationMs: number;
+}
+
+interface RedisMetricsSnapshot {
+  since: string;
+  totals: RedisMetricBucket;
+  operations: Record<string, RedisMetricBucket>;
+  commands: Record<string, RedisMetricBucket>;
+}
+
+interface RedisDebugMatchesSnapshot {
+  matches: Array<Record<string, string>>;
+  userMatches: Array<{ key: string; matchId: string | null }>;
+}
+
+const redisLogger = createModuleLogger("redis");
 
 // Redis connection options for Upstash (TLS required)
 const REDIS_OPTIONS = {
@@ -31,19 +55,18 @@ const REDIS_OPTIONS = {
 /**
  * RedisService - Manages all Redis operations for the real-time layer
  *
- * Redis is the source of truth during the match.
- * All live state (queue, active matches) lives here.
+ * Redis is the source of truth for active match state and reconnect support.
+ * Matchmaking queue state is event-driven and kept in-process.
  */
 export class RedisService {
   private client: Redis;
-  private subscriber: Redis;
+  private metricsStartedAt = new Date();
+  private totals: RedisMetricBucket = this.createEmptyBucket();
+  private operationMetrics: Map<string, RedisMetricBucket> = new Map();
+  private commandMetrics: Map<string, RedisMetricBucket> = new Map();
 
   constructor() {
     this.client = new Redis(config.redisUrl, REDIS_OPTIONS);
-
-    // Separate connection for pub/sub
-    this.subscriber = new Redis(config.redisUrl, REDIS_OPTIONS);
-
     this.setupEventHandlers();
   }
 
@@ -55,165 +78,156 @@ export class RedisService {
     this.client.on("connect", () => {
       console.log("✅ Redis Client connected");
     });
-
-    this.subscriber.on("error", (err) => {
-      console.error("❌ Redis Subscriber Error:", err.message);
-    });
   }
 
   async connect(): Promise<void> {
-    await Promise.all([this.client.connect(), this.subscriber.connect()]);
+    await this.client.connect();
   }
 
   async disconnect(): Promise<void> {
-    await Promise.all([this.client.quit(), this.subscriber.quit()]);
+    await this.client.quit();
   }
 
   getClient(): Redis {
     return this.client;
   }
 
-  getSubscriber(): Redis {
-    return this.subscriber;
+  private createEmptyBucket(): RedisMetricBucket {
+    return {
+      calls: 0,
+      success: 0,
+      failure: 0,
+      totalDurationMs: 0,
+      maxDurationMs: 0,
+      lastDurationMs: 0,
+    };
   }
 
-  // ============================================
-  // Queue Operations
-  // ============================================
+  private updateBucket(
+    bucket: RedisMetricBucket,
+    durationMs: number,
+    success: boolean
+  ): void {
+    bucket.calls += 1;
+    bucket.totalDurationMs += durationMs;
+    bucket.lastDurationMs = durationMs;
+    bucket.maxDurationMs = Math.max(bucket.maxDurationMs, durationMs);
 
-  /**
-   * Add user to the matchmaking queue
-   * Uses RPUSH for FIFO ordering
-   */
-  async enqueue(entry: QueueEntry): Promise<number> {
-    // First check if user is already in queue
-    const isInQueue = await this.isUserInQueue(entry.userId);
-    if (isInQueue) {
-      console.log(`⚠️  User ${entry.userId} already in queue, skipping`);
-      return -1;
+    if (success) {
+      bucket.success += 1;
+    } else {
+      bucket.failure += 1;
     }
+  }
 
-    const position = await this.client.rpush(
-      config.redisKeys.queue,
-      JSON.stringify(entry)
+  private recordMetric(
+    operation: string,
+    command: string,
+    durationMs: number,
+    success: boolean
+  ): void {
+    this.updateBucket(this.totals, durationMs, success);
+
+    const operationBucket =
+      this.operationMetrics.get(operation) ?? this.createEmptyBucket();
+    this.updateBucket(operationBucket, durationMs, success);
+    this.operationMetrics.set(operation, operationBucket);
+
+    const commandBucket =
+      this.commandMetrics.get(command) ?? this.createEmptyBucket();
+    this.updateBucket(commandBucket, durationMs, success);
+    this.commandMetrics.set(command, commandBucket);
+  }
+
+  private cloneBucket(bucket: RedisMetricBucket): RedisMetricBucket {
+    return {
+      calls: bucket.calls,
+      success: bucket.success,
+      failure: bucket.failure,
+      totalDurationMs: Number(bucket.totalDurationMs.toFixed(2)),
+      maxDurationMs: Number(bucket.maxDurationMs.toFixed(2)),
+      lastDurationMs: Number(bucket.lastDurationMs.toFixed(2)),
+    };
+  }
+
+  private mapToRecord(
+    map: Map<string, RedisMetricBucket>
+  ): Record<string, RedisMetricBucket> {
+    return Object.fromEntries(
+      [...map.entries()]
+        .sort((a, b) => b[1].calls - a[1].calls)
+        .map(([key, bucket]) => [key, this.cloneBucket(bucket)])
+    );
+  }
+
+  private async measure<T>(
+    operation: string,
+    command: string,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    const start = process.hrtime.bigint();
+
+    try {
+      const result = await fn();
+      const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+      this.recordMetric(operation, command, durationMs, true);
+      return result;
+    } catch (error: any) {
+      const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+      this.recordMetric(operation, command, durationMs, false);
+      redisLogger.error("Redis command failed", {
+        operation,
+        command,
+        durationMs: Number(durationMs.toFixed(2)),
+        error: error?.message || "Unknown Redis error",
+      });
+      throw error;
+    }
+  }
+
+  getMetricsSnapshot(): RedisMetricsSnapshot {
+    return {
+      since: this.metricsStartedAt.toISOString(),
+      totals: this.cloneBucket(this.totals),
+      operations: this.mapToRecord(this.operationMetrics),
+      commands: this.mapToRecord(this.commandMetrics),
+    };
+  }
+
+  resetMetrics(): void {
+    this.metricsStartedAt = new Date();
+    this.totals = this.createEmptyBucket();
+    this.operationMetrics.clear();
+    this.commandMetrics.clear();
+  }
+
+  async getDebugMatchesSnapshot(): Promise<RedisDebugMatchesSnapshot> {
+    const matchKeys = await this.measure("debug_matches_keys", "KEYS", () =>
+      this.client.keys("match:*")
+    );
+    const userMatchKeys = await this.measure(
+      "debug_matches_user_keys",
+      "KEYS",
+      () => this.client.keys("user:*:match")
     );
 
-    console.log(
-      `📥 Enqueued user ${entry.username} (${entry.userId}) at position ${position}`
-    );
-    return position;
-  }
-
-  /**
-   * Remove user from queue (if they cancel)
-   * Uses Lua script for atomic read-remove operation
-   */
-  async dequeue(userId: string): Promise<boolean> {
-    const luaScript = `
-      local queue = redis.call('LRANGE', KEYS[1], 0, -1)
-      for i, entry in ipairs(queue) do
-        local parsed = cjson.decode(entry)
-        if parsed.userId == ARGV[1] then
-          redis.call('LREM', KEYS[1], 1, entry)
-          return 1
-        end
-      end
-      return 0
-    `;
-
-    const result = await this.client.eval(
-      luaScript,
-      1,
-      config.redisKeys.queue,
-      userId
-    );
-
-    if (result === 1) {
-      console.log(`📤 Dequeued user ${userId}`);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Get queue length
-   */
-  async getQueueLength(): Promise<number> {
-    return this.client.llen(config.redisKeys.queue);
-  }
-
-  /**
-   * Pop two players from the queue atomically
-   * Returns null if less than 2 players available
-   */
-  async popTwoPlayers(): Promise<[QueueEntry, QueueEntry] | null> {
-    // Use MULTI/EXEC for atomicity
-    const multi = this.client.multi();
-    multi.lpop(config.redisKeys.queue);
-    multi.lpop(config.redisKeys.queue);
-
-    const results = await multi.exec();
-
-    if (!results || results.length !== 2) {
-      return null;
+    const matches: Array<Record<string, string>> = [];
+    for (const key of matchKeys) {
+      const data = await this.measure("debug_matches_hgetall", "HGETALL", () =>
+        this.client.hgetall(key)
+      );
+      matches.push({ key, ...data });
     }
 
-    const [result1, result2] = results;
-
-    // Check if both pops succeeded
-    if (
-      !result1 ||
-      result1[0] ||
-      !result1[1] ||
-      !result2 ||
-      result2[0] ||
-      !result2[1]
-    ) {
-      // If only one popped, push it back
-      if (result1 && result1[1] && (!result2 || !result2[1])) {
-        await this.client.lpush(config.redisKeys.queue, result1[1] as string);
-      }
-      return null;
+    const userMatches: Array<{ key: string; matchId: string | null }> = [];
+    for (const key of userMatchKeys) {
+      const matchId = await this.measure("debug_matches_get", "GET", () =>
+        this.client.get(key)
+      );
+      userMatches.push({ key, matchId });
     }
 
-    const player1: QueueEntry = JSON.parse(result1[1] as string);
-    const player2: QueueEntry = JSON.parse(result2[1] as string);
-
-    console.log(
-      `🎮 Popped two players: ${player1.username} vs ${player2.username}`
-    );
-    return [player1, player2];
-  }
-
-  /**
-   * Check if user is already in queue
-   */
-  async isUserInQueue(userId: string): Promise<boolean> {
-    const queueData = await this.client.lrange(config.redisKeys.queue, 0, -1);
-    return queueData.some((entry) => {
-      const parsed: QueueEntry = JSON.parse(entry);
-      return parsed.userId === userId;
-    });
-  }
-
-  /**
-   * Get user's position in queue (1-indexed)
-   */
-  async getQueuePosition(userId: string): Promise<number> {
-    const queueData = await this.client.lrange(config.redisKeys.queue, 0, -1);
-    const index = queueData.findIndex((entry) => {
-      const parsed: QueueEntry = JSON.parse(entry);
-      return parsed.userId === userId;
-    });
-    return index === -1 ? -1 : index + 1;
-  }
-
-  /**
-   * Get all queue entries
-   */
-  async getQueue(): Promise<QueueEntry[]> {
-    const queueData = await this.client.lrange(config.redisKeys.queue, 0, -1);
-    return queueData.map((entry) => JSON.parse(entry) as QueueEntry);
+    return { matches, userMatches };
   }
 
   // ============================================
@@ -223,46 +237,54 @@ export class RedisService {
   /**
    * Create a new match state in Redis
    */
-  async createMatch(matchState: MatchState): Promise<void> {
+  async createMatch(
+    matchState: MatchState,
+    operation = "match_create"
+  ): Promise<void> {
     const key = config.redisKeys.match(matchState.id);
 
     // Store as hash for easy field access
-    await this.client.hset(key, {
-      id: matchState.id,
-      player1_id: matchState.player1.id,
-      player1_socketId: matchState.player1.socketId,
-      player1_username: matchState.player1.username,
-      player1_elo: matchState.player1.elo.toString(),
-      player2_id: matchState.player2.id,
-      player2_socketId: matchState.player2.socketId,
-      player2_username: matchState.player2.username,
-      player2_elo: matchState.player2.elo.toString(),
-      problemId: matchState.problemId,
-      problemTitle: matchState.problemTitle,
-      status: matchState.status,
-      winnerId: matchState.winnerId || "",
-      startedAt: matchState.startedAt.toString(),
-      finishedAt: matchState.finishedAt?.toString() || "",
-    });
+    await this.measure(operation, "HSET", () =>
+      this.client.hset(key, {
+        id: matchState.id,
+        player1_id: matchState.player1.id,
+        player1_socketId: matchState.player1.socketId,
+        player1_username: matchState.player1.username,
+        player1_elo: matchState.player1.elo.toString(),
+        player2_id: matchState.player2.id,
+        player2_socketId: matchState.player2.socketId,
+        player2_username: matchState.player2.username,
+        player2_elo: matchState.player2.elo.toString(),
+        problemId: matchState.problemId,
+        problemTitle: matchState.problemTitle,
+        status: matchState.status,
+        winnerId: matchState.winnerId || "",
+        startedAt: matchState.startedAt.toString(),
+        finishedAt: matchState.finishedAt?.toString() || "",
+      })
+    );
 
     // Set expiry (match + buffer time)
-    await this.client.expire(
-      key,
-      Math.ceil(config.match.timeoutMs / 1000) + 300
+    await this.measure(operation, "EXPIRE", () =>
+      this.client.expire(key, Math.ceil(config.match.timeoutMs / 1000) + 300)
     );
 
     // Map users to match
-    await this.client.set(
-      config.redisKeys.userMatch(matchState.player1.id),
-      matchState.id,
-      "EX",
-      Math.ceil(config.match.timeoutMs / 1000) + 300
+    await this.measure(operation, "SET", () =>
+      this.client.set(
+        config.redisKeys.userMatch(matchState.player1.id),
+        matchState.id,
+        "EX",
+        Math.ceil(config.match.timeoutMs / 1000) + 300
+      )
     );
-    await this.client.set(
-      config.redisKeys.userMatch(matchState.player2.id),
-      matchState.id,
-      "EX",
-      Math.ceil(config.match.timeoutMs / 1000) + 300
+    await this.measure(operation, "SET", () =>
+      this.client.set(
+        config.redisKeys.userMatch(matchState.player2.id),
+        matchState.id,
+        "EX",
+        Math.ceil(config.match.timeoutMs / 1000) + 300
+      )
     );
 
     console.log(
@@ -273,9 +295,14 @@ export class RedisService {
   /**
    * Get match state by ID
    */
-  async getMatch(matchId: string): Promise<MatchState | null> {
+  async getMatch(
+    matchId: string,
+    operation = "get_match"
+  ): Promise<MatchState | null> {
     const key = config.redisKeys.match(matchId);
-    const data = await this.client.hgetall(key);
+    const data = await this.measure(operation, "HGETALL", () =>
+      this.client.hgetall(key)
+    );
 
     if (!data || !data.id) {
       return null;
@@ -307,8 +334,13 @@ export class RedisService {
   /**
    * Get user's current match ID
    */
-  async getUserMatchId(userId: string): Promise<string | null> {
-    return this.client.get(config.redisKeys.userMatch(userId));
+  async getUserMatchId(
+    userId: string,
+    operation = "get_user_match_id"
+  ): Promise<string | null> {
+    return this.measure(operation, "GET", () =>
+      this.client.get(config.redisKeys.userMatch(userId))
+    );
   }
 
   /**
@@ -316,27 +348,25 @@ export class RedisService {
    */
   async updateMatchSocketId(
     matchId: string,
-    playerId: string,
-    newSocketId: string
+    socketField: "player1_socketId" | "player2_socketId",
+    newSocketId: string,
+    operation = "update_match_socket_id"
   ): Promise<void> {
     const key = config.redisKeys.match(matchId);
-    const match = await this.getMatch(matchId);
-
-    if (!match) return;
-
-    // Determine which player to update
-    if (match.player1.id === playerId) {
-      await this.client.hset(key, "player1_socketId", newSocketId);
-    } else if (match.player2.id === playerId) {
-      await this.client.hset(key, "player2_socketId", newSocketId);
-    }
+    await this.measure(operation, "HSET", () =>
+      this.client.hset(key, socketField, newSocketId)
+    );
   }
 
   /**
    * Atomic operation to set match winner
    * Returns true if this call set the winner, false if already set
    */
-  async setMatchWinner(matchId: string, winnerId: string): Promise<boolean> {
+  async setMatchWinner(
+    matchId: string,
+    winnerId: string,
+    operation = "set_match_winner"
+  ): Promise<boolean> {
     const key = config.redisKeys.match(matchId);
 
     // Use Lua script for atomicity
@@ -351,12 +381,8 @@ export class RedisService {
       return 1
     `;
 
-    const result = await this.client.eval(
-      luaScript,
-      1,
-      key,
-      winnerId,
-      Date.now().toString()
+    const result = await this.measure(operation, "EVAL", () =>
+      this.client.eval(luaScript, 1, key, winnerId, Date.now().toString())
     );
 
     return result === 1;
@@ -367,22 +393,31 @@ export class RedisService {
    */
   async updateMatchStatus(
     matchId: string,
-    status: MatchState["status"]
+    status: MatchState["status"],
+    operation = "update_match_status"
   ): Promise<void> {
     const key = config.redisKeys.match(matchId);
-    await this.client.hset(key, "status", status);
+    await this.measure(operation, "HSET", () =>
+      this.client.hset(key, "status", status)
+    );
   }
 
   /**
    * Delete match (cleanup)
    */
-  async deleteMatch(matchId: string): Promise<void> {
-    const match = await this.getMatch(matchId);
+  async deleteMatch(matchId: string, operation = "delete_match"): Promise<void> {
+    const match = await this.getMatch(matchId, `${operation}_read_match`);
     if (match) {
-      await this.client.del(config.redisKeys.userMatch(match.player1.id));
-      await this.client.del(config.redisKeys.userMatch(match.player2.id));
+      await this.measure(operation, "DEL", () =>
+        this.client.del(config.redisKeys.userMatch(match.player1.id))
+      );
+      await this.measure(operation, "DEL", () =>
+        this.client.del(config.redisKeys.userMatch(match.player2.id))
+      );
     }
-    await this.client.del(config.redisKeys.match(matchId));
+    await this.measure(operation, "DEL", () =>
+      this.client.del(config.redisKeys.match(matchId))
+    );
     console.log(`🗑️  Deleted match ${matchId}`);
   }
 
@@ -390,21 +425,37 @@ export class RedisService {
   // Socket Mapping (for reconnection)
   // ============================================
 
-  async setUserSocket(userId: string, socketId: string): Promise<void> {
-    await this.client.set(
-      config.redisKeys.userSocket(userId),
-      socketId,
-      "EX",
-      3600 // 1 hour
+  async setUserSocket(
+    userId: string,
+    socketId: string,
+    operation = "set_user_socket"
+  ): Promise<void> {
+    await this.measure(operation, "SET", () =>
+      this.client.set(
+        config.redisKeys.userSocket(userId),
+        socketId,
+        "EX",
+        3600 // 1 hour
+      )
     );
   }
 
-  async getUserSocket(userId: string): Promise<string | null> {
-    return this.client.get(config.redisKeys.userSocket(userId));
+  async getUserSocket(
+    userId: string,
+    operation = "get_user_socket"
+  ): Promise<string | null> {
+    return this.measure(operation, "GET", () =>
+      this.client.get(config.redisKeys.userSocket(userId))
+    );
   }
 
-  async deleteUserSocket(userId: string): Promise<void> {
-    await this.client.del(config.redisKeys.userSocket(userId));
+  async deleteUserSocket(
+    userId: string,
+    operation = "delete_user_socket"
+  ): Promise<void> {
+    await this.measure(operation, "DEL", () =>
+      this.client.del(config.redisKeys.userSocket(userId))
+    );
   }
 
   // ============================================
@@ -412,23 +463,14 @@ export class RedisService {
   // ============================================
 
   /**
-   * Clear the entire queue (for development/testing)
-   */
-  async clearQueue(): Promise<number> {
-    const length = await this.client.llen(config.redisKeys.queue);
-    if (length > 0) {
-      await this.client.del(config.redisKeys.queue);
-    }
-    return length;
-  }
-
-  /**
    * Clear a user's match association (for stuck users)
    */
   async clearUserMatch(userId: string): Promise<boolean> {
-    const matchId = await this.getUserMatchId(userId);
+    const matchId = await this.getUserMatchId(userId, "clear_user_match_get");
     if (matchId) {
-      await this.client.del(config.redisKeys.userMatch(userId));
+      await this.measure("clear_user_match", "DEL", () =>
+        this.client.del(config.redisKeys.userMatch(userId))
+      );
       console.log(
         `🧹 Cleared match association for user ${userId} (was: ${matchId})`
       );
@@ -452,19 +494,20 @@ export class RedisService {
     const matchKeys: string[] = [];
     let cursor = "0";
     do {
-      const [newCursor, keys] = await this.client.scan(
-        cursor,
-        "MATCH",
-        "match:*",
-        "COUNT",
-        100
+      const [newCursor, keys] = await this.measure(
+        "clear_all_match_data",
+        "SCAN",
+        () =>
+          this.client.scan(cursor, "MATCH", "match:*", "COUNT", 100)
       );
       cursor = newCursor;
       matchKeys.push(...keys);
     } while (cursor !== "0");
 
     if (matchKeys.length > 0) {
-      await this.client.del(...matchKeys);
+      await this.measure("clear_all_match_data", "DEL", () =>
+        this.client.del(...matchKeys)
+      );
       matches = matchKeys.length;
     }
 
@@ -472,30 +515,28 @@ export class RedisService {
     const userMatchKeys: string[] = [];
     cursor = "0";
     do {
-      const [newCursor, keys] = await this.client.scan(
-        cursor,
-        "MATCH",
-        "user:*:match",
-        "COUNT",
-        100
+      const [newCursor, keys] = await this.measure(
+        "clear_all_match_data",
+        "SCAN",
+        () =>
+          this.client.scan(cursor, "MATCH", "user:*:match", "COUNT", 100)
       );
       cursor = newCursor;
       userMatchKeys.push(...keys);
     } while (cursor !== "0");
 
     if (userMatchKeys.length > 0) {
-      await this.client.del(...userMatchKeys);
+      await this.measure("clear_all_match_data", "DEL", () =>
+        this.client.del(...userMatchKeys)
+      );
       userMatches = userMatchKeys.length;
     }
 
-    // Clear queue
-    const queue = await this.clearQueue();
-
     console.log(
-      `🧹 Cleared: ${matches} matches, ${userMatches} user-match associations, ${queue} queue entries`
+      `🧹 Cleared: ${matches} matches, ${userMatches} user-match associations`
     );
 
-    return { matches, userMatches, queue };
+    return { matches, userMatches, queue: 0 };
   }
 }
 

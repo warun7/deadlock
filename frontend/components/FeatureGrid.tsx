@@ -15,7 +15,7 @@ const noiseTexture = `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns
 
 // Grid pattern for texture
 const gridPattern =
-  "linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px)";
+  `linear-gradient(to right, var(--grid-line-color) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-line-color) 1px, transparent 1px)`;
 
 interface BentoCardProps {
   title: string;
@@ -36,32 +36,24 @@ const BentoCard: React.FC<BentoCardProps> = ({
 }) => {
   const variants = {
     default: {
-      bg: "bg-[#0a0a0a]",
-      border: "border-stone-800/50",
-      hoverBorder: "hover:border-stone-700",
-      iconBg: "bg-stone-900/80",
-      iconColor: "text-stone-400 group-hover:text-white",
+      containerStyle: { backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' },
+      hoverBorder: "hover:border-red-500/30",
+      iconStyle: { backgroundColor: 'var(--bg-card-hover)', color: 'var(--text-primary)' },
     },
     featured: {
-      bg: "bg-gradient-to-br from-red-950/40 via-[#0a0a0a] to-[#080808]",
-      border: "border-red-900/30",
-      hoverBorder: "hover:border-red-600/60",
-      iconBg: "bg-red-900/30",
-      iconColor: "text-red-500 group-hover:text-red-400",
+      containerStyle: { backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' },
+      hoverBorder: "hover:border-red-500/50",
+      iconStyle: { backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }, // red-500/10 and red-500
     },
     accent: {
-      bg: "bg-gradient-to-br from-amber-950/20 via-[#0a0a0a] to-[#080808]",
-      border: "border-amber-900/20",
-      hoverBorder: "hover:border-amber-600/40",
-      iconBg: "bg-amber-900/20",
-      iconColor: "text-amber-500 group-hover:text-amber-400",
+      containerStyle: { backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' },
+      hoverBorder: "hover:border-amber-500/50",
+      iconStyle: { backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }, // amber-500/10 and amber-500
     },
     dark: {
-      bg: "bg-[#060606]",
-      border: "border-stone-900/50",
-      hoverBorder: "hover:border-stone-700",
-      iconBg: "bg-stone-900/50",
-      iconColor: "text-stone-500 group-hover:text-stone-300",
+      containerStyle: { backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-subtle)' },
+      hoverBorder: "hover:border-stone-500/50",
+      iconStyle: { backgroundColor: 'var(--bg-card-solid)', color: 'var(--text-muted)' },
     },
   };
 
@@ -80,7 +72,8 @@ const BentoCard: React.FC<BentoCardProps> = ({
       className={`group relative ${className}`}
     >
       <div
-        className={`relative h-full p-6 md:p-8 ${v.bg} border ${v.border} ${v.hoverBorder} rounded-2xl transition-all duration-500 overflow-hidden`}
+        className={`relative h-full p-6 md:p-8 border ${v.hoverBorder} rounded-2xl transition-all duration-500 overflow-hidden`}
+        style={v.containerStyle}
       >
         {/* Noise texture overlay */}
         <div
@@ -109,20 +102,21 @@ const BentoCard: React.FC<BentoCardProps> = ({
         <div className="relative z-10 h-full flex flex-col">
           {/* Icon */}
           <div
-            className={`mb-5 p-3 w-fit ${v.iconBg} backdrop-blur-sm rounded-xl border border-stone-800/50 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}
+            className="mb-5 p-3 w-fit backdrop-blur-sm rounded-xl border group-hover:scale-110 group-hover:rotate-3 transition-all duration-300"
+            style={{ ...v.iconStyle, borderColor: 'var(--border-subtle)' }}
           >
-            <div className={`${v.iconColor} transition-colors duration-300`}>
+            <div className="transition-colors duration-300">
               {icon}
             </div>
           </div>
 
           {/* Title */}
-          <h3 className="text-lg md:text-xl font-bold text-white mb-3 font-mono uppercase tracking-tight group-hover:text-red-50 transition-colors">
+          <h3 className="text-lg md:text-xl font-bold mb-3 font-mono uppercase tracking-tight transition-colors" style={{ color: 'var(--text-primary)' }}>
             {title}
           </h3>
 
           {/* Description */}
-          <p className="text-sm text-stone-500 leading-relaxed group-hover:text-stone-400 transition-colors flex-grow">
+          <p className="text-sm leading-relaxed transition-colors flex-grow" style={{ color: 'var(--text-dim)' }}>
             {description}
           </p>
 
@@ -143,7 +137,7 @@ const BentoCard: React.FC<BentoCardProps> = ({
 
 const FeatureGrid: React.FC = () => {
   return (
-    <section className="py-16 sm:py-24 md:py-32 relative z-10 bg-[#050505]">
+    <section className="py-16 sm:py-24 md:py-32 relative z-10" style={{ backgroundColor: 'var(--bg-primary)' }}>
       {/* Background texture */}
       <div className="absolute inset-0 pointer-events-none">
         <div
@@ -168,7 +162,7 @@ const FeatureGrid: React.FC = () => {
               <span className="inline-block px-3 py-1 mb-4 text-xs font-mono uppercase tracking-wider text-red-500 bg-red-500/10 border border-red-500/20 rounded-full">
                 ▸ Feature Set
               </span>
-              <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white font-mono uppercase tracking-tighter">
+              <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black font-mono uppercase tracking-tighter" style={{ color: 'var(--text-primary)' }}>
                 Built for
                 <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-500">
@@ -176,7 +170,7 @@ const FeatureGrid: React.FC = () => {
                 </span>
               </h2>
             </div>
-            <div className="flex items-center gap-3 text-stone-600">
+            <div className="flex items-center gap-3" style={{ color: 'var(--text-dim)' }}>
               <div className="flex gap-1">
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                 <div className="w-2 h-2 rounded-full bg-stone-700" />
@@ -243,7 +237,8 @@ const FeatureGrid: React.FC = () => {
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.4 }}
               viewport={{ once: true }}
-              className="relative p-6 md:p-8 bg-gradient-to-r from-[#0a0a0a] via-red-950/10 to-[#0a0a0a] border border-stone-800/50 rounded-2xl overflow-hidden group"
+              className="relative p-6 md:p-8 border rounded-2xl overflow-hidden group"
+              style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}
             >
               {/* Textures */}
               <div
@@ -275,14 +270,17 @@ const FeatureGrid: React.FC = () => {
 
               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
                 <div className="flex items-center gap-6">
-                  <div className="p-4 bg-red-900/20 rounded-xl border border-red-800/30">
+                  <div 
+                    className="p-4 rounded-xl border"
+                    style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'var(--border-subtle)' }}
+                  >
                     <Code2 className="w-8 h-8 text-red-500" />
                   </div>
                   <div>
-                    <h3 className="text-xl md:text-2xl font-bold text-white font-mono uppercase tracking-tight mb-1">
+                    <h3 className="text-xl md:text-2xl font-bold font-mono uppercase tracking-tight mb-1" style={{ color: 'var(--text-primary)' }}>
                       Real-Time Code Sync
                     </h3>
-                    <p className="text-stone-500 text-sm md:text-base">
+                    <p className="text-sm md:text-base" style={{ color: 'var(--text-dim)' }}>
                       Watch your opponent's progress live. See when they submit.
                       Feel the pressure mount.
                     </p>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Server, Globe } from "lucide-react";
@@ -14,10 +14,15 @@ const RealMatchmakingPage: React.FC = () => {
   const [timer, setTimer] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [matchData, setMatchData] = useState<any>(null);
+  const queueJoinedRef = useRef(false);
+  const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   useEffect(() => {
-    let timerInterval: NodeJS.Timeout;
-    let hasJoinedQueue = false; // Flag to prevent double join
+    let timerInterval: ReturnType<typeof setInterval> | null = null;
+    let cleanupSocketListeners = () => {};
+    let isCancelled = false;
 
     const initSocket = async () => {
       try {
@@ -34,19 +39,13 @@ const RealMatchmakingPage: React.FC = () => {
         // Connect socket (or get existing connection)
         const socket = gameSocket.connect(session.access_token);
 
-        // IMPORTANT: Remove old listeners to prevent duplicates
-        socket.off("connect");
-        socket.off("connect_error");
-        socket.off("queue_joined");
-        socket.off("match_found");
-        socket.off("error");
-
         // Helper to join queue (only once)
         const joinQueueOnce = () => {
-          if (hasJoinedQueue) {
+          if (queueJoinedRef.current) {
             return;
           }
-          hasJoinedQueue = true;
+
+          queueJoinedRef.current = true;
           setStatus("searching");
           gameSocket.joinQueue();
 
@@ -56,59 +55,101 @@ const RealMatchmakingPage: React.FC = () => {
           }, 1000);
         };
 
+        const handleConnect = () => {
+          joinQueueOnce();
+        };
+
+        const handleConnectError = (err: Error) => {
+          console.error("Connection error:", err);
+          setError("Failed to connect to server");
+          setStatus("error");
+        };
+
+        const handleDisconnect = () => {
+          if (!queueJoinedRef.current) {
+            return;
+          }
+
+          queueJoinedRef.current = false;
+          setStatus("connecting");
+
+          if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+          }
+        };
+
+        const handleMatchFound = (data: any) => {
+          queueJoinedRef.current = false;
+          setMatchData(data);
+          setStatus("found");
+
+          if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+          }
+
+          navigationTimeoutRef.current = setTimeout(() => {
+            navigate(`/game/${data.matchId}`, { state: { matchData: data } });
+          }, 3000);
+        };
+
+        const handleError = (data: any) => {
+          console.error("Socket error:", data);
+          setError(data.message);
+          setStatus("error");
+        };
+
         // If already connected, join queue immediately
         if (socket.connected) {
           joinQueueOnce();
         }
 
         // Wait for connection (for new connections)
-        socket.on("connect", () => {
-          joinQueueOnce();
-        });
+        socket.on("connect", handleConnect);
+        socket.on("connect_error", handleConnectError);
+        socket.on("disconnect", handleDisconnect);
+        socket.on("match_found", handleMatchFound);
+        socket.on("error", handleError);
 
-        socket.on("connect_error", (err) => {
-          console.error("Connection error:", err);
-          setError("Failed to connect to server");
-          setStatus("error");
-        });
-
-        socket.on("queue_joined", (data) => {
-          // Queue joined successfully
-        });
-
-        socket.on("match_found", (data) => {
-          setMatchData(data);
-          setStatus("found");
-          clearInterval(timerInterval);
-
-          // Navigate to game after animation
-          setTimeout(() => {
-            navigate(`/game/${data.matchId}`, { state: { matchData: data } });
-          }, 3000);
-        });
-
-        socket.on("error", (data) => {
-          console.error("Socket error:", data);
-          setError(data.message);
-          setStatus("error");
-        });
+        cleanupSocketListeners = () => {
+          socket.off("connect", handleConnect);
+          socket.off("connect_error", handleConnectError);
+          socket.off("disconnect", handleDisconnect);
+          socket.off("match_found", handleMatchFound);
+          socket.off("error", handleError);
+        };
       } catch (err: any) {
         console.error("Init error:", err);
+        if (isCancelled) {
+          return;
+        }
+
         setError(err.message);
         setStatus("error");
       }
     };
 
-    initSocket();
+    void initSocket();
 
     return () => {
-      clearInterval(timerInterval);
-      // Only leave queue if still searching (not if match found)
-      if (status === "searching") {
+      isCancelled = true;
+      cleanupSocketListeners();
+
+      if (timerInterval) {
+        clearInterval(timerInterval);
+      }
+
+      if (navigationTimeoutRef.current) {
+        clearTimeout(navigationTimeoutRef.current);
+      }
+
+      if (queueJoinedRef.current) {
         gameSocket.leaveQueue();
+        queueJoinedRef.current = false;
       }
     };
-  }, []); // Empty deps - only run once on mount
+  }, [navigate]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -117,6 +158,11 @@ const RealMatchmakingPage: React.FC = () => {
   };
 
   const handleCancel = () => {
+    if (navigationTimeoutRef.current) {
+      clearTimeout(navigationTimeoutRef.current);
+    }
+
+    queueJoinedRef.current = false;
     gameSocket.leaveQueue();
     gameSocket.disconnect();
     navigate("/");

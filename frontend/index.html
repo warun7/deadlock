@@ -9,13 +9,90 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&family=Space+Grotesk:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+
+    <!-- Prevent flash of wrong theme (FOUC) -->
+    <script>
+      (function() {
+        var theme = localStorage.getItem('deadlock-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+
     <style>
+      /* ========================================
+         THEME SYSTEM — CSS Custom Properties
+         ======================================== */
+      :root {
+        /* Backgrounds */
+        --bg-primary: #050505;
+        --bg-secondary: #0a0a0a;
+        --bg-card: rgba(28, 25, 23, 0.4);
+        --bg-card-solid: #1c1917;
+        --bg-card-hover: #292524;
+        --bg-input: rgba(0, 0, 0, 0.5);
+        --bg-elevated: rgba(0, 0, 0, 0.8);
+        --bg-surface: rgba(10, 10, 10, 0.8);
+
+        /* Text */
+        --text-primary: #ffffff;
+        --text-secondary: #a8a29e;
+        --text-muted: #78716c;
+        --text-dim: #57534e;
+        --text-ghost: #44403c;
+
+        /* Borders */
+        --border-primary: #292524;
+        --border-subtle: rgba(255, 255, 255, 0.05);
+
+        /* Scrollbar */
+        --scrollbar-track: #000000;
+        --scrollbar-thumb: #333333;
+
+        /* Misc */
+        --shadow-glow: rgba(220, 38, 38, 0.3);
+        --noise-opacity: 0.015;
+        --grid-line-color: rgba(255, 255, 255, 0.02);
+        --gradient-overlay: rgba(5, 5, 5, 0.9);
+      }
+
+      [data-theme="light"] {
+        --bg-primary: #f8fafc; /* slate-50 */
+        --bg-secondary: #ffffff;
+        --bg-card: rgba(255, 255, 255, 0.7);
+        --bg-card-solid: #f1f5f9; /* slate-100 */
+        --bg-card-hover: #e2e8f0; /* slate-200 */
+        --bg-input: #ffffff;
+        --bg-elevated: rgba(255, 255, 255, 0.95);
+        --bg-surface: rgba(255, 255, 255, 0.85);
+
+        --text-primary: #0f172a; /* slate-900 */
+        --text-secondary: #334155; /* slate-700 */
+        --text-muted: #64748b; /* slate-500 */
+        --text-dim: #94a3b8; /* slate-400 */
+        --text-ghost: #cbd5e1; /* slate-300 */
+
+        --border-primary: #e2e8f0; /* slate-200 */
+        --border-subtle: rgba(15, 23, 42, 0.06); /* slate-900 with opacity */
+
+        --scrollbar-track: #f8fafc;
+        --scrollbar-thumb: #cbd5e1;
+
+        --shadow-glow: rgba(220, 38, 38, 0.08); /* softer red glow */
+        --noise-opacity: 0; /* remove noise in light mode for a cleaner look */
+        --grid-line-color: rgba(15, 23, 42, 0.04); /* very subtle grid */
+        --gradient-overlay: rgba(248, 250, 252, 0.9);
+      }
+
+      /* ========================================
+         BASE STYLES
+         ======================================== */
       body {
         font-family: 'JetBrains Mono', monospace;
-        background-color: #050505;
-        color: white;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
         overflow-x: hidden;
         -webkit-overflow-scrolling: touch;
+        transition: background-color 0.3s ease, color 0.3s ease;
       }
 
       /* Hide cursor only on non-touch (pointer:fine) devices */
@@ -53,17 +130,19 @@
         height: 6px;
       }
       ::-webkit-scrollbar-track {
-        background: #000;
+        background: var(--scrollbar-track);
       }
       ::-webkit-scrollbar-thumb {
-        background: #333;
+        background: var(--scrollbar-thumb);
         border-radius: 0px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #ef4444; /* red-500 */
+        background: #ef4444;
       }
       
-      /* Animations */
+      /* ========================================
+         ANIMATIONS
+         ======================================== */
       @keyframes grid-move {
         0% { background-position: 0 0; }
         100% { background-position: 60px 60px; }
@@ -126,18 +205,28 @@
         100% { opacity: 1; }
       }
 
-      /* Glitch Text Effect Utility */
       .glitch-wrapper {
         position: relative;
       }
 
-      /* Performance: GPU acceleration for animated elements */
+      /* ========================================
+         THEME TRANSITIONS
+         ======================================== */
+      .theme-transition {
+        transition: background-color 0.3s ease, 
+                    color 0.3s ease, 
+                    border-color 0.3s ease,
+                    box-shadow 0.3s ease;
+      }
+
+      /* ========================================
+         PERFORMANCE
+         ======================================== */
       .animate-grid,
       .animate-marquee {
         will-change: transform;
       }
 
-      /* Performance: Reduce animations on mobile and for users who prefer reduced motion */
       @media (prefers-reduced-motion: reduce) {
         .animate-grid,
         .animate-marquee,
@@ -147,7 +236,6 @@
         }
       }
 
-      /* Performance: Disable heavy effects on small screens */
       @media (max-width: 640px) {
         .animate-grid {
           animation-duration: 8s;

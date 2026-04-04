@@ -1,5 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
+import crypto from 'crypto';
 import cors from 'cors';
 import { validateEnv } from './config/validation';
 import { config, validateConfig } from './config';
@@ -30,6 +31,30 @@ const banner = `
 ╚══════════════════════════════════════════════════════════════╝
 `;
 
+function isAuthorizedDebugRequest(req: express.Request): boolean {
+  if (config.nodeEnv !== 'production') {
+    return true;
+  }
+
+  if (!config.adminSecret) {
+    return false;
+  }
+
+  const provided = req.header('x-admin-secret');
+  if (!provided) {
+    return false;
+  }
+
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(config.adminSecret);
+
+  if (providedBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
 async function main(): Promise<void> {
   console.log(banner);
   
@@ -41,6 +66,7 @@ async function main(): Promise<void> {
   
   // Create Express app
   const app = express();
+  let socketServer: DeadlockSocketServer | null = null;
   
   // Security middleware
   app.use(securityHeaders);
@@ -70,11 +96,17 @@ async function main(): Promise<void> {
   // Stats endpoint
   app.get('/stats', async (req, res) => {
     try {
-      const queueLength = await redisService.getQueueLength();
+      const redisMetrics = redisService.getMetricsSnapshot();
       res.json({
         status: 'ok',
         queue: {
-          length: queueLength,
+          length: socketServer?.getQueueLength() ?? 0,
+        },
+        redis: {
+          since: redisMetrics.since,
+          calls: redisMetrics.totals.calls,
+          success: redisMetrics.totals.success,
+          failure: redisMetrics.totals.failure,
         },
         timestamp: new Date().toISOString(),
       });
@@ -88,17 +120,25 @@ async function main(): Promise<void> {
   
   // Debug endpoints - with stricter rate limiting
   app.use('/debug/', debugLimiter);
+  app.use('/debug/', (req, res, next) => {
+    if (!isAuthorizedDebugRequest(req)) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Forbidden',
+      });
+      return;
+    }
+
+    next();
+  });
   
   // Debug endpoint - shows full queue contents
   app.get('/debug/queue', async (req, res) => {
     try {
-      const client = redisService.getClient();
-      const queueData = await client.lrange('queue:global', 0, -1);
-      const parsed = queueData.map(entry => JSON.parse(entry));
       res.json({
         status: 'ok',
-        queue: parsed,
-        count: parsed.length,
+        queue: socketServer?.getQueue() ?? [],
+        count: socketServer?.getQueueLength() ?? 0,
         timestamp: new Date().toISOString(),
       });
     } catch (error: any) {
@@ -112,21 +152,7 @@ async function main(): Promise<void> {
   // Debug endpoint - shows all matches
   app.get('/debug/matches', async (req, res) => {
     try {
-      const client = redisService.getClient();
-      const matchKeys = await client.keys('match:*');
-      const userMatchKeys = await client.keys('user:*:match');
-      
-      const matches: any[] = [];
-      for (const key of matchKeys) {
-        const data = await client.hgetall(key);
-        matches.push({ key, ...data });
-      }
-      
-      const userMatches: any[] = [];
-      for (const key of userMatchKeys) {
-        const matchId = await client.get(key);
-        userMatches.push({ key, matchId });
-      }
+      const { matches, userMatches } = await redisService.getDebugMatchesSnapshot();
       
       res.json({
         status: 'ok',
@@ -140,6 +166,23 @@ async function main(): Promise<void> {
         message: error.message,
       });
     }
+  });
+
+  app.get('/debug/redis-metrics', (req, res) => {
+    res.json({
+      status: 'ok',
+      metrics: redisService.getMetricsSnapshot(),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.post('/debug/redis-metrics/reset', (req, res) => {
+    redisService.resetMetrics();
+    res.json({
+      status: 'ok',
+      message: 'Redis metrics reset',
+      timestamp: new Date().toISOString(),
+    });
   });
   
   // Debug endpoint - CLEAR all stale data (use with caution!)
@@ -194,7 +237,7 @@ async function main(): Promise<void> {
   
   // Initialize Socket Server
   console.log('🔄 Initializing Socket server...');
-  const socketServer = new DeadlockSocketServer(httpServer);
+  socketServer = new DeadlockSocketServer(httpServer);
   await socketServer.initialize();
   
   // Error handling middleware (must be last)
@@ -283,4 +326,3 @@ main().catch((error) => {
   console.error('❌ Fatal error:', error);
   process.exit(1);
 });
-

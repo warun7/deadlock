@@ -38,8 +38,8 @@ const LandingPage: React.FC = () => {
           <FeatureGrid />
         </div>
         {/* CTA Section */}
-        <section className="py-20 sm:py-40 relative overflow-hidden border-t border-stone-900">
-          <div className="absolute inset-0 bg-[#050505]">
+        <section className="py-20 sm:py-40 relative overflow-hidden" style={{ borderTop: '1px solid var(--border-primary)' }}>
+          <div className="absolute inset-0" style={{ backgroundColor: 'var(--bg-primary)' }}>
              {/* Noise texture */}
              <div 
                className="absolute inset-0 opacity-[0.02]"
@@ -55,7 +55,7 @@ const LandingPage: React.FC = () => {
           <div className="max-w-4xl mx-auto px-4 relative z-10 text-center">
             {/* Glitch-style heading */}
             <div className="relative mb-12">
-              <h2 className="text-4xl sm:text-5xl md:text-8xl font-black font-mono tracking-tighter uppercase text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-stone-600">
+              <h2 className="text-4xl sm:text-5xl md:text-8xl font-black font-mono tracking-tighter uppercase text-transparent bg-clip-text" style={{ backgroundImage: 'linear-gradient(to bottom, var(--text-primary), var(--text-dim))' }}>
                 Ready?
               </h2>
               {/* Glitch layers */}
@@ -73,7 +73,8 @@ const LandingPage: React.FC = () => {
                 
                 <button 
                   onClick={handleLoginClick}
-                  className="relative px-12 py-6 bg-[#0a0a0a] rounded-lg font-black text-xl text-white transition-all duration-300 overflow-hidden border border-transparent"
+                  className="relative px-12 py-6 rounded-lg font-black text-xl transition-all duration-300 overflow-hidden border border-transparent"
+                  style={{ backgroundColor: 'var(--bg-card-solid)', color: 'var(--text-primary)' }}
                 >
                   {/* Button noise texture */}
                   <div 
@@ -85,10 +86,10 @@ const LandingPage: React.FC = () => {
                   <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></div>
                   
                   {/* Button content */}
-                  <span className="relative flex items-center gap-4 z-10 font-mono uppercase tracking-wider">
+                  <span className="relative flex items-center gap-4 z-10 font-mono uppercase tracking-wider group-hover:text-white transition-colors">
                      <span className="text-red-500 group-hover:text-white transition-colors">▸</span>
                      Enter Arena
-                     <ChevronRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+                     <ChevronRight className="w-6 h-6 group-hover:translate-x-1 transition-all" />
                   </span>
                   
                   {/* Corner accents */}
@@ -101,12 +102,12 @@ const LandingPage: React.FC = () => {
               
               {/* Status indicators */}
               <div className="mt-12 flex flex-col items-center gap-3">
-                <div className="flex items-center gap-6 text-xs font-mono text-stone-600">
+                <div className="flex items-center gap-6 text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
                   <div className="flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
                     <span>SERVERS ONLINE</span>
                   </div>
-                  <div className="w-px h-3 bg-stone-800"></div>
+                  <div className="w-px h-3" style={{ backgroundColor: 'var(--border-primary)' }}></div>
                   <span>LATENCY: &lt;50MS</span>
                 </div>
                 <p className="animate-pulse text-red-500 text-sm font-mono flex items-center gap-2">

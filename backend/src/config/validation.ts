@@ -7,8 +7,6 @@ const requiredEnvVars = [
   'SUPABASE_URL',
   'SUPABASE_ANON_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
-  'REDIS_URL',
-  'JUDGE0_URL',
   'PORT',
   'NODE_ENV',
 ];
@@ -16,6 +14,8 @@ const requiredEnvVars = [
 const optionalEnvVars = [
   'FRONTEND_URL',
   'LOG_LEVEL',
+  'ENABLE_REDIS_ADAPTER',
+  'ADMIN_SECRET',
 ];
 
 export function validateEnv(): void {
@@ -41,7 +41,9 @@ export function validateEnv(): void {
   // Validate URL formats
   try {
     new URL(process.env.SUPABASE_URL!);
-    new URL(process.env.JUDGE0_URL!);
+    if (process.env.JUDGE0_URL) {
+      new URL(process.env.JUDGE0_URL);
+    }
   } catch (error) {
     console.error('❌ Invalid URL format in environment variables');
     process.exit(1);
@@ -64,4 +66,3 @@ export function getEnv(key: string, defaultValue?: string): string {
   }
   return value || defaultValue!;
 }
-

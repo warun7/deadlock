@@ -12,8 +12,16 @@ export const config = {
   // Frontend
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
 
+  // Admin / debug
+  adminSecret: process.env.ADMIN_SECRET || "",
+
   // Redis
   redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
+
+  // Socket / scaling
+  socket: {
+    enableRedisAdapter: process.env.ENABLE_REDIS_ADAPTER === "true",
+  },
 
   // Supabase
   supabase: {
@@ -32,10 +40,6 @@ export const config = {
   // Match settings
   match: {
     timeoutMs: parseInt(process.env.MATCH_TIMEOUT_MS || "1800000", 10), // 30 minutes default
-    matchmakingIntervalMs: parseInt(
-      process.env.MATCHMAKING_INTERVAL_MS || "1000",
-      10
-    ),
   },
 
   // Bot configuration
@@ -57,7 +61,6 @@ export const config = {
 
   // Redis keys
   redisKeys: {
-    queue: "queue:global",
     match: (matchId: string) => `match:${matchId}`,
     userMatch: (userId: string) => `user:${userId}:match`,
     userSocket: (userId: string) => `user:${userId}:socket`,

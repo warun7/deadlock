@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -21,6 +21,8 @@ import "katex/dist/katex.min.css";
 import CodeEditor from "../components/CodeEditor";
 import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../contexts/AuthContext";
+import type { MatchFoundPayload } from "../types";
 
 // Convert Codeforces-style math ($$$...$$$) to standard LaTeX ($...$)
 const convertCodeforcesMath = (text: string): string => {
@@ -58,6 +60,12 @@ int main() {
 };
 
 type Language = keyof typeof STARTER_CODE;
+type SubmissionResult = {
+  status: string;
+  passed: number;
+  total: number;
+  stderr?: string;
+};
 
 // Mobile tab state for switching between problem/editor
 type MobileTab = 'problem' | 'code';
@@ -83,7 +91,8 @@ const RealGameArena: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { matchId } = useParams<{ matchId: string }>();
-  const matchData = location.state?.matchData;
+  const { user } = useAuth();
+  const matchData = location.state?.matchData as MatchFoundPayload | undefined;
 
   const [language, setLanguage] = useState<Language>("python");
   const [code, setCode] = useState(STARTER_CODE.python);
@@ -91,12 +100,13 @@ const RealGameArena: React.FC = () => {
   const [mobileTab, setMobileTab] = useState<MobileTab>('problem');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submissionResult, setSubmissionResult] = useState<any>(null);
+  const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
   const [opponentProgress, setOpponentProgress] = useState<string>("Idle");
   const [gameOver, setGameOver] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
   const [gameOverReason, setGameOverReason] = useState<string>("");
   const [showForfeitModal, setShowForfeitModal] = useState(false);
+  const [socketError, setSocketError] = useState<string | null>(null);
 
   /* State */
   const [resultsHeight, setResultsHeight] = useState(192); // Default h-48 equivalent
@@ -138,12 +148,15 @@ const RealGameArena: React.FC = () => {
   };
 
   // Store match data in state (can be updated from rejoin)
-  const [currentMatchData, setCurrentMatchData] = useState<any>(matchData);
+  const [currentMatchData, setCurrentMatchData] = useState<MatchFoundPayload | null>(matchData ?? null);
   const [isLoading, setIsLoading] = useState(!matchData);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Handle socket connection and match rejoin
   useEffect(() => {
+    let cleanupSocketListeners = () => {};
+    let isCancelled = false;
+
     // If we have match data from navigation, use it
     if (matchData) {
       setCurrentMatchData(matchData);
@@ -179,46 +192,53 @@ const RealGameArena: React.FC = () => {
       return socket;
     };
 
-    initSocket().then((socket) => {
-      if (!socket) return;
+    const setupSocket = async () => {
+      const socket = await initSocket();
+      if (!socket || isCancelled) {
+        return;
+      }
 
       // Handle match_found event (for rejoin)
-      const handleMatchFound = (data: any) => {
+      const handleMatchFound = (data: MatchFoundPayload) => {
         setCurrentMatchData(data);
         setIsLoading(false);
         setLoadError(null);
+        setSocketError(null);
       };
 
       // Listen for submission results
-      const handleSubmissionResult = (result: any) => {
+      const handleSubmissionResult = (result: SubmissionResult) => {
         setSubmissionResult(result);
         setIsSubmitting(false);
+        setSocketError(null);
       };
 
       // Listen for opponent progress
-      const handleOpponentProgress = (data: any) => {
+      const handleOpponentProgress = (data: { status: string }) => {
         setOpponentProgress(data.status);
       };
 
       // Listen for game over
-      const handleGameOver = (data: any) => {
+      const handleGameOver = (data: { winnerId: string | null; reason?: string }) => {
         setGameOver(true);
         setWinner(data.winnerId);
         setGameOverReason(data.reason || "Match ended");
       };
 
       // Listen for errors
-      const handleError = (data: any) => {
+      const handleError = (data: { message: string; code?: string }) => {
         console.error("Socket error:", data);
         if (data.code === "MATCH_NOT_FOUND" || data.code === "MATCH_ENDED") {
           setLoadError(data.message);
           setIsLoading(false);
         } else if (data.code !== "NOT_PARTICIPANT") {
-          // Don't show alert for normal errors during rejoin
-          if (!isLoading) {
-            alert(data.message);
-          }
+          setSocketError(data.message);
         }
+      };
+
+      const handleConnect = () => {
+        gameSocket.rejoinMatch(matchId);
+        socket.off("connect", handleConnect);
       };
 
       socket?.on("match_found", handleMatchFound);
@@ -234,23 +254,29 @@ const RealGameArena: React.FC = () => {
             gameSocket.rejoinMatch(matchId);
           } else {
             // Wait for socket to connect
-            socket?.once("connect", () => {
-              gameSocket.rejoinMatch(matchId);
-            });
+            socket?.on("connect", handleConnect);
           }
         };
 
         attemptRejoin();
       }
 
-      return () => {
+      cleanupSocketListeners = () => {
         socket?.off("match_found", handleMatchFound);
         socket?.off("submission_result", handleSubmissionResult);
         socket?.off("opponent_progress", handleOpponentProgress);
         socket?.off("game_over", handleGameOver);
         socket?.off("error", handleError);
+        socket?.off("connect", handleConnect);
       };
-    });
+    };
+
+    void setupSocket();
+
+    return () => {
+      isCancelled = true;
+      cleanupSocketListeners();
+    };
   }, [matchId, matchData, navigate]);
 
   const handleLanguageChange = (lang: Language) => {
@@ -261,18 +287,18 @@ const RealGameArena: React.FC = () => {
 
   const handleSubmit = () => {
     if (!gameSocket.isConnected()) {
-      alert("Not connected to server");
+      setSocketError("Not connected to server");
       return;
     }
 
     setIsSubmitting(true);
     setSubmissionResult(null);
+    setSocketError(null);
 
     gameSocket.submitCode(code, LANGUAGE_IDS[language]);
   };
 
-  // Determine if current user won (if winner is opponent, we lost)
-  const didWin = winner !== null && winner !== currentMatchData?.opponent?.id;
+  const didWin = winner !== null && winner === user?.id;
 
   // Show loading state
   if (isLoading) {
@@ -604,7 +630,7 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
                 <div className="h-3 w-px bg-stone-700"></div>
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-white font-medium">
-                    {matchData?.opponent?.username || "Unknown"}
+                    {currentMatchData?.opponent?.username || "Unknown"}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 ml-2">
@@ -640,6 +666,12 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
               function and imports.
             </p>
           </div>
+
+          {socketError && (
+            <div className="bg-red-950/40 border-b border-red-900/40 px-4 py-2 text-xs text-red-300">
+              {socketError}
+            </div>
+          )}
 
           {/* Code Editor Area */}
           <div className="flex-1 relative overflow-hidden bg-[#0c0c0c]">

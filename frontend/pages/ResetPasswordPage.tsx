@@ -83,7 +83,7 @@ const ResetPasswordPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4 font-mono relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center p-4 font-mono relative overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)' }}>
       {/* Background effects */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(220,38,38,0.1),transparent_70%)]"></div>
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:40px_40px]"></div>
@@ -98,7 +98,7 @@ const ResetPasswordPage: React.FC = () => {
       </button>
 
       <div className="relative z-10 w-full max-w-md">
-        <div className="bg-black/80 border-2 border-stone-800 p-8 backdrop-blur-sm">
+        <div className="p-8 backdrop-blur-sm" style={{ backgroundColor: 'var(--bg-elevated)', border: '2px solid var(--border-primary)' }}>
           {/* Header */}
           <div className="text-center mb-8">
             <div className="flex justify-center mb-4">

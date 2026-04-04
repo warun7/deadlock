@@ -4,6 +4,7 @@ import { redisService } from "./RedisService";
 import { problemService } from "./ProblemService";
 import { BotPlayer, BotCompletionResult } from "./BotPlayer";
 import { config } from "../config";
+import type { GameService } from "./GameService";
 import {
   QueueEntry,
   MatchState,
@@ -16,15 +17,18 @@ import {
 /**
  * MatchmakingService - Handles the queue and match creation
  *
- * Runs a FIFO queue with periodic processing to match players.
- * Future: Can be extended to support ELO-based matchmaking.
+ * Runs a FIFO queue in memory and reacts to join/leave events immediately.
+ * Redis is reserved for active match state and reconnect support.
  */
 export class MatchmakingService {
   private io: SocketServer<ClientToServerEvents, ServerToClientEvents>;
-  private processInterval: NodeJS.Timeout | null = null;
-  private isProcessing = false;
+  private queuedPlayers: Map<string, QueueEntry> = new Map();
+  private queueOrder: string[] = [];
+  private botTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private isProcessingQueue = false;
+  private shouldProcessQueueAgain = false;
   private activeBots: Map<string, BotPlayer> = new Map(); // Track active bots by matchId
-  private gameService: any; // Will be set by GameService (for saving match results)
+  private gameService: GameService | null = null; // Set by GameService (for saving match results)
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
@@ -33,37 +37,249 @@ export class MatchmakingService {
   /**
    * Set GameService reference (called by SocketServer)
    */
-  setGameService(gameService: any): void {
+  setGameService(gameService: GameService): void {
     this.gameService = gameService;
   }
 
   /**
-   * Start the matchmaking loop
+   * Start matchmaking
    */
   start(): void {
-    if (this.processInterval) {
-      console.log("⚠️  Matchmaking already running");
-      return;
-    }
-
-    console.log(
-      `🎮 Starting matchmaking loop (interval: ${config.match.matchmakingIntervalMs}ms)`
-    );
-
-    this.processInterval = setInterval(
-      () => this.processQueue(),
-      config.match.matchmakingIntervalMs
-    );
+    console.log("🎮 Matchmaking ready (event-driven mode)");
   }
 
   /**
-   * Stop the matchmaking loop
+   * Stop matchmaking and clear queue timers
    */
   stop(): void {
-    if (this.processInterval) {
-      clearInterval(this.processInterval);
-      this.processInterval = null;
-      console.log("🛑 Matchmaking stopped");
+    for (const timeout of this.botTimeouts.values()) {
+      clearTimeout(timeout);
+    }
+
+    this.botTimeouts.clear();
+    this.queuedPlayers.clear();
+    this.queueOrder = [];
+    console.log("🛑 Matchmaking stopped");
+  }
+
+  getQueueLength(): number {
+    return this.queueOrder.length;
+  }
+
+  getQueue(): QueueEntry[] {
+    return this.queueOrder.flatMap((userId) => {
+      const entry = this.queuedPlayers.get(userId);
+      return entry ? [entry] : [];
+    });
+  }
+
+  getQueuePosition(userId: string): number {
+    const index = this.queueOrder.indexOf(userId);
+    return index === -1 ? -1 : index + 1;
+  }
+
+  private clearBotTimeout(userId: string): void {
+    const timeout = this.botTimeouts.get(userId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.botTimeouts.delete(userId);
+    }
+  }
+
+  private scheduleBotFallback(entry: QueueEntry): void {
+    if (!config.bot.enabled) {
+      return;
+    }
+
+    this.clearBotTimeout(entry.userId);
+
+    const remainingDelay = Math.max(
+      config.bot.triggerDelay - (Date.now() - entry.joinedAt),
+      0
+    );
+
+    const timeout = setTimeout(() => {
+      void this.handleBotTimeout(entry.userId);
+    }, remainingDelay);
+
+    this.botTimeouts.set(entry.userId, timeout);
+  }
+
+  private addToQueue(entry: QueueEntry, insertAtFront = false): number {
+    const existing = this.queuedPlayers.get(entry.userId);
+
+    if (existing) {
+      const updatedEntry = {
+        ...entry,
+        joinedAt: existing.joinedAt,
+      };
+
+      this.queuedPlayers.set(entry.userId, updatedEntry);
+      this.scheduleBotFallback(updatedEntry);
+      return this.getQueuePosition(entry.userId);
+    }
+
+    this.queuedPlayers.set(entry.userId, entry);
+
+    if (insertAtFront) {
+      this.queueOrder.unshift(entry.userId);
+    } else {
+      this.queueOrder.push(entry.userId);
+    }
+
+    this.scheduleBotFallback(entry);
+    return this.getQueuePosition(entry.userId);
+  }
+
+  private removeFromQueue(userId: string): QueueEntry | null {
+    const entry = this.queuedPlayers.get(userId);
+    if (!entry) {
+      return null;
+    }
+
+    this.queuedPlayers.delete(userId);
+    this.clearBotTimeout(userId);
+
+    const index = this.queueOrder.indexOf(userId);
+    if (index !== -1) {
+      this.queueOrder.splice(index, 1);
+    }
+
+    return entry;
+  }
+
+  private requestQueueProcessing(): void {
+    if (this.isProcessingQueue) {
+      this.shouldProcessQueueAgain = true;
+      return;
+    }
+
+    void this.processQueue();
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue) {
+      this.shouldProcessQueueAgain = true;
+      return;
+    }
+
+    this.isProcessingQueue = true;
+
+    try {
+      do {
+        this.shouldProcessQueueAgain = false;
+
+        while (this.getQueueLength() >= 2) {
+          const players = this.getNextMatchPair();
+          if (!players) {
+            break;
+          }
+
+          const [player1, player2] = players;
+          const socket1 = this.io.sockets.sockets.get(player1.socketId);
+          const socket2 = this.io.sockets.sockets.get(player2.socketId);
+
+          if (!socket1 || !socket2) {
+            if (socket1) {
+              console.log(`⚠️  Player 2 disconnected, re-queueing player 1`);
+              this.addToQueue(player1, true);
+            }
+            if (socket2) {
+              console.log(`⚠️  Player 1 disconnected, re-queueing player 2`);
+              this.addToQueue(player2, true);
+            }
+            continue;
+          }
+
+          const created = await this.createMatch(
+            socket1 as AuthenticatedSocket,
+            socket2 as AuthenticatedSocket,
+            player1,
+            player2
+          );
+
+          if (!created) {
+            break;
+          }
+        }
+      } while (this.shouldProcessQueueAgain);
+    } catch (error) {
+      console.error("❌ Error processing queue:", error);
+    } finally {
+      this.isProcessingQueue = false;
+    }
+  }
+
+  private getNextMatchPair(): [QueueEntry, QueueEntry] | null {
+    const staleUserIds: string[] = [];
+    const candidates: QueueEntry[] = [];
+
+    for (const userId of this.queueOrder) {
+      const entry = this.queuedPlayers.get(userId);
+      if (!entry) {
+        staleUserIds.push(userId);
+        continue;
+      }
+
+      if (!this.io.sockets.sockets.has(entry.socketId)) {
+        staleUserIds.push(userId);
+        continue;
+      }
+
+      candidates.push(entry);
+
+      if (candidates.length === 2) {
+        break;
+      }
+    }
+
+    for (const staleUserId of staleUserIds) {
+      const removed = this.removeFromQueue(staleUserId);
+      if (removed) {
+        console.log(`🧹 Removed stale queue entry for ${removed.username}`);
+      }
+    }
+
+    if (candidates.length < 2) {
+      return null;
+    }
+
+    this.removeFromQueue(candidates[0].userId);
+    this.removeFromQueue(candidates[1].userId);
+    return [candidates[0], candidates[1]];
+  }
+
+  private async handleBotTimeout(userId: string): Promise<void> {
+    this.botTimeouts.delete(userId);
+
+    const entry = this.removeFromQueue(userId);
+    if (!entry) {
+      return;
+    }
+
+    const waitTime = Date.now() - entry.joinedAt;
+    console.log(
+      `\n🤖 BOT MATCH: Player ${entry.username} waited ${
+        waitTime / 1000
+      }s, creating bot match...`
+    );
+
+    const socket = this.io.sockets.sockets.get(entry.socketId);
+    if (!socket) {
+      console.log(`   ❌ Player socket not found, skipping`);
+      return;
+    }
+
+    const created = await this.createBotMatch(socket as AuthenticatedSocket, entry);
+
+    if (!created) {
+      this.addToQueue(
+        {
+          ...entry,
+          joinedAt: Date.now(),
+        },
+        true
+      );
     }
   }
 
@@ -76,10 +292,16 @@ export class MatchmakingService {
     console.log(`\n🎮 JOIN_QUEUE request from ${user.username} (${user.id})`);
 
     // Check if user is already in a match
-    const existingMatchId = await redisService.getUserMatchId(user.id);
+    const existingMatchId = await redisService.getUserMatchId(
+      user.id,
+      "queue_join_get_user_match"
+    );
     if (existingMatchId) {
       // Check if the match is still active
-      const match = await redisService.getMatch(existingMatchId);
+      const match = await redisService.getMatch(
+        existingMatchId,
+        "queue_join_read_existing_match"
+      );
       if (match && match.status === "active") {
         console.log(`   ❌ User already in active match: ${existingMatchId}`);
         socket.emit("error", {
@@ -95,9 +317,14 @@ export class MatchmakingService {
     }
 
     // Check if already in queue
-    const isInQueue = await redisService.isUserInQueue(user.id);
-    if (isInQueue) {
-      const position = await redisService.getQueuePosition(user.id);
+    const existingQueueEntry = this.queuedPlayers.get(user.id);
+    if (existingQueueEntry) {
+      this.addToQueue({
+        ...existingQueueEntry,
+        socketId: socket.id,
+      });
+
+      const position = this.getQueuePosition(user.id);
       console.log(`   ⚠️ Already in queue at position ${position}`);
       socket.emit("queue_joined", { position });
       return;
@@ -113,18 +340,12 @@ export class MatchmakingService {
     };
 
     // Add to queue
-    const position = await redisService.enqueue(entry);
+    const position = this.addToQueue(entry);
+    socket.emit("queue_joined", { position });
+    console.log(`   ✅ Added to queue at position ${position}`);
+    console.log(`   📊 Current queue size: ${this.getQueueLength()}`);
 
-    if (position > 0) {
-      socket.emit("queue_joined", { position });
-      console.log(`   ✅ Added to queue at position ${position}`);
-
-      // Log current queue state
-      const queueLength = await redisService.getQueueLength();
-      console.log(`   📊 Current queue size: ${queueLength}`);
-    } else {
-      console.log(`   ❌ Failed to add to queue (position: ${position})`);
-    }
+    this.requestQueueProcessing();
   }
 
   /**
@@ -133,120 +354,11 @@ export class MatchmakingService {
   async leaveQueue(socket: AuthenticatedSocket): Promise<void> {
     const user = socket.user;
 
-    const removed = await redisService.dequeue(user.id);
+    const removed = this.removeFromQueue(user.id);
 
     if (removed) {
       socket.emit("queue_left");
       console.log(`📤 ${user.username} left queue`);
-    }
-  }
-
-  /**
-   * Process the queue - called periodically
-   * Matches players in FIFO order, or creates bot matches after timeout
-   */
-  private async processQueue(): Promise<void> {
-    // Prevent overlapping processing
-    if (this.isProcessing) return;
-    this.isProcessing = true;
-
-    try {
-      // Check queue length
-      const queueLength = await redisService.getQueueLength();
-
-      // Log queue status periodically (every 5 seconds worth of checks)
-      if (queueLength > 0) {
-        console.log(`🔍 Queue check: ${queueLength} player(s) waiting`);
-      }
-
-      // Check for players who have waited too long and need bot matches
-      if (config.bot.enabled && queueLength > 0) {
-        await this.checkForBotMatches();
-      }
-
-      if (queueLength < 2) {
-        return;
-      }
-
-      console.log(
-        `\n🎯 MATCHMAKING: Found ${queueLength} players, attempting to match...`
-      );
-
-      // Pop two players atomically
-      const players = await redisService.popTwoPlayers();
-
-      if (!players) {
-        return;
-      }
-
-      const [player1, player2] = players;
-
-      // Validate sockets are still connected
-      const socket1 = this.io.sockets.sockets.get(player1.socketId);
-      const socket2 = this.io.sockets.sockets.get(player2.socketId);
-
-      if (!socket1 || !socket2) {
-        // One or both players disconnected, re-queue the connected one
-        if (socket1) {
-          console.log(`⚠️  Player 2 disconnected, re-queuing player 1`);
-          await redisService.enqueue(player1);
-        }
-        if (socket2) {
-          console.log(`⚠️  Player 1 disconnected, re-queuing player 2`);
-          await redisService.enqueue(player2);
-        }
-        return;
-      }
-
-      // Create the match!
-      await this.createMatch(
-        socket1 as AuthenticatedSocket,
-        socket2 as AuthenticatedSocket,
-        player1,
-        player2
-      );
-    } catch (error) {
-      console.error("❌ Error processing queue:", error);
-    } finally {
-      this.isProcessing = false;
-    }
-  }
-
-  /**
-   * Check if any players have waited too long and create bot matches
-   */
-  private async checkForBotMatches(): Promise<void> {
-    try {
-      const queue = await redisService.getQueue();
-      const now = Date.now();
-
-      for (const entry of queue) {
-        const waitTime = now - entry.joinedAt;
-
-        // If player has waited longer than bot trigger delay, create bot match
-        if (waitTime >= config.bot.triggerDelay) {
-          console.log(
-            `\n🤖 BOT MATCH: Player ${entry.username} waited ${
-              waitTime / 1000
-            }s, creating bot match...`
-          );
-
-          // Remove from queue
-          await redisService.dequeue(entry.userId);
-
-          // Get socket
-          const socket = this.io.sockets.sockets.get(entry.socketId);
-          if (!socket) {
-            console.log(`   ❌ Player socket not found, skipping`);
-            continue;
-          }
-
-          // Create bot match
-          await this.createBotMatch(socket as AuthenticatedSocket, entry);
-        }
-      }
-    } catch (error) {
-      console.error("❌ Error checking for bot matches:", error);
     }
   }
 
@@ -256,7 +368,7 @@ export class MatchmakingService {
   private async createBotMatch(
     socket: AuthenticatedSocket,
     player: QueueEntry
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       // Generate match ID
       const matchId = uuidv4();
@@ -269,7 +381,7 @@ export class MatchmakingService {
         socket.emit("error", {
           message: "Failed to create match. Please try again.",
         });
-        return;
+        return false;
       }
 
       // Determine bot difficulty (for now, use default from config)
@@ -317,7 +429,7 @@ export class MatchmakingService {
       };
 
       // Store match in Redis
-      await redisService.createMatch(matchState);
+      await redisService.createMatch(matchState, "bot_match_create");
 
       // Join socket to match room
       socket.join(matchId);
@@ -349,11 +461,14 @@ export class MatchmakingService {
       setTimeout(() => {
         bot.start();
       }, 3000); // 3 second delay
+
+      return true;
     } catch (error) {
       console.error("❌ Error creating bot match:", error);
       socket.emit("error", {
         message: "Failed to create match. Please try again.",
       });
+      return false;
     }
   }
 
@@ -384,7 +499,7 @@ export class MatchmakingService {
     socket2: AuthenticatedSocket,
     player1: QueueEntry,
     player2: QueueEntry
-  ): Promise<void> {
+  ): Promise<boolean> {
     // Generate match ID
     const matchId = uuidv4();
 
@@ -393,10 +508,10 @@ export class MatchmakingService {
 
     if (!problem) {
       console.error("❌ Failed to get problem for match");
-      // Re-queue both players
-      await redisService.enqueue(player1);
-      await redisService.enqueue(player2);
-      return;
+      this.addToQueue(player2, true);
+      this.addToQueue(player1, true);
+      setTimeout(() => this.requestQueueProcessing(), 5000);
+      return false;
     }
 
     // Create match state
@@ -423,7 +538,7 @@ export class MatchmakingService {
     };
 
     // Store match in Redis
-    await redisService.createMatch(matchState);
+      await redisService.createMatch(matchState, "match_create");
 
     // Join both sockets to the match room
     socket1.join(matchId);
@@ -480,6 +595,7 @@ export class MatchmakingService {
 
     // Set match timeout to prevent infinite matches
     this.setMatchTimeout(matchId, matchState);
+    return true;
   }
 
   /**
@@ -489,13 +605,17 @@ export class MatchmakingService {
     const timeoutMs = config.match.timeoutMs || 1800000; // Default 30 minutes
 
     setTimeout(async () => {
-      const match = await redisService.getMatch(matchId);
+      const match = await redisService.getMatch(matchId, "match_timeout_read");
 
       if (match && match.status === "active") {
         console.log(`⏰ Match ${matchId} timed out after ${timeoutMs / 1000}s`);
 
         // Force draw - no winner
-        await redisService.updateMatchStatus(matchId, "finished");
+        await redisService.updateMatchStatus(
+          matchId,
+          "finished",
+          "match_timeout_finish"
+        );
 
         // Notify both players
         this.io.to(matchId).emit("game_over", {
@@ -515,15 +635,24 @@ export class MatchmakingService {
     const user = socket.user;
 
     // Remove from queue if present
-    await redisService.dequeue(user.id);
+    const removedFromQueue = this.removeFromQueue(user.id);
+    if (removedFromQueue) {
+      console.log(`📤 ${user.username} removed from queue on disconnect`);
+    }
 
     // Check if in match
     const matchId =
       socket.data.currentMatchId ||
-      (await redisService.getUserMatchId(user.id));
+      (await redisService.getUserMatchId(
+        user.id,
+        "disconnect_get_user_match"
+      ));
 
     if (matchId) {
-      const match = await redisService.getMatch(matchId);
+      const match = await redisService.getMatch(
+        matchId,
+        "disconnect_read_match"
+      );
 
       if (match && match.status === "active") {
         // Player disconnected during active match - opponent wins
@@ -531,7 +660,11 @@ export class MatchmakingService {
           match.player1.id === user.id ? match.player2.id : match.player1.id;
         const loserId = user.id;
 
-        const won = await redisService.setMatchWinner(matchId, winnerId);
+        const won = await redisService.setMatchWinner(
+          matchId,
+          winnerId,
+          "disconnect_finish_match"
+        );
 
         if (won) {
           console.log(`🏆 ${winnerId} wins by disconnect in match ${matchId}`);
@@ -605,6 +738,6 @@ export class MatchmakingService {
     }
 
     // Clean up socket mappings
-    await redisService.deleteUserSocket(user.id);
+    await redisService.deleteUserSocket(user.id, "disconnect_delete_user_socket");
   }
 }

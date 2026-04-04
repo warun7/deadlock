@@ -45,7 +45,7 @@ export class BotPlayer {
   private onComplete: (result: BotCompletionResult) => void;
 
   constructor(config: BotConfig) {
-    this.id = `bot_${Math.random().toString(36).substr(2, 9)}`;
+    this.id = `bot_${Math.random().toString(36).slice(2, 11)}`;
     this.username = this.generateUsername();
     this.difficulty = config.difficulty;
     this.io = config.socketServer;
@@ -215,7 +215,7 @@ export class BotPlayer {
     });
 
     // Small delay to show "Accepted" status
-    setTimeout(() => {
+    const timeout = setTimeout(() => {
       if (this.isStopped) return;
 
       // Call completion callback - bot always wins if it completes
@@ -226,6 +226,8 @@ export class BotPlayer {
         totalTests: 10,
       });
     }, 500);
+
+    this.timeouts.push(timeout);
   }
 
   /**

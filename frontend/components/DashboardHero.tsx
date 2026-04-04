@@ -49,11 +49,14 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
     fetchProfile();
   }, []);
   return (
-    <div className="relative min-h-[90vh] flex flex-col items-center justify-center pt-20 sm:pt-16 overflow-hidden bg-[#050505]">
+    <div className="relative min-h-[90vh] flex flex-col items-center justify-center pt-20 sm:pt-16 overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)' }}>
       {/* Background Grid */}
       <div className="absolute inset-0 overflow-hidden perspective-1000 opacity-30">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:40px_40px] [transform:rotateX(60deg)_translateY(-20%)_scale(2)] origin-top"></div>
-        <div className="absolute inset-0 bg-gradient-to-b from-[#050505] via-transparent to-[#050505]"></div>
+        <div 
+          className="absolute inset-0 bg-[size:40px_40px] [transform:rotateX(60deg)_translateY(-20%)_scale(2)] origin-top"
+          style={{ backgroundImage: `linear-gradient(to right, var(--grid-line-color) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-line-color) 1px, transparent 1px)` }}
+        ></div>
+        <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, var(--bg-primary), transparent, var(--bg-primary))` }}></div>
       </div>
 
       <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 z-10 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
@@ -66,23 +69,23 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                 Connection Stable
               </span>
             </div>
-            <h1 className="text-3xl sm:text-5xl md:text-7xl font-black text-white font-mono tracking-tighter mb-2">
+            <h1 className="text-3xl sm:text-5xl md:text-7xl font-black font-mono tracking-tighter mb-2" style={{ color: 'var(--text-primary)' }}>
               WELCOME, <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-stone-500 uppercase break-all sm:break-normal">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-red-700 uppercase break-all sm:break-normal">
                 {loading ? "LOADING..." : username}
               </span>
             </h1>
-            <p className="text-stone-500 font-mono text-sm max-w-md">
+            <p className="font-mono text-sm max-w-md" style={{ color: 'var(--text-dim)' }}>
               System ready. Start competing to climb the global leaderboard.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-            <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-sm relative">
-              <div className="text-xs text-stone-500 font-mono uppercase mb-1">
+            <div className="p-4 rounded-sm relative theme-transition" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)' }}>
+              <div className="text-xs font-mono uppercase mb-1" style={{ color: 'var(--text-dim)' }}>
                 Global Rank
               </div>
-              <div className="text-sm sm:text-lg font-bold text-stone-600 flex items-center gap-2">
+              <div className="text-sm sm:text-lg font-bold flex items-center gap-2" style={{ color: 'var(--text-dim)' }}>
                 {loading ? "..." : "COMING SOON"}
                 <Activity className="w-4 h-4 text-stone-700" />
               </div>
@@ -92,8 +95,8 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                 </div>
               )}
             </div>
-            <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-sm relative">
-              <div className="text-xs text-stone-500 font-mono uppercase mb-1">
+            <div className="p-4 rounded-sm relative theme-transition" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)' }}>
+              <div className="text-xs font-mono uppercase mb-1" style={{ color: 'var(--text-dim)' }}>
                 Global Rank
               </div>
               <div
@@ -113,8 +116,8 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                 </div>
               )}
             </div>
-            <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-sm">
-              <div className="text-xs text-stone-500 font-mono uppercase mb-1">
+            <div className="p-4 rounded-sm theme-transition" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)' }}>
+              <div className="text-xs font-mono uppercase mb-1" style={{ color: 'var(--text-dim)' }}>
                 Win Rate
               </div>
               <div className="text-xl sm:text-2xl font-bold text-red-500">
@@ -126,7 +129,7 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
           {activeMatchId ? (
             <button
               onClick={onResumeMatch}
-              className="group w-full relative px-6 sm:px-8 py-5 sm:py-6 bg-emerald-600 hover:bg-emerald-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-3 sm:gap-4 shadow-[0_0_40px_rgba(16,185,129,0.3)] hover:shadow-[0_0_60px_rgba(16,185,129,0.5)] animate-pulse"
+              className="group w-full relative px-6 sm:px-8 py-5 sm:py-6 bg-emerald-600 hover:bg-emerald-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-3 sm:gap-4"
             >
               <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.2)_50%,transparent_75%)] bg-[length:250%_250%,100%_100%] animate-[shine_3s_infinite]"></div>
               <Activity className="w-8 h-8 text-white group-hover:scale-110 transition-transform" />
@@ -143,7 +146,7 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
             <button
               onClick={onFindMatch}
               disabled={checkingMatch}
-              className="group w-full relative px-6 sm:px-8 py-5 sm:py-6 bg-red-600 hover:bg-red-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-3 sm:gap-4 shadow-[0_0_40px_rgba(220,38,38,0.3)] hover:shadow-[0_0_60px_rgba(220,38,38,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="group w-full relative px-6 sm:px-8 py-5 sm:py-6 bg-red-600 hover:bg-red-500 transition-all rounded-sm overflow-hidden flex items-center justify-center gap-3 sm:gap-4 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.2)_50%,transparent_75%)] bg-[length:250%_250%,100%_100%] animate-[shine_3s_infinite]"></div>
               <Swords className="w-8 h-8 text-white group-hover:rotate-12 transition-transform" />
@@ -162,7 +165,7 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
         {/* Right: 3D Featured Card */}
         <div className="hidden md:flex justify-center perspective-1000">
           <ThreeDTilt intensity={15} className="w-full max-w-md">
-            <div className="relative bg-[#0a0a0a] border border-stone-800 p-8 rounded-lg overflow-hidden group">
+            <div className="relative p-8 rounded-lg overflow-hidden group theme-transition" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
               <div className="absolute top-0 right-0 p-4 opacity-20">
                 <Swords className="w-32 h-32 text-white" />
               </div>
@@ -171,10 +174,10 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                 <div className="text-emerald-500 font-mono text-xs font-bold uppercase tracking-widest mb-4">
                   System Status
                 </div>
-                <h3 className="text-3xl font-bold text-white mb-4">
+                <h3 className="text-3xl font-bold mb-4" style={{ color: 'var(--text-primary)' }}>
                   Matchmaking Active
                 </h3>
-                <p className="text-stone-400 text-sm mb-6 leading-relaxed">
+                <p className="text-sm mb-6 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
                   Jump into ranked 1v1 battles and compete against opponents
                   from around the world. Our intelligent matchmaking system
                   ensures you're always finding competitive matches.
@@ -182,19 +185,19 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                 <div className="space-y-3 mb-6">
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                    <span className="text-xs font-mono text-stone-300">
+                    <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
                       Global matchmaking active
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                    <span className="text-xs font-mono text-stone-300">
+                    <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
                       Players online 24/7
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                    <span className="text-xs font-mono text-stone-300">
+                    <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
                       Average wait time: &lt;30 seconds
                     </span>
                   </div>

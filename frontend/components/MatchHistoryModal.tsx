@@ -36,9 +36,9 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
           >
-            <div className="bg-[#0a0a0a] border-2 border-stone-800 w-full max-w-4xl max-h-[90vh] sm:max-h-[80vh] flex flex-col font-mono mx-2 sm:mx-4">
+            <div className="w-full max-w-4xl max-h-[90vh] sm:max-h-[80vh] flex flex-col font-mono mx-2 sm:mx-4" style={{ backgroundColor: 'var(--bg-secondary)', border: '2px solid var(--border-primary)' }}>
               {/* Header */}
-              <div className="flex items-center justify-between p-4 sm:p-6 border-b border-stone-800">
+              <div className="flex items-center justify-between p-4 sm:p-6" style={{ borderBottom: '1px solid var(--border-primary)' }}>
                 <div className="flex items-center gap-3">
                   <Clock className="w-5 h-5 text-red-500" />
                   <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tighter">

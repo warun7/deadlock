@@ -5,6 +5,7 @@ import { judgeService } from "./JudgeService";
 import { problemService } from "./ProblemService";
 import { BotCompletionResult } from "./BotPlayer";
 import { config } from "../config";
+import type { MatchmakingService } from "./MatchmakingService";
 import {
   AuthenticatedSocket,
   SubmitCodePayload,
@@ -33,7 +34,7 @@ const supabase = createClient(
 export class GameService {
   private io: SocketServer<ClientToServerEvents, ServerToClientEvents>;
   private cleanupTimers: Map<string, NodeJS.Timeout> = new Map();
-  private matchmakingService: any; // Will be set after construction
+  private matchmakingService: MatchmakingService | null = null;
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
@@ -42,7 +43,7 @@ export class GameService {
   /**
    * Set MatchmakingService reference (for bot cleanup)
    */
-  setMatchmakingService(matchmakingService: any): void {
+  setMatchmakingService(matchmakingService: MatchmakingService): void {
     this.matchmakingService = matchmakingService;
   }
 
@@ -65,7 +66,7 @@ export class GameService {
     }
 
     // Get match state
-    const match = await redisService.getMatch(matchId);
+    const match = await redisService.getMatch(matchId, "submission_read_match");
 
     if (!match) {
       socket.emit("error", {
@@ -185,7 +186,11 @@ export class GameService {
 
     // Atomic operation to set winner
     // Only the first correct submission wins
-    const wonTheRace = await redisService.setMatchWinner(matchId, user.id);
+    const wonTheRace = await redisService.setMatchWinner(
+      matchId,
+      user.id,
+      "submission_set_winner"
+    );
 
     if (!wonTheRace) {
       // Someone else already won
@@ -208,7 +213,10 @@ export class GameService {
     });
 
     // Get updated match state
-    const finalMatch = await redisService.getMatch(matchId);
+    const finalMatch = await redisService.getMatch(
+      matchId,
+      "submission_read_final_match"
+    );
 
     if (!finalMatch) return;
 
@@ -282,14 +290,18 @@ export class GameService {
 
     if (!matchId) return;
 
-    const match = await redisService.getMatch(matchId);
+    const match = await redisService.getMatch(matchId, "forfeit_read_match");
     if (!match || match.status !== "active") return;
 
     // Determine winner (the other player)
     const winnerId =
       match.player1.id === user.id ? match.player2.id : match.player1.id;
 
-    const wonTheRace = await redisService.setMatchWinner(matchId, winnerId);
+    const wonTheRace = await redisService.setMatchWinner(
+      matchId,
+      winnerId,
+      "forfeit_set_winner"
+    );
 
     if (wonTheRace) {
       console.log(`🏳️ ${user.username} forfeited match ${matchId}`);
@@ -383,7 +395,10 @@ export class GameService {
     try {
       console.log(`🤖 Bot completion for match ${matchId}:`, result);
 
-      const match = await redisService.getMatch(matchId);
+      const match = await redisService.getMatch(
+        matchId,
+        "bot_completion_read_match"
+      );
 
       if (!match) {
         console.warn(`[Bot] Match ${matchId} not found`);
@@ -415,7 +430,11 @@ export class GameService {
       }
 
       // Set winner atomically
-      const wonTheRace = await redisService.setMatchWinner(matchId, winnerId);
+      const wonTheRace = await redisService.setMatchWinner(
+        matchId,
+        winnerId,
+        "bot_completion_set_winner"
+      );
 
       if (!wonTheRace) {
         console.log(`[Bot] Race condition: human already won match ${matchId}`);
@@ -487,42 +506,20 @@ export class GameService {
   }): Promise<void> {
     try {
       const ratingChange = data.eloChange || 25; // Use calculated ELO or default to 25
-
-      // Insert match record for winner
-      const { error: winnerError } = await supabase.from("matches").insert({
-        player_id: data.winnerId,
-        opponent_id: data.loserId,
-        problem_id: data.problemId,
-        problem_title: data.problemTitle || "Unknown Problem",
-        language: data.language || "unknown",
-        result: "won",
-        rating_change: ratingChange, // Winner gains rating
-        duration_seconds: data.duration,
-        completed_at: new Date().toISOString(),
+      const { error } = await supabase.rpc("record_match_pair", {
+        p_winner_id: data.winnerId,
+        p_loser_id: data.loserId,
+        p_problem_id: data.problemId,
+        p_problem_title: data.problemTitle || "Unknown Problem",
+        p_language: data.language || "unknown",
+        p_duration_seconds: data.duration,
+        p_rating_change: ratingChange,
+        p_completed_at: new Date().toISOString(),
       });
 
-      if (winnerError) {
-        console.error("❌ Error saving winner match record:", winnerError);
-      }
-
-      // Insert match record for loser
-      const { error: loserError } = await supabase.from("matches").insert({
-        player_id: data.loserId,
-        opponent_id: data.winnerId,
-        problem_id: data.problemId,
-        problem_title: data.problemTitle || "Unknown Problem",
-        language: data.language || "unknown",
-        result: "lost",
-        rating_change: -ratingChange, // Loser loses rating
-        duration_seconds: data.duration,
-        completed_at: new Date().toISOString(),
-      });
-
-      if (loserError) {
-        console.error("❌ Error saving loser match record:", loserError);
-      }
-
-      if (!winnerError && !loserError) {
+      if (error) {
+        console.error("❌ Error saving match records transactionally:", error);
+      } else {
         console.log(`💾 Match records saved for both players`);
         console.log(`📊 Stats will be auto-updated by database trigger`);
       }
@@ -580,75 +577,6 @@ export class GameService {
   }
 
   /**
-   * Update player statistics after a match
-   *
-   * ⚠️ DEPRECATED: This function is no longer used.
-   * Stats are now automatically updated by the database trigger
-   * `update_user_stats_after_match` when a match is inserted.
-   *
-   * Keeping this function for reference/backup purposes only.
-   */
-  private async updatePlayerStats(
-    playerId: string,
-    won: boolean
-  ): Promise<void> {
-    // This function is deprecated - stats are handled by DB trigger
-    console.warn(
-      `⚠️ updatePlayerStats called but is deprecated - using DB trigger instead`
-    );
-    return;
-
-    /* DEPRECATED CODE - kept for reference
-    try {
-      // Get current stats
-      const { data: profile, error: fetchError } = await supabase
-        .from("profiles")
-        .select(
-          "total_matches, matches_won, matches_lost, current_streak, best_streak"
-        )
-        .eq("id", playerId)
-        .single();
-
-      if (fetchError) {
-        console.error(`Error fetching profile for ${playerId}:`, fetchError);
-        return;
-      }
-
-      // Calculate new stats
-      const totalMatches = (profile?.total_matches || 0) + 1;
-      const matchesWon = (profile?.matches_won || 0) + (won ? 1 : 0);
-      const matchesLost = (profile?.matches_lost || 0) + (won ? 0 : 1);
-      const currentStreak = won ? (profile?.current_streak || 0) + 1 : 0;
-      const bestStreak = Math.max(currentStreak, profile?.best_streak || 0);
-      const winRate = totalMatches > 0 ? (matchesWon / totalMatches) * 100 : 0;
-
-      // Update profile
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
-          total_matches: totalMatches,
-          matches_won: matchesWon,
-          matches_lost: matchesLost,
-          current_streak: currentStreak,
-          best_streak: bestStreak,
-          win_rate: winRate,
-        })
-        .eq("id", playerId);
-
-      if (updateError) {
-        console.error(`Error updating profile for ${playerId}:`, updateError);
-      } else {
-        console.log(
-          `📊 Updated stats for ${playerId}: ${matchesWon}W/${matchesLost}L`
-        );
-      }
-    } catch (error) {
-      console.error(`Error in updatePlayerStats for ${playerId}:`, error);
-    }
-    */
-  }
-
-  /**
    * Calculate ELO change (simplified K=32 formula)
    */
   private calculateEloChange(winnerElo: number, loserElo: number): number {
@@ -696,7 +624,7 @@ export class GameService {
     }
 
     // Delete from Redis
-    await redisService.deleteMatch(matchId);
+    await redisService.deleteMatch(matchId, "cleanup_delete_match");
   }
 
   /**

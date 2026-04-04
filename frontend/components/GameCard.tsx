@@ -13,14 +13,14 @@ const GameCard: React.FC<CardProps> = ({ title, difficulty, ratingChange, descri
   const config = difficultyConfig[difficulty];
 
   return (
-    <div className={`relative w-72 h-[420px] rounded-sm border ${config.border} bg-[#0a0a0a] flex flex-col overflow-hidden group transition-all duration-500 hover:shadow-2xl ${config.glow}`}>
+    <div className={`relative w-72 h-[420px] rounded-sm border ${config.border} flex flex-col overflow-hidden group transition-all duration-500 hover:shadow-2xl ${config.glow}`} style={{ backgroundColor: 'var(--bg-secondary)' }}>
       
       {/* Scanline Effect */}
       <div className="absolute inset-0 z-20 pointer-events-none opacity-10 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-50 background-size-[100%_2px,3px_100%]"></div>
       <div className="absolute inset-0 z-20 pointer-events-none bg-gradient-to-b from-white/5 to-transparent h-2 animate-[scanline_3s_linear_infinite] opacity-20"></div>
 
       {/* Header */}
-      <div className="w-full p-3 border-b border-white/5 bg-black/40 flex justify-between items-center backdrop-blur-sm z-10">
+      <div className="w-full p-3 bg-black/20 flex justify-between items-center backdrop-blur-sm z-10" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <div className={`flex items-center gap-2 px-2 py-1 rounded-sm border ${config.border} ${config.bg}`}>
           <Terminal className={`w-3 h-3 ${config.color}`} />
           <span className={`text-[10px] font-bold uppercase tracking-widest ${config.color}`}>
@@ -34,7 +34,7 @@ const GameCard: React.FC<CardProps> = ({ title, difficulty, ratingChange, descri
       </div>
 
       {/* Code/Visual Area */}
-      <div className="w-full flex-grow relative bg-[#050505] p-4 overflow-hidden group-hover:bg-black transition-colors duration-300">
+      <div className="w-full flex-grow relative p-4 overflow-hidden transition-colors duration-300" style={{ backgroundColor: 'var(--bg-primary)' }}>
          {/* Grid Background */}
          <div className="absolute inset-0 bg-[linear-gradient(to_right,#222_1px,transparent_1px),linear-gradient(to_bottom,#222_1px,transparent_1px)] bg-[size:20px_20px] opacity-20"></div>
          
@@ -56,23 +56,23 @@ const GameCard: React.FC<CardProps> = ({ title, difficulty, ratingChange, descri
       </div>
 
       {/* Content */}
-      <div className="w-full bg-[#080808] p-5 z-10 border-t border-white/5 relative">
-        <div className="absolute -top-3 right-4 bg-stone-900 border border-stone-700 px-2 py-0.5 text-[9px] text-stone-400 uppercase tracking-widest">
+      <div className="w-full p-5 z-10 relative" style={{ backgroundColor: 'var(--bg-secondary)', borderTop: '1px solid var(--border-subtle)' }}>
+        <div className="absolute -top-3 right-4 px-2 py-0.5 text-[9px] uppercase tracking-widest" style={{ backgroundColor: 'var(--bg-card-solid)', border: '1px solid var(--border-primary)', color: 'var(--text-muted)' }}>
            Live Match
         </div>
 
-        <h3 className="text-lg font-bold text-white mb-2 truncate font-mono tracking-tight">{title}</h3>
-        <p className="text-xs text-stone-500 font-medium leading-relaxed mb-4 line-clamp-2">{description}</p>
+        <h3 className="text-lg font-bold mb-2 truncate font-mono tracking-tight" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+        <p className="text-xs font-medium leading-relaxed mb-4 line-clamp-2" style={{ color: 'var(--text-dim)' }}>{description}</p>
         
         <div className="flex flex-wrap gap-2 mb-4">
           {tags.map(tag => (
-            <span key={tag} className="text-[9px] text-stone-400 bg-stone-900/80 px-2 py-1 rounded-sm border border-stone-800 hover:border-stone-600 transition-colors cursor-default">
+            <span key={tag} className="text-[9px] px-2 py-1 rounded-sm transition-colors cursor-default" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)' }}>
               {tag}
             </span>
           ))}
         </div>
 
-        <div className="flex justify-between items-center text-[10px] text-stone-600 font-mono border-t border-stone-900/50 pt-3 uppercase tracking-wider">
+        <div className="flex justify-between items-center text-[10px] font-mono pt-3 uppercase tracking-wider" style={{ color: 'var(--text-dim)', borderTop: '1px solid var(--border-subtle)' }}>
            <div className="flex items-center gap-1.5">
              <Hash className="w-3 h-3" />
              <span>ID: 8X92</span>

@@ -14,6 +14,7 @@ import ProfilePage from "./pages/ProfilePage";
 import RealMatchmakingPage from "./pages/RealMatchmakingPage";
 import GamePage from "./pages/GamePage";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 
 // Protected Route Component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
@@ -24,8 +25,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
   // Show nothing while checking auth (prevents flash of redirect)
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
-        <div className="text-white font-mono text-sm">
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <div className="font-mono text-sm" style={{ color: 'var(--text-primary)' }}>
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
             <span>Authenticating...</span>
@@ -47,13 +48,14 @@ const AppContent: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white selection:bg-red-500 selection:text-white">
+    <div className="min-h-screen text-[var(--text-primary)] selection:bg-red-500 selection:text-white" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <Cursor />
 
       {/* Global Grain/Noise Texture - simplified for performance */}
       <div
-        className="fixed inset-0 pointer-events-none opacity-[0.015] z-[50]"
+        className="fixed inset-0 pointer-events-none z-[50]"
         style={{
+          opacity: 'var(--noise-opacity)',
           backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
           contain: 'strict',
         }}
@@ -104,7 +106,9 @@ const App: React.FC = () => {
   return (
     <Router>
       <AuthProvider>
-        <AppContent />
+        <ThemeProvider>
+          <AppContent />
+        </ThemeProvider>
       </AuthProvider>
     </Router>
   );

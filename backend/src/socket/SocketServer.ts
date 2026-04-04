@@ -1,6 +1,7 @@
 import { Server as HttpServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
+import { validate as isUuid } from "uuid";
 import { redisService } from "../services/RedisService";
 import { problemService } from "../services/ProblemService";
 import { MatchmakingService } from "../services/MatchmakingService";
@@ -15,6 +16,8 @@ import {
   ClientToServerEvents,
   ServerToClientEvents,
   InterServerEvents,
+  QueueEntry,
+  SubmitCodePayload,
   SocketData,
 } from "../types";
 
@@ -50,8 +53,8 @@ export class DeadlockSocketServer {
     });
 
     // Initialize services
-    this.matchmakingService = new MatchmakingService(this.io as any);
-    this.gameService = new GameService(this.io as any);
+    this.matchmakingService = new MatchmakingService(this.io);
+    this.gameService = new GameService(this.io);
 
     // Wire up service references (for bot system)
     this.matchmakingService.setGameService(this.gameService);
@@ -71,7 +74,7 @@ export class DeadlockSocketServer {
     // Setup event handlers
     this.setupEventHandlers();
 
-    // Start matchmaking loop
+    // Start matchmaking
     this.matchmakingService.start();
 
     console.log("✅ Socket server initialized");
@@ -81,6 +84,11 @@ export class DeadlockSocketServer {
    * Setup Redis adapter for pub/sub across multiple instances
    */
   private async setupRedisAdapter(): Promise<void> {
+    if (!config.socket.enableRedisAdapter) {
+      console.log("ℹ️  Redis adapter disabled (single-instance mode)");
+      return;
+    }
+
     try {
       const pubClient = redisService.getClient().duplicate();
       const subClient = redisService.getClient().duplicate();
@@ -158,6 +166,14 @@ export class DeadlockSocketServer {
       // ============================================
 
       socket.on("submit_code", async (payload) => {
+        if (!this.isValidSubmitPayload(payload)) {
+          socket.emit("error", {
+            message: "Invalid submission payload",
+            code: "BAD_PAYLOAD",
+          });
+          return;
+        }
+
         console.log(`📝 ${user.username} submitting code`);
         await this.gameService.handleSubmission(authSocket, payload);
       });
@@ -168,6 +184,14 @@ export class DeadlockSocketServer {
       });
 
       socket.on("rejoin_match", async (matchId: string) => {
+        if (!isUuid(matchId)) {
+          socket.emit("error", {
+            message: "Invalid match ID",
+            code: "BAD_MATCH_ID",
+          });
+          return;
+        }
+
         console.log(
           `🔄 ${user.username} requesting to rejoin match ${matchId}`
         );
@@ -193,11 +217,35 @@ export class DeadlockSocketServer {
       // ============================================
 
       // Store socket mapping for reconnection
-      await redisService.setUserSocket(user.id, socket.id);
+      await redisService.setUserSocket(
+        user.id,
+        socket.id,
+        "socket_connect_set_user_socket"
+      );
 
       // Check for existing match (reconnection)
       await this.handleReconnection(authSocket);
     });
+  }
+
+  private isValidSubmitPayload(payload: unknown): payload is SubmitCodePayload {
+    if (!payload || typeof payload !== "object") {
+      return false;
+    }
+
+    const candidate = payload as Partial<SubmitCodePayload>;
+    if (typeof candidate.code !== "string") {
+      return false;
+    }
+
+    if (
+      typeof candidate.languageId !== "number" ||
+      !Number.isInteger(candidate.languageId)
+    ) {
+      return false;
+    }
+
+    return candidate.code.length > 0 && candidate.code.length <= 100_000;
   }
 
   /**
@@ -207,10 +255,16 @@ export class DeadlockSocketServer {
     const user = socket.user;
 
     // Check if user has an active match stored
-    const matchId = await redisService.getUserMatchId(user.id);
+    const matchId = await redisService.getUserMatchId(
+      user.id,
+      "socket_reconnect_get_user_match"
+    );
 
     if (matchId) {
-      const match = await redisService.getMatch(matchId);
+      const match = await redisService.getMatch(
+        matchId,
+        "socket_reconnect_read_match"
+      );
 
       if (match && match.status === "active") {
         // Just join the room and update socket ID
@@ -219,7 +273,14 @@ export class DeadlockSocketServer {
         socket.data.currentMatchId = matchId;
 
         // Update socket ID in Redis
-        await redisService.updateMatchSocketId(matchId, user.id, socket.id);
+        const socketField =
+          match.player1.id === user.id ? "player1_socketId" : "player2_socketId";
+        await redisService.updateMatchSocketId(
+          matchId,
+          socketField,
+          socket.id,
+          "socket_reconnect_update_socket"
+        );
 
         console.log(
           `🔄 ${user.username} reconnected - has active match ${matchId}`
@@ -240,7 +301,7 @@ export class DeadlockSocketServer {
 
     try {
       // Fetch match from Redis
-      const match = await redisService.getMatch(matchId);
+      const match = await redisService.getMatch(matchId, "rejoin_read_match");
 
       if (!match) {
         socket.emit("error", {
@@ -276,7 +337,14 @@ export class DeadlockSocketServer {
       socket.data.currentMatchId = matchId;
 
       // Update socket ID in Redis
-      await redisService.updateMatchSocketId(matchId, user.id, socket.id);
+      const socketField =
+        match.player1.id === user.id ? "player1_socketId" : "player2_socketId";
+      await redisService.updateMatchSocketId(
+        matchId,
+        socketField,
+        socket.id,
+        "rejoin_update_socket"
+      );
 
       // Fetch problem data
       const problem = await problemService.getProblemById(match.problemId);
@@ -331,10 +399,16 @@ export class DeadlockSocketServer {
 
     try {
       // Check if user has an active match stored in Redis
-      const matchId = await redisService.getUserMatchId(user.id);
+      const matchId = await redisService.getUserMatchId(
+        user.id,
+        "check_active_match_get_user_match"
+      );
 
       if (matchId) {
-        const match = await redisService.getMatch(matchId);
+        const match = await redisService.getMatch(
+          matchId,
+          "check_active_match_read_match"
+        );
 
         if (match && match.status === "active") {
           // Notify client they have an active match
@@ -375,5 +449,13 @@ export class DeadlockSocketServer {
    */
   getIO(): SocketServer {
     return this.io;
+  }
+
+  getQueueLength(): number {
+    return this.matchmakingService.getQueueLength();
+  }
+
+  getQueue(): QueueEntry[] {
+    return this.matchmakingService.getQueue();
   }
 }

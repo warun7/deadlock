@@ -5,9 +5,31 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 class GameSocket {
   private socket: Socket | null = null;
 
+  private bindCoreListeners(socket: Socket) {
+    socket.on('connect', () => {
+      console.log('✅ Socket connected:', socket.id);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('❌ Socket connection error:', error);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
+    });
+  }
+
   connect(token: string) {
-    if (this.socket?.connected) {
-      console.log('Socket already connected');
+    if (this.socket) {
+      this.socket.auth = { token };
+
+      if (this.socket.connected) {
+        console.log('Socket already connected');
+      } else {
+        console.log('Reconnecting to socket:', SOCKET_URL);
+        this.socket.connect();
+      }
+
       return this.socket;
     }
 
@@ -19,19 +41,11 @@ class GameSocket {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      autoConnect: false,
     });
 
-    this.socket.on('connect', () => {
-      console.log('✅ Socket connected:', this.socket?.id);
-    });
-
-    this.socket.on('connect_error', (error) => {
-      console.error('❌ Socket connection error:', error);
-    });
-
-    this.socket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
-    });
+    this.bindCoreListeners(this.socket);
+    this.socket.connect();
 
     return this.socket;
   }

@@ -55,7 +55,7 @@ const AuthPage: React.FC = () => {
 
       if (errorDescription?.includes("Unable to exchange external code")) {
         friendlyError =
-          "Google OAuth configuration error. The redirect URI in Google Cloud Console may not match Supabase. Please check GOOGLE_OAUTH_ERROR_FIX.md for detailed instructions.";
+          "Google OAuth configuration error. The redirect URI in Google Cloud Console must exactly match the Supabase callback URL.";
       } else if (errorDescription?.includes("redirect_uri_mismatch")) {
         friendlyError =
           "Redirect URI mismatch. The authorized redirect URI in Google Cloud Console must exactly match your Supabase callback URL.";
@@ -213,11 +213,11 @@ const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden font-mono">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden font-mono" style={{ backgroundColor: 'var(--bg-primary)' }}>
       {/* Background Effects */}
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#222_1px,transparent_1px),linear-gradient(to_bottom,#222_1px,transparent_1px)] bg-[size:40px_40px] opacity-10 [transform:perspective(1000px)_rotateX(60deg)] origin-top h-1/2"></div>
-        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,transparent_0%,#050505_100%)]"></div>
+        <div className="absolute inset-0 opacity-10 [transform:perspective(1000px)_rotateX(60deg)] origin-top h-1/2" style={{ backgroundImage: `linear-gradient(to right, var(--grid-line-color) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-line-color) 1px, transparent 1px)`, backgroundSize: '40px 40px' }}></div>
+        <div className="absolute top-0 left-0 w-full h-full" style={{ background: `radial-gradient(circle at center, transparent 0%, var(--bg-primary) 100%)` }}></div>
       </div>
 
       {/* Back Button */}
@@ -231,7 +231,7 @@ const AuthPage: React.FC = () => {
 
       {/* Main Auth Container */}
       <div className="w-full max-w-md relative z-10">
-        <div className="bg-stone-950/50 border border-stone-800 backdrop-blur-md rounded-sm p-8 relative overflow-hidden">
+        <div className="backdrop-blur-md rounded-sm p-8 relative overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
           {/* Scanline Effect */}
           <div className="absolute inset-0 pointer-events-none opacity-5">
             <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(255,255,255,0.05)_50%)] bg-[length:100%_4px]"></div>
@@ -288,6 +288,7 @@ const AuthPage: React.FC = () => {
               <button
                 onClick={() => {
                   setIsLogin(true);
+                  setLoading(false);
                   setError(null);
                   setSuccess(null);
                 }}
@@ -302,6 +303,7 @@ const AuthPage: React.FC = () => {
               <button
                 onClick={() => {
                   setIsLogin(false);
+                  setLoading(false);
                   setError(null);
                   setSuccess(null);
                   setConfirmPassword("");
@@ -361,7 +363,8 @@ const AuthPage: React.FC = () => {
                       placeholder="usr@deadlock.dev"
                       required
                       disabled={loading}
-                      className="w-full bg-black/50 border border-stone-800 rounded pl-10 pr-4 py-3 text-white placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                      className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
                     />
                   </div>
                 </div>
@@ -378,6 +381,7 @@ const AuthPage: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setShowForgotPassword(false);
+                    setLoading(false);
                     setError(null);
                     setSuccess(null);
                   }}
@@ -411,10 +415,10 @@ const AuthPage: React.FC = () => {
               {/* Divider */}
               <div className="relative my-6">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-stone-800"></div>
+                  <div className="w-full" style={{ borderTop: '1px solid var(--border-primary)' }}></div>
                 </div>
                 <div className="relative flex justify-center text-xs">
-                  <span className="bg-stone-950 px-4 text-stone-600 font-bold">
+                  <span className="px-4 font-bold" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-dim)' }}>
                     OR USE ENCRYPTION KEY
                   </span>
                 </div>
@@ -450,7 +454,8 @@ const AuthPage: React.FC = () => {
                         required={!isLogin}
                         minLength={3}
                         disabled={loading}
-                        className="w-full bg-black/50 border border-stone-800 rounded pl-10 pr-4 py-3 text-white placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                        className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
                       />
                     </div>
                   </div>
@@ -470,7 +475,8 @@ const AuthPage: React.FC = () => {
                       placeholder="usr@deadlock.dev"
                       required
                       disabled={loading}
-                      className="w-full bg-black/50 border border-stone-800 rounded pl-10 pr-4 py-3 text-white placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                      className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
                     />
                   </div>
                 </div>
@@ -490,7 +496,8 @@ const AuthPage: React.FC = () => {
                       required
                       minLength={6}
                       disabled={loading}
-                      className="w-full bg-black/50 border border-stone-800 rounded pl-10 pr-4 py-3 text-white placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                      className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
                     />
                   </div>
                 </div>
@@ -511,7 +518,8 @@ const AuthPage: React.FC = () => {
                         required
                         minLength={6}
                         disabled={loading}
-                        className="w-full bg-black/50 border border-stone-800 rounded pl-10 pr-4 py-3 text-white placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                        className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
+                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
                       />
                     </div>
                   </div>

@@ -4,15 +4,7 @@
  * For problems with multiple valid outputs, we can't use simple string comparison.
  * This service provides common checker patterns and custom validation logic.
  */
-
-export type CheckerType = 
-  | 'exact'           // Exact string match (default)
-  | 'special_chars'   // Validates special character count
-  | 'any_order'       // Output lines can be in any order
-  | 'yes_no'          // Case-insensitive YES/NO check
-  | 'float_tolerance' // Numbers within tolerance (1e-6)
-  | 'multiline_any'   // Multiple valid answers, check each line
-  | 'custom';         // Custom JS checker function
+import { CheckerType } from "../types";
 
 export interface CheckerInput {
   userOutput: string;
@@ -227,8 +219,8 @@ export class CheckerService {
   }
   
   /**
-   * Custom checker - runs user-provided JavaScript validation code
-   * The checker code should define a function: check(userOutput, expectedOutput, testInput) => boolean | {passed: boolean, message?: string}
+   * Custom checker execution is disabled until it runs inside an isolated
+   * sandbox/process. Executing checker code in-process is an RCE risk.
    */
   private checkCustom(
     userOutput: string, 
@@ -241,25 +233,14 @@ export class CheckerService {
       return this.checkExact(userOutput, expectedOutput);
     }
     
-    try {
-      // Create a sandboxed function from the checker code
-      // The code should return true/false or {passed: boolean, message?: string}
-      const checkFn = new Function('userOutput', 'expectedOutput', 'testInput', checkerCode);
-      const result = checkFn(userOutput, expectedOutput, testInput);
-      
-      if (typeof result === 'boolean') {
-        return { passed: result };
-      }
-      
-      if (typeof result === 'object' && 'passed' in result) {
-        return result;
-      }
-      
-      return { passed: false, message: 'Invalid checker result' };
-    } catch (error: any) {
-      console.error('Custom checker error:', error.message);
-      return { passed: false, message: `Checker error: ${error.message}` };
-    }
+    console.error(
+      "Custom checker execution blocked: checker code must run in an isolated sandbox"
+    );
+    return {
+      passed: false,
+      message:
+        "Custom checkers are disabled until sandboxed execution is implemented",
+    };
   }
 }
 

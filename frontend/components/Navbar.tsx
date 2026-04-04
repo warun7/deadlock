@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Github, Crosshair, User, LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
+import { Lock, Github, Crosshair, User, LayoutDashboard, LogOut, Menu, X, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { getCurrentUserProfile } from '../lib/api';
 import { Profile } from '../types/database';
 
@@ -16,10 +17,10 @@ interface NavbarProps {
 const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashboard, onLogout }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { theme, toggleTheme, isDark } = useTheme();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
-  // Fetch profile data when logged in
   useEffect(() => {
     if (isLoggedIn && user) {
       const fetchProfile = async () => {
@@ -34,16 +35,12 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
     }
   }, [isLoggedIn, user]);
   
-  // Get username from profile or user metadata or fallback to email
-  // Same priority order as DashboardHero
   const username = profile?.username || 
                    user?.user_metadata?.username || 
                    user?.user_metadata?.display_name || 
                    user?.email?.split('@')[0] || 
                    'User';
   
-  // Get custom profile image or generate avatar
-  // Check profile first, then user_metadata, then generate
   const customImage = profile?.avatar_url || user?.user_metadata?.profile_image;
   const avatarSeed = username.replace(/[^a-zA-Z0-9]/g, '');
   const avatarUrl = customImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}&backgroundColor=b6e3f4`;
@@ -63,20 +60,26 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
   };
 
   return (
-    <nav className="fixed w-full z-50 top-0 left-0 border-b border-white/5 bg-stone-950/80 backdrop-blur-md">
+    <nav 
+      className="fixed w-full z-50 top-0 left-0 backdrop-blur-md theme-transition"
+      style={{ 
+        borderBottom: '1px solid var(--border-subtle)',
+        backgroundColor: 'var(--bg-surface)',
+      }}
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div 
             className="flex items-center gap-2 cursor-pointer group"
             onClick={handleLogoClick}
           >
-            <span className="text-2xl font-black tracking-tighter text-white brand-font uppercase group-hover:text-red-500 transition-colors">
+            <span className="text-2xl font-black tracking-tighter brand-font uppercase group-hover:text-red-500 transition-colors" style={{ color: 'var(--text-primary)' }}>
               DEAD<span className="text-red-500">LOCK</span>
             </span>
           </div>
           
           {/* Desktop Nav Links */}
-          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-stone-400">
+          <div className="hidden md:flex items-center gap-8 text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
             {isLoggedIn ? (
               <>
                  <button onClick={onDashboard} className="hover:text-red-500 transition-colors flex items-center gap-2">
@@ -90,14 +93,29 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
               </>
             ) : (
               <>
-                <a href="#features" className="hover:text-red-500 transition-colors">Battle Arena</a>
-                <a href="#ranking" className="hover:text-red-500 transition-colors">Global Ranking</a>
+                <a href="#features" className="hover:text-red-500 transition-colors">Features</a>
+                <a href="#ranking" className="hover:text-red-500 transition-colors">Rankings</a>
               </>
             )}
           </div>
 
-          <div className="flex items-center gap-4">
-            <button className="text-stone-500 hover:text-white transition-colors hidden sm:block">
+          <div className="flex items-center gap-3">
+            {/* Theme Toggle */}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg transition-all hover:bg-[var(--bg-card-hover)]"
+              style={{ color: 'var(--text-muted)' }}
+              aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+              title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+            >
+              {isDark ? (
+                <Sun className="w-[18px] h-[18px]" />
+              ) : (
+                <Moon className="w-[18px] h-[18px]" />
+              )}
+            </button>
+
+            <button className="hidden sm:block transition-colors" style={{ color: 'var(--text-dim)' }}>
               <Github className="w-5 h-5" />
             </button>
             
@@ -105,16 +123,21 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
                <div className="hidden md:flex items-center gap-2">
                   <div 
                     onClick={onProfile}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-stone-900 border border-stone-800 hover:border-red-600 hover:bg-stone-800 transition-all cursor-pointer group"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all cursor-pointer group theme-transition"
+                    style={{
+                      backgroundColor: 'var(--bg-card-solid)',
+                      border: '1px solid var(--border-primary)',
+                    }}
                   >
-                     <div className="w-6 h-6 rounded-sm bg-black overflow-hidden relative">
+                     <div className="w-6 h-6 rounded-sm overflow-hidden relative" style={{ backgroundColor: 'var(--bg-primary)' }}>
                          <img src={avatarUrl} alt="User" className="w-full h-full object-cover grayscale group-hover:grayscale-0" />
                      </div>
-                     <span className="text-xs font-bold text-stone-300 group-hover:text-white">{username}</span>
+                     <span className="text-xs font-bold" style={{ color: 'var(--text-secondary)' }}>{username}</span>
                   </div>
                   <button 
                     onClick={onLogout}
-                    className="p-2 text-stone-500 hover:text-red-500 transition-colors"
+                    className="p-2 hover:text-red-500 transition-colors"
+                    style={{ color: 'var(--text-dim)' }}
                     title="Logout"
                   >
                      <LogOut className="w-5 h-5" />
@@ -123,7 +146,8 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
             ) : (
               <button 
                 onClick={onLogin}
-                className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all shadow-[0_0_15px_rgba(220,38,38,0.4)] hover:shadow-[0_0_25px_rgba(220,38,38,0.6)]"
+                className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all"
+                style={{ boxShadow: '0 0 15px var(--shadow-glow)' }}
               >
                 <Crosshair className="w-4 h-4" />
                 Login
@@ -132,7 +156,8 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
 
             {/* Mobile Hamburger Button */}
             <button
-              className="md:hidden p-2 text-stone-400 hover:text-white transition-colors"
+              className="md:hidden p-2 transition-colors"
+              style={{ color: 'var(--text-muted)' }}
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-label="Toggle menu"
             >
@@ -144,40 +169,61 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
 
       {/* Mobile Menu Dropdown */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-stone-800 bg-stone-950/95 backdrop-blur-lg">
+        <div 
+          className="md:hidden backdrop-blur-lg theme-transition"
+          style={{ 
+            borderTop: '1px solid var(--border-primary)',
+            backgroundColor: 'var(--bg-surface)',
+          }}
+        >
           <div className="px-4 py-4 space-y-2">
             {isLoggedIn ? (
               <>
-                {/* Mobile User Info */}
                 <div 
                   onClick={() => handleMobileNavAction(onProfile)}
-                  className="flex items-center gap-3 px-3 py-3 rounded-lg bg-stone-900/50 border border-stone-800 cursor-pointer"
+                  className="flex items-center gap-3 px-3 py-3 rounded-lg cursor-pointer theme-transition"
+                  style={{ 
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border-primary)',
+                  }}
                 >
-                  <div className="w-8 h-8 rounded-sm bg-black overflow-hidden">
+                  <div className="w-8 h-8 rounded-sm overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)' }}>
                     <img src={avatarUrl} alt="User" className="w-full h-full object-cover" />
                   </div>
                   <div>
-                    <div className="text-sm font-bold text-white">{username}</div>
-                    <div className="text-[10px] text-stone-500 uppercase tracking-wider">View Profile</div>
+                    <div className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{username}</div>
+                    <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>View Profile</div>
                   </div>
                 </div>
 
                 <button 
                   onClick={() => handleMobileNavAction(onDashboard)} 
-                  className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium text-stone-300 hover:text-white hover:bg-stone-900/50 rounded-lg transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-lg transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
-                  <LayoutDashboard className="w-4 h-4 text-stone-500" />
+                  <LayoutDashboard className="w-4 h-4" style={{ color: 'var(--text-dim)' }} />
                   Dashboard
                 </button>
                 <button 
                   onClick={() => handleMobileNavAction(onProfile)} 
-                  className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium text-stone-300 hover:text-white hover:bg-stone-900/50 rounded-lg transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-lg transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
-                  <User className="w-4 h-4 text-stone-500" />
+                  <User className="w-4 h-4" style={{ color: 'var(--text-dim)' }} />
                   Profile
                 </button>
 
-                <div className="border-t border-stone-800 pt-2 mt-2">
+                {/* Mobile Theme Toggle */}
+                <button 
+                  onClick={toggleTheme} 
+                  className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-lg transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {isDark ? <Sun className="w-4 h-4" style={{ color: 'var(--text-dim)' }} /> : <Moon className="w-4 h-4" style={{ color: 'var(--text-dim)' }} />}
+                  {isDark ? 'Light Mode' : 'Dark Mode'}
+                </button>
+
+                <div className="pt-2 mt-2" style={{ borderTop: '1px solid var(--border-primary)' }}>
                   <button 
                     onClick={() => handleMobileNavAction(onLogout)} 
                     className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium text-red-500 hover:bg-red-950/30 rounded-lg transition-colors"
@@ -192,19 +238,31 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
                 <a 
                   href="#features" 
                   onClick={() => setMobileMenuOpen(false)}
-                  className="block px-3 py-3 text-sm font-medium text-stone-300 hover:text-white hover:bg-stone-900/50 rounded-lg transition-colors"
+                  className="block px-3 py-3 text-sm font-medium rounded-lg transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
-                  Battle Arena
+                  Features
                 </a>
                 <a 
                   href="#ranking"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="block px-3 py-3 text-sm font-medium text-stone-300 hover:text-white hover:bg-stone-900/50 rounded-lg transition-colors"
+                  className="block px-3 py-3 text-sm font-medium rounded-lg transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
-                  Global Ranking
+                  Rankings
                 </a>
 
-                <div className="border-t border-stone-800 pt-2 mt-2">
+                {/* Mobile Theme Toggle */}
+                <button 
+                  onClick={toggleTheme} 
+                  className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-lg transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {isDark ? <Sun className="w-4 h-4" style={{ color: 'var(--text-dim)' }} /> : <Moon className="w-4 h-4" style={{ color: 'var(--text-dim)' }} />}
+                  {isDark ? 'Light Mode' : 'Dark Mode'}
+                </button>
+
+                <div className="pt-2 mt-2" style={{ borderTop: '1px solid var(--border-primary)' }}>
                   <button 
                     onClick={() => handleMobileNavAction(onLogin)}
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all"

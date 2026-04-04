@@ -13,7 +13,7 @@ const Marquee = () => {
   ];
 
   return (
-    <div className="w-full bg-red-950/20 border-y border-red-900/30 overflow-hidden py-2 relative z-20">
+    <div className="w-full bg-red-950/20 overflow-hidden py-2 relative z-20" style={{ borderTop: '1px solid var(--border-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>
       <div className="animate-marquee whitespace-nowrap flex gap-12 items-center">
       {[...items, ...items].map((item, i) => (
           <div

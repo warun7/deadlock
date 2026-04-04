@@ -56,35 +56,41 @@ export class JudgeService {
     console.log(`🔬 Executing code (lang: ${languageId}) against ${testCases.length} test cases`);
     console.log(`   Checker type: ${checkerType}`);
     
-    const testResults: TestResult[] = [];
+    const testResults: TestResult[] = new Array(testCases.length);
     let passedCount = 0;
+    let nextTestIndex = 0;
     
     // Determine if we should use Judge0's built-in comparison or our checker
     const useBuiltinComparison = checkerType === 'exact';
-    
-    // Run each test case with error handling
-    for (let i = 0; i < testCases.length; i++) {
-      const testCase = testCases[i];
-      
-      try {
-        // For exact match, use Judge0's comparison (faster)
-        // For other types, run without expected_output and validate ourselves
-        const result = await this.runSingleTest(
-          sourceCode,
-          languageId,
-          testCase.input,
-          useBuiltinComparison ? testCase.expectedOutput : undefined
-        );
-        
-        let passed: boolean;
-        let statusMessage = result.status.description;
-        
-        if (useBuiltinComparison) {
-          // Use Judge0's result directly
-          passed = result.status.id === 3; // 3 = Accepted
-        } else {
-          // Check for runtime/compile errors first
-          if (result.status.id !== 3 && result.status.id !== 4) {
+
+    const workerCount = Math.min(5, testCases.length);
+
+    const runWorker = async (): Promise<void> => {
+      while (true) {
+        const i = nextTestIndex++;
+        if (i >= testCases.length) {
+          return;
+        }
+
+        const testCase = testCases[i];
+
+        try {
+          // For exact match, use Judge0's comparison (faster)
+          // For other types, run without expected_output and validate ourselves
+          const result = await this.runSingleTest(
+            sourceCode,
+            languageId,
+            testCase.input,
+            useBuiltinComparison ? testCase.expectedOutput : undefined
+          );
+
+          let passed: boolean;
+          let statusMessage = result.status.description;
+
+          if (useBuiltinComparison) {
+            // Use Judge0's result directly
+            passed = result.status.id === 3; // 3 = Accepted
+          } else if (result.status.id !== 3 && result.status.id !== 4) {
             // Not Accepted or Wrong Answer - it's an error
             passed = false;
           } else {
@@ -101,35 +107,38 @@ export class JudgeService {
               statusMessage = checkerResult.message;
             }
           }
+
+          if (passed) {
+            passedCount++;
+          }
+
+          testResults[i] = {
+            testIndex: i,
+            passed,
+            status: statusMessage,
+            stdout: result.stdout || undefined,
+            expected: testCase.expectedOutput,
+            time: result.time,
+            memory: result.memory,
+          };
+
+          console.log(`   Test ${i + 1}/${testCases.length}: ${passed ? '✅' : '❌'} ${statusMessage}`);
+        } catch (error: any) {
+          console.error(`   Test ${i + 1}/${testCases.length}: ❌ Judge0 Error - ${error.message}`);
+          testResults[i] = {
+            testIndex: i,
+            passed: false,
+            status: 'Judge0 Error',
+            stdout: `Judge0 API Error: ${error.message}`,
+            expected: testCase.expectedOutput,
+          };
         }
-        
-        if (passed) passedCount++;
-        
-        testResults.push({
-          testIndex: i,
-          passed,
-          status: statusMessage,
-          stdout: result.stdout || undefined,
-          expected: testCase.expectedOutput,
-          time: result.time,
-          memory: result.memory,
-        });
-        
-        // Log progress
-        console.log(`   Test ${i + 1}/${testCases.length}: ${passed ? '✅' : '❌'} ${statusMessage}`);
-        
-      } catch (error: any) {
-        // Handle Judge0 API errors gracefully
-        console.error(`   Test ${i + 1}/${testCases.length}: ❌ Judge0 Error - ${error.message}`);
-        testResults.push({
-          testIndex: i,
-          passed: false,
-          status: 'Judge0 Error',
-          stdout: `Judge0 API Error: ${error.message}`,
-          expected: testCase.expectedOutput,
-        });
       }
-    }
+    };
+
+    await Promise.all(
+      Array.from({ length: workerCount }, () => runWorker())
+    );
     
     // Determine overall status
     const allPassed = passedCount === testCases.length;
@@ -266,5 +275,4 @@ export class JudgeService {
 
 // Singleton instance
 export const judgeService = new JudgeService();
-
 

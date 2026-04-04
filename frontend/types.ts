@@ -49,3 +49,24 @@ export interface Judge0Response {
   time: string;
   memory: number;
 }
+
+export interface MatchFoundPayload {
+  matchId: string;
+  problem: {
+    id: string;
+    title: string;
+    description: string;
+    difficulty: string;
+    testCases: Array<{
+      input: string;
+      expectedOutput: string;
+      isHidden?: boolean;
+    }>;
+  };
+  opponent: {
+    id: string;
+    username: string;
+    elo: number;
+  };
+  startTime: number;
+}

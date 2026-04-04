@@ -15,20 +15,23 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
   const rotate = useTransform(scrollY, [0, 500], [0, 10]);
 
   return (
-    <div className="relative min-h-screen flex flex-col items-center justify-center pt-8 overflow-hidden bg-[#050505]">
+    <div className="relative min-h-screen flex flex-col items-center justify-center pt-8 overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)' }}>
       {/* Dynamic Tunnel Background */}
       <div className="absolute inset-0 overflow-hidden perspective-1000">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:60px_60px] [transform:rotateX(75deg)_translateY(-50%)_scale(3)] animate-grid origin-top"></div>
-        <div className="absolute inset-0 bg-gradient-to-b from-[#050505] via-transparent to-[#050505]"></div>
-        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,transparent_0%,#050505_90%)]"></div>
+        <div 
+          className="absolute inset-0 bg-[size:60px_60px] [transform:rotateX(75deg)_translateY(-50%)_scale(3)] animate-grid origin-top"
+          style={{ backgroundImage: `linear-gradient(to right, var(--grid-line-color) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-line-color) 1px, transparent 1px)` }}
+        ></div>
+        <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, var(--bg-primary), transparent, var(--bg-primary))` }}></div>
+        <div className="absolute top-0 left-0 w-full h-full" style={{ background: `radial-gradient(circle at center, transparent 0%, var(--bg-primary) 90%)` }}></div>
       </div>
       
-      {/* Massive Glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vw] h-[40vh] bg-red-600/20 blur-[150px] rounded-full pointer-events-none animate-pulse"></div>
+      {/* Subtle Accent Glow */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vw] h-[40vh] blur-[150px] rounded-full pointer-events-none" style={{ backgroundColor: 'rgba(220, 38, 38, 0.08)' }}></div>
 
       <div className="relative z-20 w-full max-w-7xl mx-auto px-4 flex flex-col items-center justify-center">
         
-        {/* Minimal Text Header */}
+        {/* Text Header */}
         <motion.div 
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -37,16 +40,16 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
         >
             <div className="inline-flex items-center gap-2 px-3 py-1 mb-6 rounded-full border border-red-900/40 bg-red-950/30 text-red-400 text-[10px] font-mono uppercase tracking-widest backdrop-blur-md">
               <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-              System Online
+              Platform Active
             </div>
             
-            <h1 className="text-5xl sm:text-7xl md:text-[10rem] font-black text-white leading-[0.8] tracking-tighter font-mono mix-blend-difference">
+            <h1 className="text-5xl sm:text-7xl md:text-[10rem] font-black leading-[0.8] tracking-tighter font-mono mix-blend-difference" style={{ color: 'var(--text-primary)' }}>
               <GlitchText text="DEAD" />
               <GlitchText text="LOCK" className="text-red-600" />
             </h1>
             
-            <p className="mt-4 sm:mt-6 text-stone-400 font-mono tracking-[0.15em] sm:tracking-[0.2em] text-xs sm:text-sm md:text-base uppercase">
-              Competitve Coding <span className="text-red-500">//</span> 1v1 Ladder
+            <p className="mt-4 sm:mt-6 font-mono tracking-[0.15em] sm:tracking-[0.2em] text-xs sm:text-sm md:text-base uppercase" style={{ color: 'var(--text-muted)' }}>
+              Competitive 1v1 <span className="text-red-500">//</span> Coding Platform
             </p>
         </motion.div>
 
@@ -57,14 +60,20 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
         >
            {/* Center Ring System */}
            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-             <div className="w-[300px] h-[300px] md:w-[500px] md:h-[500px] border border-stone-800/60 rounded-full animate-[spin_30s_linear_infinite]"></div>
+             <div className="w-[300px] h-[300px] md:w-[500px] md:h-[500px] rounded-full animate-[spin_30s_linear_infinite]" style={{ border: '1px solid var(--border-primary)' }}></div>
              <div className="absolute w-[250px] h-[250px] md:w-[400px] md:h-[400px] border border-dashed border-red-900/40 rounded-full animate-[spin_20s_linear_infinite_reverse]"></div>
              <div className="absolute w-[600px] h-[1px] bg-gradient-to-r from-transparent via-red-500/20 to-transparent"></div>
            </div>
 
            {/* VS Badge */}
-           <div className="absolute z-50 w-16 h-16 md:w-24 md:h-24 bg-[#0a0a0a] rounded-full border-2 border-red-600 flex items-center justify-center shadow-[0_0_50px_rgba(220,38,38,0.5)]">
-              <span className="font-black text-2xl md:text-4xl italic text-white">VS</span>
+           <div 
+             className="absolute z-50 w-16 h-16 md:w-24 md:h-24 rounded-full border-2 border-red-600 flex items-center justify-center"
+             style={{ 
+               backgroundColor: 'var(--bg-secondary)',
+               boxShadow: '0 0 40px var(--shadow-glow)',
+             }}
+           >
+              <span className="font-black text-2xl md:text-4xl italic" style={{ color: 'var(--text-primary)' }}>VS</span>
            </div>
 
            {/* Player 1 Card (Left) */}
@@ -111,7 +120,7 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
              </ThreeDTilt>
            </motion.div>
 
-           {/* Mobile Placeholder for Cards */}
+           {/* Mobile Card */}
            <div className="md:hidden relative z-30">
               <div className="scale-75">
                   <GameCard 
@@ -136,16 +145,19 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
         >
             <button 
               onClick={onStart}
-              className="group relative w-64 h-16 bg-white flex items-center justify-between px-6 rounded-sm overflow-hidden hover:scale-105 transition-transform duration-200"
+              className="group relative w-64 h-16 flex items-center justify-between px-6 rounded-sm overflow-hidden hover:scale-105 transition-transform duration-200"
+              style={{ 
+                backgroundColor: 'var(--text-primary)',
+              }}
             >
                 <div className="absolute inset-0 bg-red-600 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300 ease-out z-0"></div>
-                <span className="relative z-10 font-black text-xl uppercase tracking-tighter text-black group-hover:text-white transition-colors">
+                <span className="relative z-10 font-black text-xl uppercase tracking-tighter transition-colors" style={{ color: 'var(--bg-primary)' }}>
                     Start Match
                 </span>
-                <Crosshair className="relative z-10 w-6 h-6 text-black group-hover:text-white transition-colors animate-[spin_3s_linear_infinite]" />
+                <Crosshair className="relative z-10 w-6 h-6 transition-colors group-hover:text-white" style={{ color: 'var(--bg-primary)' }} />
             </button>
             
-            <p className="text-[10px] text-stone-600 font-mono uppercase tracking-widest flex items-center gap-2">
+            <p className="text-[10px] font-mono uppercase tracking-widest flex items-center gap-2" style={{ color: 'var(--text-dim)' }}>
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
                 14,203 Players Online
             </p>

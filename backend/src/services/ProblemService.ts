@@ -95,7 +95,7 @@ export class ProblemService {
       return testCases.map((tc, index) => ({
         input: tc.input || '',
         expectedOutput: tc.expected_output || '',
-        isHidden: index >= 2, // First 2 are visible, rest are hidden
+        isHidden: tc.is_hidden ?? index >= 2,
       }));
       
     } catch (error) {
@@ -195,4 +195,3 @@ You can return the answer in any order.
 
 // Singleton instance
 export const problemService = new ProblemService();
-

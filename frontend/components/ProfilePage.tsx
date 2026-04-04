@@ -275,7 +275,7 @@ const ProfilePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] pt-20 sm:pt-24 pb-12 font-mono relative overflow-hidden">
+    <div className="min-h-screen pt-20 sm:pt-24 pb-12 font-mono relative overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)' }}>
       {/* Background Grid */}
       <div className="absolute inset-0 pointer-events-none opacity-20">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:40px_40px]"></div>
@@ -284,9 +284,9 @@ const ProfilePage: React.FC = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
         {/* Profile Header */}
-        <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-start md:items-end mb-12 md:mb-16 pb-6 md:pb-8 border-b border-stone-800">
+        <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-start md:items-end mb-12 md:mb-16 pb-6 md:pb-8" style={{ borderBottom: '1px solid var(--border-primary)' }}>
           <ThreeDTilt intensity={10} className="w-auto mx-auto md:mx-0">
-            <div className="relative group w-40 h-40 bg-stone-900 rounded-sm border-2 border-stone-800 p-1">
+            <div className="relative group w-40 h-40 rounded-sm border-2 p-1" style={{ backgroundColor: 'var(--bg-card-solid)', borderColor: 'var(--border-primary)' }}>
               <div className="w-full h-full overflow-hidden bg-black relative">
                 <img
                   src={avatarUrl}
@@ -451,7 +451,7 @@ const ProfilePage: React.FC = () => {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.1 }}
-                  className="bg-[#0a0a0a] border border-stone-800 p-4 relative group overflow-hidden"
+                  className="p-4 relative group overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}
                 >
                   <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
                     {stat.icon}
@@ -477,7 +477,7 @@ const ProfilePage: React.FC = () => {
             </div>
 
             {/* Match History */}
-            <div className="bg-[#0a0a0a] border border-stone-800 p-6 relative">
+            <div className="p-6 relative" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-white uppercase flex items-center gap-2">
                   <Clock className="w-4 h-4 text-red-500" />
@@ -594,7 +594,7 @@ const ProfilePage: React.FC = () => {
           {/* Right Col: Achievements */}
           <div className="lg:col-span-1 space-y-8">
             {/* Achievements */}
-            <div className="bg-[#0a0a0a] border border-stone-800 p-6 relative overflow-hidden">
+            <div className="p-6 relative overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
               <h3 className="text-lg font-bold text-white uppercase flex items-center gap-2 mb-6">
                 <Award className="w-4 h-4 text-red-500" />
                 Achievements

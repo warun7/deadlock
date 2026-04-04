@@ -48,6 +48,7 @@ const DashboardPage: React.FC = () => {
     }
 
     console.log("🔍 Dashboard mounted, checking for active match...");
+    let cleanupSocketListeners = () => {};
 
     const checkActiveMatch = async () => {
       try {
@@ -65,19 +66,22 @@ const DashboardPage: React.FC = () => {
           socket = gameSocket.connect(session.access_token);
         }
 
+        let timeout: ReturnType<typeof setTimeout> | null = null;
+
         // Listen for active match notification from backend
         const handleActiveMatch = (data: { matchId: string }) => {
           console.log("✅ Active match detected:", data.matchId);
           setActiveMatchId(data.matchId);
           setCheckingMatch(false);
 
+          if (timeout) {
+            clearTimeout(timeout);
+          }
+
           // Clean up listeners
           socket?.off("active_match_found", handleActiveMatch);
-          socket?.off("connect", requestCheck);
+          socket?.off("connect", handleConnect);
         };
-
-        // Set up listener FIRST
-        socket?.on("active_match_found", handleActiveMatch);
 
         // Function to request check
         const requestCheck = () => {
@@ -85,29 +89,50 @@ const DashboardPage: React.FC = () => {
           socket?.emit("check_active_match");
         };
 
+        const handleConnect = () => {
+          requestCheck();
+          socket?.off("connect", handleConnect);
+        };
+
+        // Set up listener FIRST
+        socket?.on("active_match_found", handleActiveMatch);
+
         // Request check when ready
         if (socket?.connected) {
           console.log("✅ Socket already connected");
           requestCheck();
         } else {
           console.log("⏳ Waiting for socket to connect...");
-          socket?.once("connect", requestCheck);
+          socket?.on("connect", handleConnect);
         }
 
         // Timeout if no response (increased to 5s)
-        const timeout = setTimeout(() => {
+        timeout = setTimeout(() => {
           console.log("⏱️ Active match check timed out (no active match)");
           setCheckingMatch(false);
           socket?.off("active_match_found", handleActiveMatch);
-          socket?.off("connect", requestCheck);
+          socket?.off("connect", handleConnect);
         }, 5000);
+
+        cleanupSocketListeners = () => {
+          if (timeout) {
+            clearTimeout(timeout);
+          }
+
+          socket?.off("active_match_found", handleActiveMatch);
+          socket?.off("connect", handleConnect);
+        };
       } catch (error) {
         console.error("Error checking active match:", error);
         setCheckingMatch(false);
       }
     };
 
-    checkActiveMatch();
+    void checkActiveMatch();
+
+    return () => {
+      cleanupSocketListeners();
+    };
   }, [user]);
 
   return (
