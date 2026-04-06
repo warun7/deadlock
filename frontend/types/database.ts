@@ -18,6 +18,7 @@ export interface Profile {
 
 export interface Match {
   id: string;
+  game_id?: string;
   player_id: string;
   opponent_id: string;
   problem_id: string;
@@ -26,6 +27,9 @@ export interface Match {
   result: 'won' | 'lost' | 'draw';
   rating_change: number;
   duration_seconds: number | null;
+  is_bot_match?: boolean;
+  bot_difficulty?: string;
+  bot_username?: string;
   completed_at: string;
   created_at: string;
 }

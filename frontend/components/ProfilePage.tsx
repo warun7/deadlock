@@ -471,78 +471,80 @@ const ProfilePage: React.FC = () => {
                     <p>No matches yet. Start playing to see your history!</p>
                   </div>
                 ) : (
-                  recentMatches.map((match, i) => {
-                    const isWin = match.result === "won";
-                    const isDraw = match.result === "draw";
-                    const resultLetter = isWin ? "W" : isDraw ? "D" : "L";
-                    const resultColor = isWin
-                      ? "bg-emerald-500/10 text-emerald-500"
-                      : isDraw
-                      ? "bg-yellow-500/10 text-yellow-500"
-                      : "bg-red-500/10 text-red-500";
+                  <>
+                    {recentMatches.map((match, i) => {
+                      const isWin = match.result === "won";
+                      const isDraw = match.result === "draw";
+                      const resultLetter = isWin ? "W" : isDraw ? "D" : "L";
+                      const resultColor = isWin
+                        ? "bg-emerald-500/10 text-emerald-500"
+                        : isDraw
+                        ? "bg-yellow-500/10 text-yellow-500"
+                        : "bg-red-500/10 text-red-500";
 
-                    return (
-                      <div
-                        key={match.id}
-                        className="hidden sm:grid grid-cols-12 gap-4 items-center p-3 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600 group"
-                      >
-                        <div className="col-span-1">
+                      return (
+                        <div
+                          key={match.id}
+                          className="hidden sm:grid grid-cols-12 gap-4 items-center p-3 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600 group"
+                        >
+                          <div className="col-span-1">
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${resultColor}`}
+                            >
+                              {resultLetter}
+                            </span>
+                          </div>
+                          <div className="col-span-4 text-sm font-bold text-stone-300 group-hover:text-white transition-colors">
+                            {match.bot_username || match.opponent_username}
+                          </div>
+                          <div className="col-span-4 text-xs text-stone-500">
+                            {match.problem_title}
+                          </div>
+                          <div className="col-span-1 text-[10px] text-stone-600 uppercase">
+                            {match.language}
+                          </div>
+                          <div className="col-span-3 text-right text-xs font-mono font-bold">
+                            {/* Rating points hidden for MVP */}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {/* Mobile match cards */}
+                    {recentMatches.map((match, i) => {
+                      const isWin = match.result === "won";
+                      const isDraw = match.result === "draw";
+                      const resultLetter = isWin ? "W" : isDraw ? "D" : "L";
+                      const resultColor = isWin
+                        ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                        : isDraw
+                        ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                        : "bg-red-500/10 text-red-500 border-red-500/20";
+
+                      return (
+                        <div
+                          key={`mobile-${match.id}`}
+                          className="sm:hidden flex items-center gap-3 p-3 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600"
+                        >
                           <span
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${resultColor}`}
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm shrink-0 ${resultColor}`}
                           >
                             {resultLetter}
                           </span>
-                        </div>
-                        <div className="col-span-4 text-sm font-bold text-stone-300 group-hover:text-white transition-colors">
-                          {match.opponent_username}
-                        </div>
-                        <div className="col-span-4 text-xs text-stone-500">
-                          {match.problem_title}
-                        </div>
-                        <div className="col-span-1 text-[10px] text-stone-600 uppercase">
-                          {match.language}
-                        </div>
-                        <div className="col-span-3 text-right text-xs font-mono font-bold">
-                          {/* Rating points hidden for MVP */}
-                        </div>
-                      </div>
-                    );
-                  }),
-                  /* Mobile match cards */
-                  recentMatches.map((match, i) => {
-                    const isWin = match.result === "won";
-                    const isDraw = match.result === "draw";
-                    const resultLetter = isWin ? "W" : isDraw ? "D" : "L";
-                    const resultColor = isWin
-                      ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-                      : isDraw
-                      ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
-                      : "bg-red-500/10 text-red-500 border-red-500/20";
-
-                    return (
-                      <div
-                        key={`mobile-${match.id}`}
-                        className="sm:hidden flex items-center gap-3 p-3 hover:bg-stone-900/50 transition-colors border-l-2 border-transparent hover:border-red-600"
-                      >
-                        <span
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm shrink-0 ${resultColor}`}
-                        >
-                          {resultLetter}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-bold text-stone-300 truncate">
-                            {match.opponent_username}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-bold text-stone-300 truncate">
+                              {match.bot_username || match.opponent_username}
+                            </div>
+                            <div className="text-[10px] text-stone-600 truncate">
+                              {match.problem_title} · {match.language}
+                            </div>
                           </div>
-                          <div className="text-[10px] text-stone-600 truncate">
-                            {match.problem_title} · {match.language}
-                          </div>
+                          <span className="text-xs font-mono font-bold shrink-0 text-stone-500">
+                            {/* RP hidden */}
+                          </span>
                         </div>
-                        <span className="text-xs font-mono font-bold shrink-0 text-stone-500">
-                          {/* RP hidden */}
-                        </span>
-                      </div>
-                    );
-                  })
+                      );
+                    })}
+                  </>
                 )}
               </div>
             </div>

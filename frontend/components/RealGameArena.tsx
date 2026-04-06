@@ -207,7 +207,15 @@ const RealGameArena: React.FC = () => {
       const handleGameOver = (data: { winnerId: string | null; reason?: string }) => {
         setGameOver(true);
         setWinner(data.winnerId);
-        setGameOverReason(data.reason || "Match ended");
+        
+        let displayReason = data.reason || "Match ended";
+        const isWinner = data.winnerId === user?.id;
+        
+        if (displayReason === "Opponent disconnected" && !isWinner) {
+          displayReason = "You disconnected";
+        }
+        
+        setGameOverReason(displayReason);
       };
 
       // Listen for errors

@@ -115,7 +115,7 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
                           {/* Opponent */}
                           <div className="col-span-4">
                             <div className="text-sm font-bold text-stone-300 group-hover:text-white transition-colors">
-                              {match.opponent_username}
+                              {match.bot_username || match.opponent_username}
                             </div>
                             <div className="text-[10px] text-stone-600 uppercase tracking-wider">
                               Opponent
@@ -159,7 +159,7 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
                         </span>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-bold text-stone-300 truncate">
-                            {match.opponent_username}
+                            {match.bot_username || match.opponent_username}
                           </div>
                           <div className="text-[10px] text-stone-600 truncate">
                             {match.problem_title}
