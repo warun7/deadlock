@@ -80,42 +80,8 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-            <div className="p-4 rounded-sm relative theme-transition" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)' }}>
-              <div className="text-xs font-mono uppercase mb-1" style={{ color: 'var(--text-dim)' }}>
-                Global Rank
-              </div>
-              <div className="text-sm sm:text-lg font-bold flex items-center gap-2" style={{ color: 'var(--text-dim)' }}>
-                {loading ? "..." : "COMING SOON"}
-                <Activity className="w-4 h-4 text-stone-700" />
-              </div>
-              {!loading && (
-                <div className="absolute top-2 right-2 bg-stone-800 text-stone-500 text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest">
-                  SOON
-                </div>
-              )}
-            </div>
-            <div className="p-4 rounded-sm relative theme-transition" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)' }}>
-              <div className="text-xs font-mono uppercase mb-1" style={{ color: 'var(--text-dim)' }}>
-                Global Rank
-              </div>
-              <div
-                className={`text-lg font-bold ${
-                  profile?.global_rank ? "text-white" : "text-stone-600"
-                }`}
-              >
-                {loading
-                  ? "..."
-                  : profile?.global_rank
-                  ? `#${profile.global_rank.toLocaleString()}`
-                  : "COMING SOON"}
-              </div>
-              {!loading && !profile?.global_rank && (
-                <div className="absolute top-2 right-2 bg-stone-800 text-stone-500 text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest">
-                  SOON
-                </div>
-              )}
-            </div>
+          <div className="flex gap-3 sm:gap-4">
+
             <div className="p-4 rounded-sm theme-transition" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)' }}>
               <div className="text-xs font-mono uppercase mb-1" style={{ color: 'var(--text-dim)' }}>
                 Win Rate
@@ -155,7 +121,7 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                   {checkingMatch ? "Checking..." : "Enter Queue"}
                 </div>
                 <div className="text-[10px] text-red-200 font-mono tracking-widest">
-                  RANKED 1v1 • EST 12s
+                  1V1 MATCHMAKING • EST 12s
                 </div>
               </div>
             </button>
@@ -178,7 +144,7 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                   Matchmaking Active
                 </h3>
                 <p className="text-sm mb-6 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  Jump into ranked 1v1 battles and compete against opponents
+                  Jump into 1v1 battles and compete against opponents
                   from around the world. Our intelligent matchmaking system
                   ensures you're always finding competitive matches.
                 </p>
@@ -204,7 +170,7 @@ const DashboardHero: React.FC<DashboardHeroProps> = ({
                 </div>
                 <div className="flex items-center gap-2 text-stone-400 text-xs font-mono">
                   <Zap className="w-4 h-4 text-yellow-500" />
-                  <span>Earn ELO • Climb Rankings • Track Stats</span>
+                  <span>Test your skills • Code fast • Compete</span>
                 </div>
               </div>
             </div>

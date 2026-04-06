@@ -15,7 +15,7 @@ export interface Feature {
 export interface CardProps {
   title: string;
   difficulty: 'Easy' | 'Medium' | 'Hard' | 'Nightmare';
-  ratingChange: number; // E.g., +25
+  ratingChange?: number; // E.g., +25
   description: string;
   tags: string[];
   codeSnippet?: string;

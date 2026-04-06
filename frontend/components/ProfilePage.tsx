@@ -21,14 +21,10 @@ import {
   getCurrentUserProfile,
   getRecentMatches,
   getAllMatches,
-  getAllAchievements,
-  getUserAchievements,
 } from "../lib/api";
 import {
   Profile,
   MatchDetailed,
-  Achievement,
-  UserAchievement,
 } from "../types/database";
 import MatchHistoryModal from "./MatchHistoryModal";
 
@@ -46,10 +42,7 @@ const ProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [recentMatches, setRecentMatches] = useState<MatchDetailed[]>([]);
   const [allMatchesData, setAllMatchesData] = useState<MatchDetailed[]>([]);
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
-  const [userAchievements, setUserAchievements] = useState<UserAchievement[]>(
-    []
-  );
+
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loadingAllMatches, setLoadingAllMatches] = useState(false);
@@ -78,19 +71,13 @@ const ProfilePage: React.FC = () => {
         const [
           profileData,
           matchesData,
-          achievementsData,
-          userAchievementsData,
         ] = await Promise.all([
           getCurrentUserProfile(),
           getRecentMatches(5),
-          getAllAchievements(),
-          getUserAchievements(),
         ]);
 
         setProfile(profileData);
         setRecentMatches(matchesData);
-        setAchievements(achievementsData);
-        setUserAchievements(userAchievementsData);
       } catch (error) {
         console.error("Error fetching profile data:", error);
       } finally {
@@ -389,35 +376,17 @@ const ProfilePage: React.FC = () => {
 
           <div className="flex gap-4 sm:gap-8">
             <div className="text-right relative">
-              <div className="text-[9px] sm:text-[10px] text-stone-500 uppercase tracking-widest mb-1">
-                Global Rank
-              </div>
-              <div className="text-sm sm:text-lg font-black text-stone-600 flex items-center justify-end gap-2">
-                COMING SOON
-                <Shield className="w-6 h-6 text-stone-700 fill-stone-800/20" />
-              </div>
-              <div className="absolute top-0 right-0 bg-stone-800 text-stone-500 text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest">
-                SOON
-              </div>
+              {/* Global Rank removed for MVP */}
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
           {/* Left Col: Stats */}
-          <div className="lg:col-span-2 space-y-8">
+          <div className="lg:col-span-1 space-y-8">
             {/* Stat Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
               {[
-                {
-                  label: "Global Rank",
-                  value: profile?.global_rank
-                    ? `#${profile.global_rank.toLocaleString()}`
-                    : "COMING SOON",
-                  icon: <Grid className="w-4 h-4" />,
-                  color: profile?.global_rank ? "text-white" : "text-stone-600",
-                  comingSoon: !profile?.global_rank,
-                },
                 {
                   label: "Win Rate",
                   value: loading
@@ -533,15 +502,8 @@ const ProfilePage: React.FC = () => {
                         <div className="col-span-1 text-[10px] text-stone-600 uppercase">
                           {match.language}
                         </div>
-                        <div className="col-span-2 text-right text-xs font-mono font-bold">
-                          <span
-                            className={
-                              isWin ? "text-emerald-500" : "text-red-500"
-                            }
-                          >
-                            {match.rating_change > 0 ? "+" : ""}
-                            {match.rating_change} RP
-                          </span>
+                        <div className="col-span-3 text-right text-xs font-mono font-bold">
+                          {/* Rating points hidden for MVP */}
                         </div>
                       </div>
                     );
@@ -575,13 +537,8 @@ const ProfilePage: React.FC = () => {
                             {match.problem_title} · {match.language}
                           </div>
                         </div>
-                        <span
-                          className={`text-xs font-mono font-bold shrink-0 ${
-                            isWin ? "text-emerald-500" : "text-red-500"
-                          }`}
-                        >
-                          {match.rating_change > 0 ? "+" : ""}
-                          {match.rating_change} RP
+                        <span className="text-xs font-mono font-bold shrink-0 text-stone-500">
+                          {/* RP hidden */}
                         </span>
                       </div>
                     );
@@ -591,52 +548,7 @@ const ProfilePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Col: Achievements */}
-          <div className="lg:col-span-1 space-y-8">
-            {/* Achievements */}
-            <div className="p-6 relative overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
-              <h3 className="text-lg font-bold text-white uppercase flex items-center gap-2 mb-6">
-                <Award className="w-4 h-4 text-red-500" />
-                Achievements
-              </h3>
 
-              <div className="relative">
-                {/* Achievement Grid (Blurred) */}
-                <div className="grid grid-cols-4 gap-2 blur-sm">
-                  {[
-                    "First Victory",
-                    "Winning Streak",
-                    "Speed Demon",
-                    "Polyglot",
-                    "Code Master",
-                    "Night Owl",
-                    "Problem Solver",
-                    "Champion",
-                  ].map((name, i) => (
-                    <div
-                      key={i}
-                      className="aspect-square border border-stone-800 rounded-sm flex flex-col items-center justify-center bg-black/50"
-                    >
-                      <Trophy className="w-5 h-5 text-stone-700" />
-                    </div>
-                  ))}
-                </div>
-
-                {/* Coming Soon Overlay */}
-                <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                  <div className="text-center">
-                    <Award className="w-12 h-12 mx-auto mb-3 text-stone-600" />
-                    <div className="text-2xl font-black text-stone-400 uppercase tracking-tighter mb-2">
-                      COMING SOON
-                    </div>
-                    <div className="text-xs text-stone-600 uppercase tracking-wider">
-                      Achievements Under Development
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

@@ -88,7 +88,7 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
                  <GameCard 
                    title="Graph Traversal" 
                    difficulty="Nightmare" 
-                   ratingChange={32} 
+
                    description="DFS Algorithm"
                    tags={['Graph', 'DP']}
                    codeSnippet={`fn solve() {\n  // Analyzing...\n}`}
@@ -110,7 +110,7 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
                  <GameCard 
                    title="Binary Search" 
                    difficulty="Medium" 
-                   ratingChange={-18} 
+
                    description="Find Element"
                    tags={['Search']}
                    codeSnippet={`class Solution:\n  def search(x):`}
@@ -126,7 +126,7 @@ const Hero: React.FC<HeroProps> = ({ onStart }) => {
                   <GameCard 
                        title="Graph Traversal" 
                        difficulty="Nightmare" 
-                       ratingChange={32} 
+
                        description="DFS Algorithm"
                        tags={['Graph', 'DP']}
                        codeSnippet={`fn solve() {\n  // Analyzing...\n}`}

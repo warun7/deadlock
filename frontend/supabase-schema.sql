@@ -1,5 +1,5 @@
 -- ==========================================
--- DEADLOCK DATABASE SCHEMA
+-- DEADLOCK DATABASE SCHEMA (PRODUCTION-READY)
 -- ==========================================
 -- This file contains the complete database schema for the Deadlock app.
 -- Run this SQL in your Supabase SQL Editor (Dashboard > SQL Editor > New Query)
@@ -15,12 +15,12 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID REFERENCES auth.users(id) PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
-  email TEXT NOT NULL,
   avatar_url TEXT,
   
   -- Stats
-  global_rank INTEGER DEFAULT NULL, -- NULL = coming soon
-  win_rate DECIMAL(5,2) DEFAULT 0.00, -- Percentage (0.00 to 100.00)
+  rating INTEGER DEFAULT 1000,
+  global_rank INTEGER DEFAULT NULL,
+  win_rate DECIMAL(5,2) DEFAULT 0.00,
   current_streak INTEGER DEFAULT 0,
   best_streak INTEGER DEFAULT 0,
   total_matches INTEGER DEFAULT 0,
@@ -28,47 +28,105 @@ CREATE TABLE IF NOT EXISTS profiles (
   matches_lost INTEGER DEFAULT 0,
   
   -- Metadata
+  is_bot BOOLEAN DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ==========================================
+-- PROBLEMS TABLE
+-- ==========================================
+CREATE TABLE IF NOT EXISTS problems (
+  id SERIAL PRIMARY KEY,
+  problem_id TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  difficulty TEXT,
+  url TEXT,
+  checker_type TEXT DEFAULT 'exact' CHECK (checker_type IN ('exact', 'special_chars', 'any_order', 'yes_no', 'float_tolerance', 'multiline_any', 'custom')),
+  checker_code TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ==========================================
+-- PROBLEM TEST CASES TABLE
+-- ==========================================
+CREATE TABLE IF NOT EXISTS problem_test_cases (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  problem_id INTEGER NOT NULL REFERENCES problems(id) ON DELETE CASCADE,
+  input TEXT NOT NULL,
+  expected_output TEXT NOT NULL,
+  order_index INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ==========================================
+-- GAME SESSIONS TABLE
+-- ==========================================
+CREATE TABLE IF NOT EXISTS game_sessions (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  problem_id_ref INTEGER REFERENCES problems(id) ON DELETE SET NULL,
+  duration_seconds INTEGER,
+  completed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ==========================================
 -- MATCHES TABLE
 -- ==========================================
--- Stores match history for all users
+-- Stores individual player perspectives of a game session
 CREATE TABLE IF NOT EXISTS matches (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  game_id UUID REFERENCES game_sessions(id) ON DELETE CASCADE,
   
   -- Player info
-  player_id UUID REFERENCES profiles(id) NOT NULL,
-  opponent_id UUID REFERENCES profiles(id) NOT NULL,
+  player_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  opponent_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
   
-  -- Match details
-  problem_id TEXT NOT NULL, -- Problem identifier (e.g., "two-sum", "reverse-linked-list")
+  -- Legacy denormalized problem strings
+  problem_id TEXT NOT NULL,
   problem_title TEXT NOT NULL,
-  language TEXT NOT NULL, -- Programming language used (e.g., "javascript", "python")
+  problem_id_ref INTEGER REFERENCES problems(id) ON DELETE SET NULL,
+  
+  language TEXT NOT NULL,
   
   -- Result
   result TEXT CHECK (result IN ('won', 'lost', 'draw')) NOT NULL,
-  rating_change INTEGER DEFAULT 0, -- Can be positive or negative
+  rating_change INTEGER DEFAULT 0,
+  duration_seconds INTEGER,
   
-  -- Timing
-  duration_seconds INTEGER, -- How long the match lasted
+  -- Bot Handling
+  is_bot_match BOOLEAN DEFAULT false,
+  bot_difficulty TEXT CHECK (bot_difficulty IN ('easy', 'medium', 'hard')),
+  bot_username TEXT,
+
   completed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  
-  -- Metadata
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ==========================================
+-- BOT ANALYTICS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS bot_analytics (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  match_id UUID NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+  bot_difficulty TEXT NOT NULL CHECK (bot_difficulty IN ('easy', 'medium', 'hard')),
+  bot_won BOOLEAN NOT NULL,
+  match_duration_seconds INTEGER,
+  human_submitted BOOLEAN DEFAULT true,
+  problem_rating TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ==========================================
 -- ACHIEVEMENTS TABLE
 -- ==========================================
--- Stores available achievements
 CREATE TABLE IF NOT EXISTS achievements (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT NOT NULL,
-  icon TEXT, -- Icon name or URL
+  icon TEXT,
   is_coming_soon BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -76,11 +134,10 @@ CREATE TABLE IF NOT EXISTS achievements (
 -- ==========================================
 -- USER_ACHIEVEMENTS TABLE
 -- ==========================================
--- Tracks which achievements users have earned
 CREATE TABLE IF NOT EXISTS user_achievements (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  user_id UUID REFERENCES profiles(id) NOT NULL,
-  achievement_id UUID REFERENCES achievements(id) NOT NULL,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  achievement_id UUID REFERENCES achievements(id) ON DELETE CASCADE NOT NULL,
   earned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(user_id, achievement_id)
 );
@@ -88,158 +145,111 @@ CREATE TABLE IF NOT EXISTS user_achievements (
 -- ==========================================
 -- INDEXES
 -- ==========================================
--- Improve query performance
-
--- Profile lookups
 CREATE INDEX IF NOT EXISTS idx_profiles_username ON profiles(username);
 CREATE INDEX IF NOT EXISTS idx_profiles_global_rank ON profiles(global_rank);
+CREATE INDEX IF NOT EXISTS idx_profiles_is_bot ON profiles(is_bot);
 
--- Match queries
 CREATE INDEX IF NOT EXISTS idx_matches_player_id ON matches(player_id);
 CREATE INDEX IF NOT EXISTS idx_matches_opponent_id ON matches(opponent_id);
+CREATE INDEX IF NOT EXISTS idx_matches_game_id ON matches(game_id);
+CREATE INDEX IF NOT EXISTS idx_matches_is_bot_match ON matches(is_bot_match);
 CREATE INDEX IF NOT EXISTS idx_matches_completed_at ON matches(completed_at DESC);
-CREATE INDEX IF NOT EXISTS idx_matches_player_completed ON matches(player_id, completed_at DESC);
 
--- Achievement queries
 CREATE INDEX IF NOT EXISTS idx_user_achievements_user_id ON user_achievements(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_achievements_achievement_id ON user_achievements(achievement_id);
+
+CREATE INDEX IF NOT EXISTS idx_bot_analytics_difficulty ON bot_analytics(bot_difficulty);
 
 -- ==========================================
 -- ROW LEVEL SECURITY (RLS)
 -- ==========================================
--- Enable RLS on all tables
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE matches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_achievements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE problems ENABLE ROW LEVEL SECURITY;
+ALTER TABLE problem_test_cases ENABLE ROW LEVEL SECURITY;
+
+-- VIEWS / PUBLIC TABLES
+CREATE POLICY "Profiles are viewable by everyone" ON profiles FOR SELECT USING (true);
+CREATE POLICY "Achievements are viewable by everyone" ON achievements FOR SELECT USING (true);
+CREATE POLICY "Problems are viewable by everyone" ON problems FOR SELECT USING (true);
+CREATE POLICY "Test cases are viewable by everyone" ON problem_test_cases FOR SELECT USING (true);
+
+-- USER AUTHENTICATED READS
+CREATE POLICY "Users can view their own game sessions" ON game_sessions FOR SELECT USING (EXISTS (SELECT 1 FROM matches WHERE matches.game_id = game_sessions.id AND (matches.player_id = auth.uid() OR matches.opponent_id = auth.uid())));
+CREATE POLICY "Users can view their own matches" ON matches FOR SELECT USING (auth.uid() = player_id OR auth.uid() = opponent_id);
+CREATE POLICY "Users can view their own achievements" ON user_achievements FOR SELECT USING (auth.uid() = user_id);
+
+-- USER ALLOWED INSERTS
+CREATE POLICY "Users can insert their own profile" ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- PROFILE UPDATE SECURITY
+CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+REVOKE UPDATE ON profiles FROM authenticated;
+GRANT UPDATE (username, avatar_url, updated_at) ON profiles TO authenticated;
+GRANT ALL PRIVILEGES ON profiles TO service_role;
+
+-- NOTE: Matches and User Achievements INSERTs are restricted to service_role to prevent manipulation.
 
 -- ==========================================
--- RLS POLICIES: PROFILES
+-- FUNCTIONS & TRIGGERS
 -- ==========================================
-
--- Users can view all profiles (for leaderboards, opponent info, etc.)
-CREATE POLICY "Profiles are viewable by everyone" 
-  ON profiles FOR SELECT 
-  USING (true);
-
--- Users can only insert their own profile
-CREATE POLICY "Users can insert their own profile" 
-  ON profiles FOR INSERT 
-  WITH CHECK (auth.uid() = id);
-
--- Users can only update their own profile
-CREATE POLICY "Users can update own profile" 
-  ON profiles FOR UPDATE 
-  USING (auth.uid() = id);
-
--- ==========================================
--- RLS POLICIES: MATCHES
--- ==========================================
-
--- Users can view matches they participated in
-CREATE POLICY "Users can view their own matches" 
-  ON matches FOR SELECT 
-  USING (auth.uid() = player_id OR auth.uid() = opponent_id);
-
--- Only authenticated users can insert matches (game server will do this)
-CREATE POLICY "Authenticated users can insert matches" 
-  ON matches FOR INSERT 
-  WITH CHECK (auth.uid() = player_id);
-
--- ==========================================
--- RLS POLICIES: ACHIEVEMENTS
--- ==========================================
-
--- Everyone can view achievements
-CREATE POLICY "Achievements are viewable by everyone" 
-  ON achievements FOR SELECT 
-  USING (true);
-
--- ==========================================
--- RLS POLICIES: USER_ACHIEVEMENTS
--- ==========================================
-
--- Users can view their own achievements
-CREATE POLICY "Users can view their own achievements" 
-  ON user_achievements FOR SELECT 
-  USING (auth.uid() = user_id);
-
--- Authenticated users can earn achievements
-CREATE POLICY "Users can insert their own achievements" 
-  ON user_achievements FOR INSERT 
-  WITH CHECK (auth.uid() = user_id);
-
--- ==========================================
--- FUNCTIONS
--- ==========================================
-
--- Function to automatically create a profile when a user signs up
 CREATE OR REPLACE FUNCTION public.handle_new_user() 
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, username, email, avatar_url)
+  INSERT INTO public.profiles (id, username, avatar_url)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'username', SPLIT_PART(NEW.email, '@', 1)),
-    NEW.email,
     NEW.raw_user_meta_data->>'profile_image'
   );
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- Trigger to create profile on user signup
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- ==========================================
--- Function to update user stats after a match
+-- Update stats after match trigger
 CREATE OR REPLACE FUNCTION public.update_user_stats_after_match()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Update player stats
   UPDATE profiles
   SET 
     total_matches = total_matches + 1,
     matches_won = CASE WHEN NEW.result = 'won' THEN matches_won + 1 ELSE matches_won END,
     matches_lost = CASE WHEN NEW.result = 'lost' THEN matches_lost + 1 ELSE matches_lost END,
-    current_streak = CASE 
-      WHEN NEW.result = 'won' THEN current_streak + 1
-      ELSE 0
-    END,
-    best_streak = CASE 
-      WHEN NEW.result = 'won' AND (current_streak + 1) > best_streak 
-        THEN current_streak + 1
-      ELSE best_streak
-    END,
-    win_rate = CASE 
-      WHEN total_matches + 1 > 0 
-        THEN ROUND(((matches_won::decimal + CASE WHEN NEW.result = 'won' THEN 1 ELSE 0 END) / (total_matches + 1)::decimal) * 100, 2)
-      ELSE 0.00
-    END,
+    current_streak = CASE WHEN NEW.result = 'won' THEN current_streak + 1 ELSE 0 END,
+    best_streak = CASE WHEN NEW.result = 'won' AND (current_streak + 1) > best_streak THEN current_streak + 1 ELSE best_streak END,
+    win_rate = CASE WHEN total_matches + 1 > 0 THEN ROUND(((matches_won::decimal + CASE WHEN NEW.result = 'won' THEN 1 ELSE 0 END) / (total_matches + 1)::decimal) * 100, 2) ELSE 0.00 END,
     updated_at = NOW()
   WHERE id = NEW.player_id;
-  
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- Trigger to update stats after match insert
 DROP TRIGGER IF EXISTS on_match_created ON matches;
 CREATE TRIGGER on_match_created
   AFTER INSERT ON matches
   FOR EACH ROW EXECUTE FUNCTION public.update_user_stats_after_match();
 
--- Transactional helper for recording both player-perspective rows at once
+-- SECURE MATCH RECORDER RPC
 CREATE OR REPLACE FUNCTION public.record_match_pair(
   p_winner_id uuid,
   p_loser_id uuid,
   p_problem_id text,
+  p_problem_id_ref integer,
   p_problem_title text,
   p_language text,
   p_duration_seconds integer,
   p_rating_change integer,
+  p_is_bot_match boolean DEFAULT false,
+  p_bot_difficulty text DEFAULT NULL,
+  p_bot_username text DEFAULT NULL,
   p_completed_at timestamptz DEFAULT now()
 )
 RETURNS void
@@ -247,120 +257,29 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_game_id uuid;
 BEGIN
-  INSERT INTO public.matches (
-    player_id,
-    opponent_id,
-    problem_id,
-    problem_title,
-    language,
-    result,
-    rating_change,
-    duration_seconds,
-    completed_at
-  )
+  INSERT INTO public.game_sessions (problem_id_ref, duration_seconds, completed_at)
+  VALUES (p_problem_id_ref, p_duration_seconds, p_completed_at)
+  RETURNING id INTO v_game_id;
+
+  INSERT INTO public.matches (game_id, player_id, opponent_id, problem_id, problem_id_ref, problem_title, language, result, rating_change, duration_seconds, is_bot_match, bot_difficulty, bot_username, completed_at)
   VALUES
-    (
-      p_winner_id,
-      p_loser_id,
-      p_problem_id,
-      p_problem_title,
-      p_language,
-      'won',
-      p_rating_change,
-      p_duration_seconds,
-      p_completed_at
-    ),
-    (
-      p_loser_id,
-      p_winner_id,
-      p_problem_id,
-      p_problem_title,
-      p_language,
-      'lost',
-      -p_rating_change,
-      p_duration_seconds,
-      p_completed_at
-    );
+    (v_game_id, p_winner_id, p_loser_id, p_problem_id, p_problem_id_ref, p_problem_title, p_language, 'won', p_rating_change, p_duration_seconds, p_is_bot_match, p_bot_difficulty, p_bot_username, p_completed_at),
+    (v_game_id, p_loser_id, p_winner_id, p_problem_id, p_problem_id_ref, p_problem_title, p_language, 'lost', -p_rating_change, p_duration_seconds, p_is_bot_match, p_bot_difficulty, p_bot_username, p_completed_at);
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.record_match_pair(
-  uuid,
-  uuid,
-  text,
-  text,
-  text,
-  integer,
-  integer,
-  timestamptz
-) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.record_match_pair(uuid, uuid, text, integer, text, text, integer, integer, boolean, text, text, timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.record_match_pair(uuid, uuid, text, integer, text, text, integer, integer, boolean, text, text, timestamptz) TO service_role;
 
 -- ==========================================
--- SEED DATA: Sample Achievements
+-- VIEWS
 -- ==========================================
-INSERT INTO achievements (name, description, icon, is_coming_soon) VALUES
-  ('First Victory', 'Win your first match', 'trophy', false),
-  ('Winning Streak', 'Win 5 matches in a row', 'zap', false),
-  ('Speed Demon', 'Complete a match in under 5 minutes', 'clock', false),
-  ('Polyglot', 'Win matches in 3 different languages', 'code', false),
-  ('Coming Soon 1', 'This achievement is under development', 'award', true),
-  ('Coming Soon 2', 'This achievement is under development', 'award', true),
-  ('Coming Soon 3', 'This achievement is under development', 'award', true),
-  ('Coming Soon 4', 'This achievement is under development', 'award', true)
-ON CONFLICT DO NOTHING;
+CREATE OR REPLACE VIEW leaderboard WITH (security_invoker = true) AS
+SELECT username, global_rank, rating, win_rate, total_matches, matches_won, best_streak
+FROM profiles WHERE total_matches >= 5 
+ORDER BY rating DESC, win_rate DESC, total_matches DESC LIMIT 100;
 
--- ==========================================
--- HELPER VIEWS
--- ==========================================
-
--- View for leaderboard (top players by win rate)
-CREATE OR REPLACE VIEW leaderboard AS
-SELECT 
-  username,
-  global_rank,
-  win_rate,
-  total_matches,
-  matches_won,
-  best_streak
-FROM profiles
-WHERE total_matches >= 5 -- Only show users with at least 5 matches
-ORDER BY win_rate DESC, total_matches DESC
-LIMIT 100;
-
--- View for recent matches with opponent details
-CREATE OR REPLACE VIEW recent_matches_detailed AS
-SELECT 
-  m.id,
-  m.player_id,
-  p1.username as player_username,
-  m.opponent_id,
-  p2.username as opponent_username,
-  m.problem_id,
-  m.problem_title,
-  m.language,
-  m.result,
-  m.rating_change,
-  m.duration_seconds,
-  m.completed_at
-FROM matches m
-JOIN profiles p1 ON m.player_id = p1.id
-JOIN profiles p2 ON m.opponent_id = p2.id
-ORDER BY m.completed_at DESC;
-
--- ==========================================
--- GRANT PERMISSIONS
--- ==========================================
--- Allow authenticated users to access views
 GRANT SELECT ON leaderboard TO authenticated;
-GRANT SELECT ON recent_matches_detailed TO authenticated;
-
--- ==========================================
--- DONE!
--- ==========================================
--- Your database schema is now set up!
--- Next steps:
--- 1. Run this SQL in Supabase Dashboard > SQL Editor
--- 2. Verify tables are created in Table Editor
--- 3. Test RLS policies
--- ==========================================

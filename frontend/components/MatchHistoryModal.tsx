@@ -113,7 +113,7 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
                           </div>
 
                           {/* Opponent */}
-                          <div className="col-span-3">
+                          <div className="col-span-4">
                             <div className="text-sm font-bold text-stone-300 group-hover:text-white transition-colors">
                               {match.opponent_username}
                             </div>
@@ -123,7 +123,7 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
                           </div>
 
                           {/* Problem */}
-                          <div className="col-span-3">
+                          <div className="col-span-4">
                             <div className="text-sm text-stone-400 group-hover:text-stone-300 transition-colors">
                               {match.problem_title}
                             </div>
@@ -142,18 +142,7 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
                             </div>
                           </div>
 
-                          {/* Rating Change */}
-                          <div className="col-span-2 text-right">
-                            <div
-                              className={`text-sm font-mono font-bold ${
-                                isWin ? 'text-emerald-500' : 'text-red-500'
-                              }`}
-                            >
-                              {match.rating_change > 0 ? '+' : ''}
-                              {match.rating_change}
-                            </div>
-                            <div className="text-[10px] text-stone-600">RP</div>
-                          </div>
+
                       </motion.div>
                       {/* Mobile card version */}
                       <motion.div
@@ -179,17 +168,7 @@ const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
                             {formattedDate} · {match.language}
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <div
-                            className={`text-sm font-mono font-bold ${
-                              isWin ? 'text-emerald-500' : 'text-red-500'
-                            }`}
-                          >
-                            {match.rating_change > 0 ? '+' : ''}
-                            {match.rating_change}
-                          </div>
-                          <div className="text-[10px] text-stone-600">RP</div>
-                        </div>
+
                       </motion.div>
                         </>
                       );

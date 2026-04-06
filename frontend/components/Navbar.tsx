@@ -91,30 +91,11 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
                     Profile
                  </button>
               </>
-            ) : (
-              <>
-                <a href="#features" className="hover:text-red-500 transition-colors">Features</a>
-                <a href="#ranking" className="hover:text-red-500 transition-colors">Rankings</a>
-              </>
-            )}
+            ) : null}
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg transition-all hover:bg-[var(--bg-card-hover)]"
-              style={{ color: 'var(--text-muted)' }}
-              aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-              title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-            >
-              {isDark ? (
-                <Sun className="w-[18px] h-[18px]" />
-              ) : (
-                <Moon className="w-[18px] h-[18px]" />
-              )}
-            </button>
-
+            {/* Removed Theme Toggle */}
             <button className="hidden sm:block transition-colors" style={{ color: 'var(--text-dim)' }}>
               <Github className="w-5 h-5" />
             </button>
@@ -213,15 +194,7 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
                   Profile
                 </button>
 
-                {/* Mobile Theme Toggle */}
-                <button 
-                  onClick={toggleTheme} 
-                  className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-lg transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  {isDark ? <Sun className="w-4 h-4" style={{ color: 'var(--text-dim)' }} /> : <Moon className="w-4 h-4" style={{ color: 'var(--text-dim)' }} />}
-                  {isDark ? 'Light Mode' : 'Dark Mode'}
-                </button>
+                {/* Removed Mobile Theme Toggle */}
 
                 <div className="pt-2 mt-2" style={{ borderTop: '1px solid var(--border-primary)' }}>
                   <button 
@@ -235,33 +208,7 @@ const Navbar: React.FC<NavbarProps> = ({ isLoggedIn, onLogin, onProfile, onDashb
               </>
             ) : (
               <>
-                <a 
-                  href="#features" 
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="block px-3 py-3 text-sm font-medium rounded-lg transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  Features
-                </a>
-                <a 
-                  href="#ranking"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="block px-3 py-3 text-sm font-medium rounded-lg transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  Rankings
-                </a>
-
-                {/* Mobile Theme Toggle */}
-                <button 
-                  onClick={toggleTheme} 
-                  className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-lg transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  {isDark ? <Sun className="w-4 h-4" style={{ color: 'var(--text-dim)' }} /> : <Moon className="w-4 h-4" style={{ color: 'var(--text-dim)' }} />}
-                  {isDark ? 'Light Mode' : 'Dark Mode'}
-                </button>
-
+                {/* Removed Mobile Links and Theme Toggle */}
                 <div className="pt-2 mt-2" style={{ borderTop: '1px solid var(--border-primary)' }}>
                   <button 
                     onClick={() => handleMobileNavAction(onLogin)}

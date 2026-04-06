@@ -70,22 +70,7 @@ type SubmissionResult = {
 // Mobile tab state for switching between problem/editor
 type MobileTab = 'problem' | 'code';
 
-// Codeforces difficulty color mapping
-const getDifficultyColor = (difficulty: string | number) => {
-  const rating =
-    typeof difficulty === "string" ? parseInt(difficulty) : difficulty;
 
-  if (rating < 1200) return "text-gray-500 bg-gray-500/10 border-gray-500/20";
-  if (rating < 1400)
-    return "text-green-500 bg-green-500/10 border-green-500/20";
-  if (rating < 1600) return "text-cyan-500 bg-cyan-500/10 border-cyan-500/20";
-  if (rating < 1900) return "text-blue-500 bg-blue-500/10 border-blue-500/20";
-  if (rating < 2100)
-    return "text-purple-500 bg-purple-500/10 border-purple-500/20";
-  if (rating < 2400)
-    return "text-orange-500 bg-orange-500/10 border-orange-500/20";
-  return "text-red-500 bg-red-500/10 border-red-500/20";
-};
 
 const RealGameArena: React.FC = () => {
   const location = useLocation();
@@ -426,9 +411,6 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
       {/* Game Header */}
       <div className="h-12 sm:h-14 border-b border-stone-800 bg-[#0a0a0a] flex items-center justify-between px-2 sm:px-4 z-20 shrink-0">
         <div className="flex items-center gap-2 sm:gap-4">
-          <div className="bg-red-600 text-white text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-1 rounded-sm uppercase">
-            Ranked
-          </div>
           <div className="hidden sm:flex items-center gap-2 text-stone-400 text-xs">
             <Clock className="w-3 h-3" />
             <span>LIVE</span>
@@ -498,11 +480,9 @@ while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid,
 
               <div className="flex items-center gap-3 text-xs">
                 <span
-                  className={`px-3 py-1 rounded-full font-medium bg-opacity-10 border border-opacity-20 ${getDifficultyColor(
-                    currentMatchData?.problem?.difficulty || 1500
-                  )}`}
+                  className="px-3 py-1 rounded-full font-medium bg-stone-500/10 border border-stone-500/20 text-stone-400"
                 >
-                  ★ {currentMatchData?.problem?.difficulty || "1000"}
+                  Difficulty: {currentMatchData?.problem?.difficulty || "1000"}
                 </span>
               </div>
             </div>

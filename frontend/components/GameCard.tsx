@@ -27,10 +27,7 @@ const GameCard: React.FC<CardProps> = ({ title, difficulty, ratingChange, descri
             {difficulty}
           </span>
         </div>
-        <div className="flex items-center gap-1 text-yellow-500 font-mono text-xs font-bold">
-          <Trophy className="w-3 h-3" />
-          <span>+{ratingChange} RP</span>
-        </div>
+
       </div>
 
       {/* Code/Visual Area */}

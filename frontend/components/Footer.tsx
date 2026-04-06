@@ -25,46 +25,12 @@ const Footer: React.FC = () => {
                         The competitive 1v1 coding platform. Prove your algorithmic skills in real-time battles.
                     </p>
                     <div className="flex gap-4">
-                        {[Github, Twitter, Disc].map((Icon, i) => (
-                            <a 
-                              key={i} 
-                              href="#" 
-                              className="w-10 h-10 flex items-center justify-center hover:text-white hover:border-red-600 hover:bg-red-600/10 transition-all duration-300 group"
-                              style={{ 
-                                border: '1px solid var(--border-primary)', 
-                                backgroundColor: 'var(--bg-card)',
-                                color: 'var(--text-muted)',
-                              }}
-                            >
-                                <Icon className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                            </a>
-                        ))}
+                        {/* Social Links hidden for MVP */}
                     </div>
                 </div>
 
-                {/* Links Grid */}
-                <div className="md:col-span-8 grid grid-cols-2 sm:grid-cols-3 gap-6 sm:gap-8">
-                    {[
-                        { title: "Platform", links: ["Ranked Match", "Custom Game", "Tournaments", "Leaderboard"] },
-                        { title: "Resources", links: ["Documentation", "API Status", "Algorithm Wiki", "Community"] },
-                        { title: "Legal", links: ["Privacy Policy", "Terms of Service", "Code of Conduct", "DMCA"] }
-                    ].map((col, i) => (
-                        <div key={i}>
-                            <h3 className="font-bold font-mono uppercase tracking-widest text-xs mb-6 border-l-2 border-red-600 pl-2" style={{ color: 'var(--text-secondary)' }}>
-                                {col.title}
-                            </h3>
-                            <ul className="space-y-3">
-                                {col.links.map((link, j) => (
-                                    <li key={j}>
-                                        <a href="#" className="hover:translate-x-2 transition-all duration-300 text-sm font-mono flex items-center gap-2 group" style={{ color: 'var(--text-dim)' }}>
-                                            <span className="w-0 group-hover:w-2 h-[1px] bg-red-600 transition-all duration-300"></span>
-                                            {link}
-                                        </a>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ))}
+                <div className="md:col-span-8 flex justify-end">
+                    {/* Links temporarily removed for MVP */}
                 </div>
 
             </div>
