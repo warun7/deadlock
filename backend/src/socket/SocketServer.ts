@@ -323,13 +323,59 @@ export class DeadlockSocketServer {
         return;
       }
 
-      // Check match status
-      if (match.status !== "active") {
+      // Fetch problem data EARLY before doing state checks
+      const problem = await problemService.getProblemById(match.problemId);
+
+      if (!problem) {
         socket.emit("error", {
-          message: `Match has ended (status: ${match.status})`,
-          code: "MATCH_ENDED",
+          message: "Problem data not found",
+          code: "PROBLEM_NOT_FOUND",
         });
         return;
+      }
+
+      // Determine opponent
+      const opponent = isPlayer1 ? match.player2 : match.player1;
+
+      // Check match status
+      if (match.status !== "active") {
+        if (match.status === "finished" && match.winnerId) {
+          // If the match naturally finished (someone won), send the state then trigger game over
+          const isWinner = match.winnerId === user.id;
+          const reason = isWinner ? "You solved it first!" : "Opponent solved it first or you forfeited";
+          
+          socket.emit("match_found", {
+            matchId: match.id,
+            problem: {
+              id: problem.id,
+              title: problem.title,
+              description: problem.description,
+              difficulty: problem.difficulty,
+              testCases: problem.testCases.filter((tc) => !tc.isHidden),
+            },
+            opponent: {
+              id: opponent.id,
+              username: opponent.username,
+              elo: opponent.elo,
+            },
+            startTime: match.startedAt,
+          });
+
+          // Allow UI to settle
+          setTimeout(() => {
+            socket.emit("game_over", {
+              winnerId: match.winnerId,
+              reason,
+            });
+          }, 500);
+          return;
+        } else {
+          socket.emit("error", {
+            message: `Match has ended (status: ${match.status})`,
+            code: "MATCH_ENDED",
+          });
+          return;
+        }
       }
 
       // Join the match room
@@ -345,20 +391,6 @@ export class DeadlockSocketServer {
         socket.id,
         "rejoin_update_socket"
       );
-
-      // Fetch problem data
-      const problem = await problemService.getProblemById(match.problemId);
-
-      if (!problem) {
-        socket.emit("error", {
-          message: "Problem data not found",
-          code: "PROBLEM_NOT_FOUND",
-        });
-        return;
-      }
-
-      // Determine opponent
-      const opponent = isPlayer1 ? match.player2 : match.player1;
 
       // Emit match_found with full data
       socket.emit("match_found", {

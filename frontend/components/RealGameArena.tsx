@@ -232,19 +232,16 @@ const RealGameArena: React.FC = () => {
       socket?.on("game_over", handleGameOver);
       socket?.on("error", handleError);
 
-      // If no match data (page refresh), request rejoin
-      if (!matchData && matchId) {
-        const attemptRejoin = () => {
-          if (socket?.connected) {
-            gameSocket.rejoinMatch(matchId);
-          } else {
-            // Wait for socket to connect
-            socket?.on("connect", handleConnect);
-          }
-        };
+      const attemptRejoin = () => {
+        if (socket?.connected) {
+          gameSocket.rejoinMatch(matchId);
+        } else {
+          // Wait for socket to connect
+          socket?.on("connect", handleConnect);
+        }
+      };
 
-        attemptRejoin();
-      }
+      attemptRejoin();
 
       cleanupSocketListeners = () => {
         socket?.off("match_found", handleMatchFound);

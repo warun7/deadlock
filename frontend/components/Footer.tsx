@@ -37,7 +37,7 @@ const Footer: React.FC = () => {
 
             <div className="mt-12 sm:mt-20 pt-6 sm:pt-8 flex flex-col md:flex-row justify-between items-center gap-4" style={{ borderTop: '1px solid var(--border-primary)' }}>
                 <p className="text-xs font-mono uppercase" style={{ color: 'var(--text-ghost)' }}>
-                    © 2024 Deadlock. All rights reserved.
+                    © 2026 Deadlock. All rights reserved.
                 </p>
                 <div className="flex items-center gap-6 text-[10px] font-mono uppercase tracking-widest" style={{ color: 'var(--text-dim)' }}>
                     <span className="flex items-center gap-2">
