@@ -7,6 +7,76 @@ import { Profile, Match, MatchDetailed, Achievement, UserAchievement } from '../
 // ==========================================
 
 /**
+ * Get any user's public profile by their username
+ */
+export async function getUserProfileByUsername(username: string): Promise<Profile | null> {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('username', username)
+      .single();
+
+    if (error) {
+      console.error('Error fetching profile by username:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Exception fetching profile by username:', error);
+    return null;
+  }
+}
+
+/**
+ * Get recent matches for any user by their ID (used for public profiles)
+ */
+export async function getRecentMatchesByUserId(userId: string, limit: number = 5): Promise<MatchDetailed[]> {
+  try {
+    const { data, error } = await supabase
+      .from('recent_matches_detailed')
+      .select('*')
+      .eq('player_id', userId)
+      .order('completed_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error('Error fetching matches by userId:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Exception fetching matches by userId:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all matches for any user by their ID (used for public profiles)
+ */
+export async function getAllMatchesByUserId(userId: string): Promise<MatchDetailed[]> {
+  try {
+    const { data, error } = await supabase
+      .from('recent_matches_detailed')
+      .select('*')
+      .eq('player_id', userId)
+      .order('completed_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching all matches by userId:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Exception fetching all matches by userId:', error);
+    return [];
+  }
+}
+
+/**
  * Get the current user's profile
  */
 export async function getCurrentUserProfile(): Promise<Profile | null> {

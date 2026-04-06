@@ -13,6 +13,7 @@ import DashboardPage from "./pages/DashboardPage";
 import ProfilePage from "./pages/ProfilePage";
 import RealMatchmakingPage from "./pages/RealMatchmakingPage";
 import GamePage from "./pages/GamePage";
+import PublicProfilePage from "./pages/PublicProfilePage";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
@@ -89,14 +90,15 @@ const AppContent: React.FC = () => {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/game/:matchId"
+        <Route path="/game/:matchId"
           element={
             <ProtectedRoute>
               <GamePage />
             </ProtectedRoute>
           }
         />
+        {/* Public profile pages - accessible without login */}
+        <Route path="/u/:targetUsername" element={<PublicProfilePage />} />
       </Routes>
     </div>
   );

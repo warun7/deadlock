@@ -334,7 +334,7 @@ const ProfilePage: React.FC = () => {
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
                   placeholder={username}
-                  className="text-xl sm:text-2xl md:text-4xl font-black text-white uppercase tracking-tighter bg-black/50 border border-stone-800 rounded px-3 sm:px-4 py-2 focus:border-red-600 focus:outline-none w-full sm:w-auto"
+                  className="text-xl sm:text-2xl md:text-4xl font-black text-white tracking-tighter bg-black/50 border border-stone-800 rounded px-3 sm:px-4 py-2 focus:border-red-600 focus:outline-none w-full sm:w-auto"
                 />
                 <div className="flex gap-2">
                   <button
@@ -356,7 +356,7 @@ const ProfilePage: React.FC = () => {
               </div>
             ) : (
               <div className="flex items-center gap-4 mb-2">
-                <h1 className="text-3xl sm:text-4xl md:text-6xl font-black text-white uppercase tracking-tighter break-all sm:break-normal">
+                <h1 className="text-3xl sm:text-4xl md:text-6xl font-black text-white tracking-tighter break-all sm:break-normal">
                   {username}
                 </h1>
                 <button
