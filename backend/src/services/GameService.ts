@@ -1,7 +1,7 @@
 import { Server as SocketServer } from "socket.io";
 import { createClient } from "@supabase/supabase-js";
 import { redisService } from "./RedisService";
-import { judgeService } from "./JudgeService";
+import { judgeService, sanitizeSubmissionResult } from "./JudgeService";
 import { problemService } from "./ProblemService";
 import { BotCompletionResult } from "./BotPlayer";
 import { config } from "../config";
@@ -132,8 +132,8 @@ export class GameService {
         testsProgress: `${result.passed}/${result.total}`,
       });
 
-      // Send private result to submitter
-      socket.emit("submission_result", result);
+      // Send private result to submitter (hidden tests reduced to pass/fail)
+      socket.emit("submission_result", sanitizeSubmissionResult(result));
 
       // === CHECK WIN CONDITION ===
       if (result.status === "accepted") {

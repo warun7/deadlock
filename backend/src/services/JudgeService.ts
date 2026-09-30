@@ -191,6 +191,7 @@ export class JudgeService {
 
           let passed: boolean;
           let statusMessage = result.status.description;
+          let checkerMessage: string | undefined;
 
           if (useBuiltinComparison) {
             // Use Judge0's result directly
@@ -226,8 +227,10 @@ export class JudgeService {
               checkerCode,
             });
             passed = checkerResult.passed;
-            if (!passed && checkerResult.message) {
-              statusMessage = checkerResult.message;
+            if (!passed) {
+              // Keep checker detail out of status: it can quote the expected output
+              statusMessage = 'Wrong Answer';
+              checkerMessage = checkerResult.message;
             }
           }
 
@@ -239,8 +242,10 @@ export class JudgeService {
             testIndex: i,
             passed,
             status: statusMessage,
+            hidden: testCase.isHidden !== false,
             stdout: result.stdout || undefined,
             expected: testCase.expectedOutput,
+            message: checkerMessage,
             time: result.time,
             memory: result.memory,
           };
@@ -252,6 +257,7 @@ export class JudgeService {
             testIndex: i,
             passed: false,
             status: 'Judge0 Error',
+            hidden: testCase.isHidden !== false,
             stdout: `Judge0 API Error: ${error.message}`,
             expected: testCase.expectedOutput,
           };
@@ -394,6 +400,39 @@ export class JudgeService {
   ): Promise<Judge0Response> {
     return this.runSingleTest(sourceCode, languageId, stdin);
   }
+}
+
+/**
+ * Reduce a submission result to what the submitter may see.
+ *
+ * Hidden tests keep only testIndex/passed/status, so their input (echoed via
+ * stdout) and expected output never reach the client. Fields are copied from
+ * an allow-list so anything added to TestResult later stays server-side.
+ * A test without an explicit `hidden: false` is treated as hidden.
+ */
+export function sanitizeSubmissionResult(result: SubmissionResult): SubmissionResult {
+  return {
+    status: result.status,
+    passed: result.passed,
+    total: result.total,
+    stderr: result.stderr,
+    testResults: result.testResults?.map((r): TestResult => {
+      if (r.hidden !== false) {
+        return { testIndex: r.testIndex, passed: r.passed, status: r.status, hidden: true };
+      }
+      return {
+        testIndex: r.testIndex,
+        passed: r.passed,
+        status: r.status,
+        hidden: false,
+        stdout: r.stdout,
+        expected: r.expected,
+        message: r.message,
+        time: r.time,
+        memory: r.memory,
+      };
+    }),
+  };
 }
 
 // Singleton instance

@@ -22,6 +22,10 @@ export class ProblemService {
    * passes every imported test). Problems with several valid answers, and
    * problems with no imported test cases at all, are excluded: serving them
    * means telling a player their correct solution is wrong.
+   *
+   * Returns null when nothing can be served (database error, empty pool).
+   * Callers put players back in the queue rather than starting a match that
+   * could never be judged.
    */
   async getRandomProblem(options?: {
     difficulty?: number;
@@ -51,7 +55,7 @@ export class ProblemService {
       
       if (!problems || problems.length === 0) {
         console.warn('No judge_safe problems found with rating <= 1200');
-        return this.getFallbackProblem();
+        return null;
       }
       
       // Pick a random problem, and make sure it can actually be judged.
@@ -86,11 +90,11 @@ export class ProblemService {
       console.error(
         `No judgeable problem found after ${maxAttempts} attempts (pool size ${problems.length})`
       );
-      return this.getFallbackProblem();
+      return null;
       
     } catch (error) {
       console.error('Error in getRandomProblem:', error);
-      return this.getFallbackProblem();
+      return null;
     }
   }
   
@@ -180,42 +184,6 @@ export class ProblemService {
   private extractDifficulty(urlOrDifficulty: string): string {
     // Return the difficulty as-is (should be a number like "1000", "1200", etc.)
     return urlOrDifficulty || '1000';
-  }
-  
-  /**
-   * Fallback problem when database is unavailable
-   */
-  private getFallbackProblem(): Problem {
-    return {
-      id: 'fallback-1',
-      title: 'Two Sum',
-      description: `Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.
-
-You may assume that each input would have exactly one solution, and you may not use the same element twice.
-
-You can return the answer in any order.
-
-### Example 1:
-**Input:** nums = [2,7,11,15], target = 9
-**Output:** [0,1]
-**Explanation:** Because nums[0] + nums[1] == 9, we return [0, 1].
-
-### Example 2:
-**Input:** nums = [3,2,4], target = 6
-**Output:** [1,2]
-
-### Constraints:
-- 2 <= nums.length <= 10^4
-- -10^9 <= nums[i] <= 10^9
-- -10^9 <= target <= 10^9
-- Only one valid answer exists.`,
-      difficulty: 800,
-      testCases: [
-        { input: '4\n2 7 11 15\n9', expectedOutput: '0 1', isHidden: false },
-        { input: '3\n3 2 4\n6', expectedOutput: '1 2', isHidden: false },
-        { input: '2\n3 3\n6', expectedOutput: '0 1', isHidden: true },
-      ],
-    };
   }
   
   /**

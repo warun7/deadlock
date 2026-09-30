@@ -129,12 +129,17 @@ export interface SubmissionResult {
   testResults?: TestResult[];
 }
 
+// Internal results carry stdout/expected/message for every test.
+// Results sent to clients go through sanitizeSubmissionResult first, which
+// strips everything but testIndex/passed/status/hidden from hidden tests.
 export interface TestResult {
   testIndex: number;
   passed: boolean;
   status: string;
+  hidden?: boolean;
   stdout?: string;
   expected?: string;
+  message?: string; // Checker detail, may quote the expected output
   time?: string;
   memory?: number;
 }
