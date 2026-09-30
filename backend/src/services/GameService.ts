@@ -280,6 +280,7 @@ export class GameService {
         problemTitle: match.problemTitle,
         duration,
         botDifficulty: bot?.getDifficulty() || "medium",
+        language: this.getLanguageName(languageId),
       });
       this.matchmakingService?.cleanupBot(matchId);
       socket.emit("game_over", { winnerId: user.id, reason: "You solved it first!" });
@@ -537,6 +538,7 @@ export class GameService {
     problemTitle: string;
     duration: number;
     botDifficulty: "easy" | "medium" | "hard";
+    language?: string; // Known only when the human's submission ended the match
   }): Promise<void> {
     try {
       const result = data.winnerId === data.humanId ? "won" : "lost";
@@ -547,7 +549,7 @@ export class GameService {
         opponent_id: "00000000-0000-0000-0000-000000000000", // Dummy bot profile UUID
         problem_id: data.problemId,
         problem_title: data.problemTitle,
-        language: "unknown", // We don't track language for bot matches yet
+        language: data.language || "unknown",
         result,
         rating_change: 0, // No rating change for bot matches
         duration_seconds: data.duration,
