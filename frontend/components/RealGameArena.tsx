@@ -77,7 +77,17 @@ int main() {
 `,
 };
 
-type TestResult = { testIndex: number; passed: boolean; status: string; stdout?: string; expected?: string };
+// Hidden tests arrive as { testIndex, passed, status, hidden: true } only; the
+// server never sends their input, output or expected answer.
+type TestResult = {
+  testIndex: number;
+  passed: boolean;
+  status: string;
+  hidden?: boolean;
+  stdout?: string;
+  expected?: string;
+  message?: string;
+};
 type SubmissionResult = {
   status: string;
   passed: number;
@@ -438,10 +448,22 @@ const RealGameArena: React.FC = () => {
   const sampleFailure = useMemo(() => {
     const results = submissionResult?.testResults;
     if (!results || submissionResult?.status === "accepted") return null;
+    // Visible results come in the same order as the sample tests in match_found
+    let sampleIndex = -1;
     for (const r of results) {
-      if (!r || r.passed) continue;
-      const sample = visibleTests.find((t) => t.expectedOutput === r.expected);
-      if (sample) return { index: r.testIndex, input: sample.input, expected: sample.expectedOutput, got: r.stdout ?? "", status: r.status };
+      if (!r || r.hidden !== false) continue;
+      sampleIndex++;
+      if (r.passed) continue;
+      const sample = visibleTests.find((t) => t.expectedOutput === r.expected) ?? visibleTests[sampleIndex];
+      if (sample)
+        return {
+          number: sampleIndex + 1,
+          input: sample.input,
+          expected: sample.expectedOutput,
+          got: r.stdout ?? "",
+          status: r.status,
+          message: r.message,
+        };
     }
     return null;
   }, [submissionResult, visibleTests]);
@@ -783,7 +805,7 @@ const RealGameArena: React.FC = () => {
                     {sampleFailure && (
                       <div className="grid gap-2 font-mono text-[12px] sm:grid-cols-3">
                         {[
-                          { label: `Sample ${sampleFailure.index + 1} input`, value: sampleFailure.input },
+                          { label: `Sample ${sampleFailure.number} input`, value: sampleFailure.input },
                           { label: "Expected", value: sampleFailure.expected },
                           { label: "Your output", value: sampleFailure.got || "(no output)" },
                         ].map((b) => (
@@ -792,6 +814,9 @@ const RealGameArena: React.FC = () => {
                             <pre className="max-h-40 overflow-auto whitespace-pre-wrap bg-screen p-2.5 text-screen-fg">{b.value}</pre>
                           </div>
                         ))}
+                        {sampleFailure.message && (
+                          <p className="font-sans text-[12px] text-screen-fg-2 sm:col-span-3">{sampleFailure.message}</p>
+                        )}
                       </div>
                     )}
 
