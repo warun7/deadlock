@@ -14,10 +14,12 @@ Real-time 1v1 competitive programming platform where players race to solve algor
 ## 🚀 Tech Stack
 
 ### Frontend
-- **React** + TypeScript + Vite
-- **TailwindCSS** for styling
+- **React** + TypeScript + Vite (routes are lazy-loaded)
+- **Tailwind CSS v4** via the Vite plugin; design tokens live in `frontend/styles/index.css`
+- **GSAP** (ScrollTrigger, SplitText) and **Lenis** for landing-page scroll motion, **Motion** for app UI transitions
+- **ThreeUI `CrtBackground`** (blue-screen variant, MIT) as the hero and auth-panel background, vendored unmodified in `frontend/components/threeui/`
 - **Socket.IO** for real-time communication
-- **Monaco Editor** for code editing
+- **CodeMirror** for code editing
 - **Supabase** for authentication & database
 
 ### Backend
