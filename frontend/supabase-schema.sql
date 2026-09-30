@@ -175,7 +175,10 @@ ALTER TABLE problem_test_cases ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Profiles are viewable by everyone" ON profiles FOR SELECT USING (true);
 CREATE POLICY "Achievements are viewable by everyone" ON achievements FOR SELECT USING (true);
 CREATE POLICY "Problems are viewable by everyone" ON problems FOR SELECT USING (true);
-CREATE POLICY "Test cases are viewable by everyone" ON problem_test_cases FOR SELECT USING (true);
+
+-- TEST CASES: backend only (service_role bypasses RLS). No client policy, so
+-- hidden expected outputs can't be read with the anon key.
+REVOKE ALL ON problem_test_cases FROM PUBLIC, anon, authenticated;
 
 -- USER AUTHENTICATED READS
 CREATE POLICY "Users can view their own game sessions" ON game_sessions FOR SELECT USING (EXISTS (SELECT 1 FROM matches WHERE matches.game_id = game_sessions.id AND (matches.player_id = auth.uid() OR matches.opponent_id = auth.uid())));

@@ -443,7 +443,7 @@ export class MatchmakingService {
           title: problem.title,
           description: problem.description,
           difficulty: problem.difficulty,
-          testCases: problem.testCases,
+          testCases: problem.testCases.filter((tc) => !tc.isHidden), // Only visible test cases
         },
         opponent: bot.getPlayerInfo(),
         startTime: Date.now(),
