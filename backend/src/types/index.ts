@@ -61,7 +61,9 @@ export interface MatchFoundPayload {
     id: string;
     title: string;
     description: string;
-    difficulty: string;
+    // Codeforces rating as an integer. Was a string until migration 007; the
+    // DB column is now integer so range filters compare numerically.
+    difficulty: number;
     testCases: TestCase[];
   };
   opponent: {
@@ -96,7 +98,7 @@ export interface Problem {
   id: string;
   title: string;
   description: string;
-  difficulty: string;
+  difficulty: number;
   testCases: TestCase[];
   checkerType?: CheckerType; // How to validate answers (defaults to 'exact')
   checkerCode?: string; // Custom JS code for 'custom' checker type
@@ -148,6 +150,13 @@ export interface Judge0Submission {
   expected_output?: string;
   cpu_time_limit?: number;
   memory_limit?: number;
+  /**
+   * Base64-encoded ZIP whose entries Judge0 extracts into the sandbox (/box).
+   * Used to hand a problem checker its input/expected/submission files.
+   */
+  additional_files?: string;
+  /** Space-separated argv passed to the program. Used to invoke checkers. */
+  command_line_arguments?: string;
 }
 
 export interface Judge0Response {

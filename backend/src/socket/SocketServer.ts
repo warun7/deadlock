@@ -43,7 +43,8 @@ export class DeadlockSocketServer {
     // Initialize Socket.IO
     this.io = new SocketServer(httpServer, {
       cors: {
-        origin: config.frontendUrl,
+        // Same allow-list as the Express layer (FRONTEND_URL, comma-separated).
+        origin: config.frontendUrls,
         methods: ["GET", "POST"],
         credentials: true,
       },

@@ -506,10 +506,23 @@ export class GameService {
   }): Promise<void> {
     try {
       const ratingChange = data.eloChange || 25; // Use calculated ELO or default to 25
+      // Migration 006 dropped the original 8-argument signature and redefined
+      // this function with `p_problem_id_ref` (no default) so it can write the
+      // canonical `game_sessions` row. PostgREST resolves RPCs by argument
+      // name, so omitting it made EVERY call fail with PGRST202 "function not
+      // found" -- swallowed by the catch below, meaning human-vs-human matches
+      // were never saved at all. Bot matches were unaffected because they
+      // insert into `matches` directly.
+      //
+      // `problemId` is the numeric `problems.id` (ProblemService returns
+      // `problem.id.toString()`), so it doubles as the integer FK. The fallback
+      // problem has a non-numeric id, hence the NaN guard.
+      const problemIdRef = Number.parseInt(data.problemId, 10);
       const { error } = await supabase.rpc("record_match_pair", {
         p_winner_id: data.winnerId,
         p_loser_id: data.loserId,
         p_problem_id: data.problemId,
+        p_problem_id_ref: Number.isNaN(problemIdRef) ? null : problemIdRef,
         p_problem_title: data.problemTitle || "Unknown Problem",
         p_language: data.language || "unknown",
         p_duration_seconds: data.duration,
@@ -518,7 +531,14 @@ export class GameService {
       });
 
       if (error) {
-        console.error("❌ Error saving match records transactionally:", error);
+        // This used to be an easy-to-miss log line, which is exactly how the
+        // stale 8-argument call above went unnoticed while every finished
+        // match silently failed to save. Say what was actually lost.
+        console.error(
+          "❌ MATCH NOT RECORDED — record_match_pair failed, no match history or " +
+            "stats were written for this game:",
+          { matchId: data.matchId, problemId: data.problemId, error }
+        );
       } else {
         console.log(`💾 Match records saved for both players`);
         console.log(`📊 Stats will be auto-updated by database trigger`);

@@ -2,4 +2,20 @@ node_modules
 dist
 .git
 .env
+.env.*
 *.log
+
+# Contains live credentials in this repo's history -- keep it out of any build
+# context so it can never be picked up by a `COPY . .` in future.
+env.example.txt
+.env.example
+
+# Not needed to build or run the server
+docker-compose.yml
+Dockerfile
+.dockerignore
+database-migrations
+supabase
+logs
+tests
+*.md
