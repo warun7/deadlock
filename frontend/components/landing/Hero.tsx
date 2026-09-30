@@ -1,6 +1,6 @@
 import React, { useLayoutEffect, useRef } from "react";
 import { ArrowRight } from "@phosphor-icons/react";
-import LiquidMetal from "../three/LiquidMetal";
+import CrtScreen from "../threeui/CrtScreen";
 import { ButtonLink } from "../ui/Button";
 import { ensureGsap, prefersReducedMotion } from "../../lib/motion";
 import { useMagnetic } from "../../lib/useMagnetic";
@@ -9,25 +9,16 @@ interface HeroProps {
   onAnchor: (id: string) => void;
 }
 
-// Desktop: form sits in the right half. Mobile: above the copy.
-const heroLayout = (w: number, h: number) => {
-  const aspect = w / h;
-  if (w < 768) return { offsetX: -aspect * 0.06, offsetY: 0.2, scale: Math.min(0.38, aspect * 0.76) };
-  if (w < 1100) return { offsetX: aspect * 0.22, offsetY: 0.02, scale: 0.5 };
-  return { offsetX: aspect * 0.23, offsetY: 0.0, scale: 0.6 };
-};
-
 const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
   const sectionRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const headlineRef = useRef<HTMLHeadingElement>(null);
   const ctaRef = useRef<HTMLAnchorElement>(null);
-  const splitRef = useRef(0);
 
   useMagnetic(ctaRef, 0.25, 70);
 
   useLayoutEffect(() => {
-    const { gsap, ScrollTrigger, SplitText } = ensureGsap();
+    const { gsap, SplitText } = ensureGsap();
     const section = sectionRef.current;
     const headline = headlineRef.current;
     if (!section || !headline) return;
@@ -47,15 +38,6 @@ const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
           scrollTrigger: { trigger: section, start: "top top", end: "bottom 20%", scrub: true },
         });
       }
-
-      ScrollTrigger.create({
-        trigger: section,
-        start: "top top",
-        end: "bottom top",
-        onUpdate: (self) => {
-          splitRef.current = self.progress;
-        },
-      });
     }, section);
 
     return () => ctx.revert();
@@ -67,9 +49,21 @@ const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
       className="relative isolate flex min-h-[100dvh] items-end overflow-hidden md:items-center"
     >
       <div className="absolute inset-0 -z-10">
-        <LiquidMetal className="absolute inset-0" layout={heroLayout} splitRef={splitRef} />
-        {/* Readability scrims: left for copy on desktop, bottom for the section seam */}
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,var(--color-ink)_0%,rgb(11_11_13/0.75)_30%,transparent_58%)] max-md:bg-[linear-gradient(0deg,var(--color-ink)_30%,rgb(11_11_13/0.6)_52%,transparent_72%)]" />
+        <div className="shader-frame absolute inset-0" aria-hidden="true">
+          <CrtScreen
+            variant="blue-screen"
+            speed={1.0}
+            motion={1.0}
+            hue={0}
+            saturation={1.0}
+            brightness={1.0}
+            opacity={1.0}
+          />
+        </div>
+        {/* Readability: shade the side the copy sits on (left on desktop, bottom on
+            phones) so the fault-report text behind reads as texture, not competing copy */}
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgb(11_11_13/0.95)_0%,rgb(11_11_13/0.88)_38%,rgb(11_11_13/0.3)_62%,transparent_80%)] max-md:bg-[linear-gradient(0deg,rgb(11_11_13/0.97)_32%,rgb(11_11_13/0.7)_52%,rgb(11_11_13/0.15)_75%)]" />
+        {/* Section seam into the dark page below */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-ink to-transparent" />
       </div>
 

@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { WarningCircle } from "@phosphor-icons/react";
-import LiquidMetal from "../components/three/LiquidMetal";
 import Avatar from "../components/ui/Avatar";
 import Wordmark from "../components/ui/Wordmark";
 import { Button, Kbd } from "../components/ui/Button";
@@ -14,12 +13,6 @@ import { formatClock } from "../lib/format";
 type Status = "connecting" | "searching" | "found" | "error";
 
 const HANDOFF_MS = 3000;
-
-const stageLayout = (w: number, h: number) => ({
-  offsetX: 0,
-  offsetY: w < 640 ? 0.12 : 0.06,
-  scale: w < 640 ? Math.min(0.34, (w / h) * 0.7) : 0.4,
-});
 
 const fade = {
   initial: { opacity: 0, y: 12, filter: "blur(4px)" },
@@ -38,23 +31,6 @@ const RealMatchmakingPage: React.FC = () => {
   const [countdown, setCountdown] = useState(Math.round(HANDOFF_MS / 1000));
   const queueJoinedRef = useRef(false);
   const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Drops circle apart while searching and lock together once a match is found
-  const splitRef = useRef(0.55);
-
-  useEffect(() => {
-    const target = status === "found" ? 0 : 0.55;
-    const from = splitRef.current;
-    const start = performance.now();
-    let raf = 0;
-    const step = (now: number) => {
-      const t = Math.min(1, (now - start) / 900);
-      splitRef.current = from + (target - from) * (1 - Math.pow(1 - t, 3));
-      if (t < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [status]);
-
   useEffect(() => {
     let timerInterval: ReturnType<typeof setInterval> | null = null;
     let cleanupSocketListeners = () => {};
@@ -188,10 +164,23 @@ const RealMatchmakingPage: React.FC = () => {
 
   return (
     <div className="relative isolate flex min-h-[100dvh] flex-col overflow-hidden">
-      <div className="absolute inset-0 -z-10">
-        {status !== "error" && <LiquidMetal className="absolute inset-0" layout={stageLayout} splitRef={splitRef} quality="low" />}
-        <div className="absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_45%,transparent_0%,var(--color-ink)_80%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-ink via-ink/85 to-transparent" />
+      {/* Search pulse: rings expand while searching, settle into a solid ring once matched */}
+      <div className="pointer-events-none absolute inset-0 -z-10 flex items-center justify-center pb-[18vh]" aria-hidden="true">
+        <div className="relative size-[min(56vw,340px)]">
+          {status === "searching" || status === "connecting" ? (
+            [0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="absolute inset-0 animate-[queue-pulse_3s_var(--ease-out-expo)_infinite] rounded-full border border-accent/40 motion-reduce:animate-none motion-reduce:opacity-40"
+                style={{ animationDelay: `${i}s` }}
+              />
+            ))
+          ) : status === "found" ? (
+            <span className="absolute inset-[18%] rounded-full border-2 border-accent/70 shadow-[0_0_80px_-10px_rgb(229_72_77/0.6)]" />
+          ) : null}
+          <span className="absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent" />
+        </div>
+        <div className="absolute inset-0 bg-[radial-gradient(closest-side,rgb(229_72_77/0.08),transparent)]" />
       </div>
 
       <header className="flex h-16 items-center justify-center">

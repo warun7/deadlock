@@ -5,17 +5,13 @@ import { ArrowClockwise, Sword } from "@phosphor-icons/react";
 import { AppShell } from "../components/app/AppNav";
 import StatGrid from "../components/app/StatGrid";
 import MatchList from "../components/app/MatchList";
-import LiquidMetal from "../components/three/LiquidMetal";
 import { Button, ButtonLink } from "../components/ui/Button";
 import { useAuth } from "../contexts/AuthContext";
 import { useCurrentProfile } from "../lib/useCurrentProfile";
-import { useMediaQuery } from "../lib/motion";
 import { getRecentMatches } from "../lib/api";
 import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import type { MatchDetailed } from "../types/database";
-
-const cardLayout = (w: number, h: number) => ({ offsetX: (w / h) * 0.3, offsetY: 0, scale: 0.42 });
 
 const reveal = {
   hidden: { opacity: 0, y: 14 },
@@ -100,8 +96,6 @@ const DashboardPage: React.FC = () => {
   }, [user]);
 
   const inMatch = !!activeMatchId;
-  // The card is too narrow on phones for the form to sit beside the copy
-  const wideCard = useMediaQuery("(min-width: 640px)");
 
   return (
     <AppShell>
@@ -122,12 +116,10 @@ const DashboardPage: React.FC = () => {
           aria-labelledby="play-title"
           className="panel relative isolate flex flex-col justify-between overflow-hidden p-6 sm:min-h-[320px] sm:p-8"
         >
-          {wideCard && (
-            <div className="absolute inset-0 -z-10">
-              <LiquidMetal className="absolute inset-0" layout={cardLayout} quality="low" />
-              <div className="absolute inset-0 bg-[linear-gradient(90deg,var(--color-surface-1)_20%,rgb(17_17_20/0.6)_55%,transparent_85%)]" />
-            </div>
-          )}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-24 -top-24 -z-10 size-72 rounded-full bg-[radial-gradient(closest-side,rgb(229_72_77/0.14),transparent)]"
+          />
 
           {inMatch ? (
             <>
