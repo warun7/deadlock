@@ -1,189 +1,257 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { motion } from "framer-motion";
 import {
-  Play,
+  ArrowCounterClockwise,
+  CaretUp,
   CheckCircle,
+  CircleNotch,
+  Flag,
+  Info,
+  Play,
+  WarningCircle,
   XCircle,
-  Terminal,
-  Maximize2,
-  RotateCcw,
-  Clock,
-  ChevronDown,
-  AlertCircle,
-  Loader2,
-  Trophy,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import CodeEditor from "../components/CodeEditor";
+import CodeEditor from "./CodeEditor";
+import TestPips from "./arena/TestPips";
+import Avatar from "./ui/Avatar";
+import Dialog from "./ui/Dialog";
+import Wordmark from "./ui/Wordmark";
+import { Button, Kbd } from "./ui/Button";
 import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { useCurrentProfile } from "../lib/useCurrentProfile";
+import { formatClock } from "../lib/format";
 import type { MatchFoundPayload } from "../types";
 
-// Convert Codeforces-style math ($$$...$$$) to standard LaTeX ($...$)
+// Codeforces uses $$$...$$$ for inline math; KaTeX expects $...$
 const convertCodeforcesMath = (text: string): string => {
   if (!text) return "";
-  // Replace $$$ with $ for inline math (Codeforces uses $$$ for inline)
   return text.replace(/\$\$\$([^$]+)\$\$\$/g, "$$$1$");
 };
 
-const LANGUAGE_IDS = {
-  python: 71,
-  javascript: 63,
-  cpp: 54,
-};
+const LANGUAGE_IDS = { python: 71, javascript: 63, cpp: 54 } as const;
+type Language = keyof typeof LANGUAGE_IDS;
+const LANGUAGES: { id: Language; label: string }[] = [
+  { id: "python", label: "Python" },
+  { id: "javascript", label: "JavaScript" },
+  { id: "cpp", label: "C++" },
+];
 
-const STARTER_CODE = {
-  python: `# Write your solution here
-def solve():
-    pass
+const STARTER_CODE: Record<Language, string> = {
+  python: `import sys
 
-if __name__ == '__main__':
-    solve()`,
-  javascript: `// Write your solution here
-function solve() {
-    
-}
 
-solve();`,
-  cpp: `#include <iostream>
+def main():
+    data = sys.stdin.read().split()
+    # Write your solution here
+
+
+if __name__ == "__main__":
+    main()
+`,
+  javascript: `const data = require("fs").readFileSync(0, "utf8").trim().split(/\\s+/);
+
+// Write your solution here
+`,
+  cpp: `#include <bits/stdc++.h>
 using namespace std;
 
 int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
     // Write your solution here
+
     return 0;
-}`,
+}
+`,
 };
 
-type Language = keyof typeof STARTER_CODE;
+type TestResult = { testIndex: number; passed: boolean; status: string; stdout?: string; expected?: string };
 type SubmissionResult = {
   status: string;
   passed: number;
   total: number;
   stderr?: string;
+  testResults?: TestResult[];
 };
 
-// Mobile tab state for switching between problem/editor
-type MobileTab = 'problem' | 'code';
+const STATUS_LABEL: Record<string, string> = {
+  accepted: "Accepted",
+  wrong_answer: "Wrong answer",
+  runtime_error: "Runtime error",
+  time_limit: "Time limit exceeded",
+  compile_error: "Compilation error",
+};
 
+/** Server status strings carry emoji ("❌ Failed"); strip them and map to plain labels. */
+function describeOpponent(raw: string | null): string {
+  if (!raw) return "No submissions yet";
+  const s = raw.replace(/[^\x20-\x7E]/g, "").trim().replace(/\.\.\.$/, "").replace(/!$/, "");
+  switch (s.toLowerCase()) {
+    case "testing":
+      return "Running tests";
+    case "checking":
+      return "Checking";
+    case "failed":
+      return "Last submission failed";
+    case "solved":
+      return "Solved";
+    case "error":
+      return "Submission errored";
+    default:
+      return s || "No submissions yet";
+  }
+}
 
+const draftKey = (matchId: string, lang: Language) => `deadlock:draft:${matchId}:${lang}`;
+const langKey = (matchId: string) => `deadlock:lang:${matchId}`;
+
+function safeGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function safeSet(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage full or blocked: drafts just won't persist */
+  }
+}
+function safeRemove(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+}
+
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+type MobileTab = "problem" | "code";
 
 const RealGameArena: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { matchId } = useParams<{ matchId: string }>();
   const { user } = useAuth();
+  const { username, avatarUrl } = useCurrentProfile();
   const matchData = location.state?.matchData as MatchFoundPayload | undefined;
 
-  const [language, setLanguage] = useState<Language>("python");
-  const [code, setCode] = useState(STARTER_CODE.python);
-  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
-  const [mobileTab, setMobileTab] = useState<MobileTab>('problem');
+  const userIdRef = useRef<string | undefined>(user?.id);
+  userIdRef.current = user?.id;
 
+  // Editor state, persisted per match + language so a refresh or reconnect keeps your work
+  const [language, setLanguage] = useState<Language>(() => {
+    const saved = matchId ? (safeGet(langKey(matchId)) as Language | null) : null;
+    return saved && saved in LANGUAGE_IDS ? saved : "python";
+  });
+  const [drafts, setDrafts] = useState<Record<Language, string>>(() => {
+    const out = { ...STARTER_CODE };
+    if (matchId) {
+      (Object.keys(STARTER_CODE) as Language[]).forEach((l) => {
+        const saved = safeGet(draftKey(matchId, l));
+        if (saved != null) out[l] = saved;
+      });
+    }
+    return out;
+  });
+  const code = drafts[language];
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [mobileTab, setMobileTab] = useState<MobileTab>("problem");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
-  const [opponentProgress, setOpponentProgress] = useState<string>("Idle");
+  const [opponentStatus, setOpponentStatus] = useState<string | null>(null);
+  const [opponentTests, setOpponentTests] = useState<{ passed: number; total: number } | null>(null);
   const [gameOver, setGameOver] = useState(false);
+  const [showResult, setShowResult] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
-  const [gameOverReason, setGameOverReason] = useState<string>("");
+  const [gameOverReason, setGameOverReason] = useState("");
+  const [finalSeconds, setFinalSeconds] = useState<number | null>(null);
   const [showForfeitModal, setShowForfeitModal] = useState(false);
   const [socketError, setSocketError] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const playAgainRef = useRef<HTMLButtonElement>(null);
 
-  /* State */
-  const [resultsHeight, setResultsHeight] = useState(192); // Default h-48 equivalent
-  const editorPanelRef = React.useRef<HTMLDivElement>(null);
-  const isDragging = React.useRef(false);
-
-  /* Resize Logic */
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current || !editorPanelRef.current) return;
-
-      const panelRect = editorPanelRef.current.getBoundingClientRect();
-      const newHeight = panelRect.bottom - e.clientY;
-      const maxHeight = panelRect.height * 0.8;
-
-      if (newHeight >= 40 && newHeight <= maxHeight) {
-        setResultsHeight(newHeight);
-      }
-    };
-
-    const handleMouseUp = () => {
-      isDragging.current = false;
-      document.body.style.cursor = "default";
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, []);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    isDragging.current = true;
-    document.body.style.cursor = "ns-resize";
-    e.preventDefault();
-  };
-
-  // Store match data in state (can be updated from rejoin)
   const [currentMatchData, setCurrentMatchData] = useState<MatchFoundPayload | null>(matchData ?? null);
   const [isLoading, setIsLoading] = useState(!matchData);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Handle socket connection and match rejoin
+  // Clock
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (gameOver) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [gameOver]);
+  const elapsed = currentMatchData?.startTime ? Math.max(0, (now - currentMatchData.startTime) / 1000) : 0;
+
+  // Results panel (resizable with mouse or touch)
+  const [resultsHeight, setResultsHeight] = useState(200);
+  const [resultsCollapsed, setResultsCollapsed] = useState(true);
+  const editorPanelRef = useRef<HTMLDivElement>(null);
+
+  const onResizeStart = (e: React.PointerEvent) => {
+    const panel = editorPanelRef.current;
+    if (!panel) return;
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    setResultsCollapsed(false);
+    const onMove = (ev: PointerEvent) => {
+      const rect = panel.getBoundingClientRect();
+      const next = Math.min(rect.height * 0.75, Math.max(120, rect.bottom - ev.clientY));
+      setResultsHeight(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  // Socket: rejoin, results, opponent progress, game over
   useEffect(() => {
     let cleanupSocketListeners = () => {};
     let isCancelled = false;
 
-    // If we have match data from navigation, use it
     if (matchData) {
       setCurrentMatchData(matchData);
       setIsLoading(false);
     }
 
-    // If no match ID in URL, redirect
     if (!matchId) {
-      console.error("No match ID in URL, redirecting...");
       navigate("/dashboard");
       return;
     }
 
-    // Get auth token from Supabase session
     const initSocket = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
       const token = session?.access_token;
-
       if (!token) {
-        console.error("No auth token, redirecting to auth...");
         navigate("/auth");
         return;
       }
-
-      // Connect socket if not connected
       let socket = gameSocket.getSocket();
-      if (!socket?.connected) {
-        socket = gameSocket.connect(token);
-      }
-
+      if (!socket?.connected) socket = gameSocket.connect(token);
       return socket;
     };
 
     const setupSocket = async () => {
       const socket = await initSocket();
-      if (!socket || isCancelled) {
-        return;
-      }
+      if (!socket || isCancelled) return;
 
-      // Handle match_found event (for rejoin)
       const handleMatchFound = (data: MatchFoundPayload) => {
         setCurrentMatchData(data);
         setIsLoading(false);
@@ -191,36 +259,35 @@ const RealGameArena: React.FC = () => {
         setSocketError(null);
       };
 
-      // Listen for submission results
       const handleSubmissionResult = (result: SubmissionResult) => {
         setSubmissionResult(result);
         setIsSubmitting(false);
         setSocketError(null);
+        setResultsCollapsed(false);
       };
 
-      // Listen for opponent progress
-      const handleOpponentProgress = (data: { status: string }) => {
-        setOpponentProgress(data.status);
+      // The server broadcasts progress to the whole room, including our own submissions
+      const handleOpponentProgress = (data: { playerId?: string; status: string; testsProgress?: string }) => {
+        if (data.playerId && data.playerId === userIdRef.current) return;
+        setOpponentStatus(data.status);
+        const m = data.testsProgress?.match(/^(\d+)\/(\d+)$/);
+        if (m) setOpponentTests({ passed: Number(m[1]), total: Number(m[2]) });
       };
 
-      // Listen for game over
       const handleGameOver = (data: { winnerId: string | null; reason?: string }) => {
         setGameOver(true);
+        setShowResult(true);
+        setIsSubmitting(false);
         setWinner(data.winnerId);
-        
         let displayReason = data.reason || "Match ended";
-        const isWinner = data.winnerId === user?.id;
-        
-        if (displayReason === "Opponent disconnected" && !isWinner) {
-          displayReason = "You disconnected";
-        }
-        
+        const isWinner = data.winnerId === userIdRef.current;
+        if (displayReason === "Opponent disconnected" && !isWinner) displayReason = "You disconnected";
         setGameOverReason(displayReason);
       };
 
-      // Listen for errors
       const handleError = (data: { message: string; code?: string }) => {
         console.error("Socket error:", data);
+        setIsSubmitting(false);
         if (data.code === "MATCH_NOT_FOUND" || data.code === "MATCH_ENDED") {
           setLoadError(data.message);
           setIsLoading(false);
@@ -234,505 +301,490 @@ const RealGameArena: React.FC = () => {
         socket.off("connect", handleConnect);
       };
 
-      socket?.on("match_found", handleMatchFound);
-      socket?.on("submission_result", handleSubmissionResult);
-      socket?.on("opponent_progress", handleOpponentProgress);
-      socket?.on("game_over", handleGameOver);
-      socket?.on("error", handleError);
+      socket.on("match_found", handleMatchFound);
+      socket.on("submission_result", handleSubmissionResult);
+      socket.on("opponent_progress", handleOpponentProgress);
+      socket.on("game_over", handleGameOver);
+      socket.on("error", handleError);
 
-      const attemptRejoin = () => {
-        if (socket?.connected) {
-          gameSocket.rejoinMatch(matchId);
-        } else {
-          // Wait for socket to connect
-          socket?.on("connect", handleConnect);
-        }
-      };
-
-      attemptRejoin();
+      if (socket.connected) gameSocket.rejoinMatch(matchId);
+      else socket.on("connect", handleConnect);
 
       cleanupSocketListeners = () => {
-        socket?.off("match_found", handleMatchFound);
-        socket?.off("submission_result", handleSubmissionResult);
-        socket?.off("opponent_progress", handleOpponentProgress);
-        socket?.off("game_over", handleGameOver);
-        socket?.off("error", handleError);
-        socket?.off("connect", handleConnect);
+        socket.off("match_found", handleMatchFound);
+        socket.off("submission_result", handleSubmissionResult);
+        socket.off("opponent_progress", handleOpponentProgress);
+        socket.off("game_over", handleGameOver);
+        socket.off("error", handleError);
+        socket.off("connect", handleConnect);
       };
     };
 
     void setupSocket();
-
     return () => {
       isCancelled = true;
       cleanupSocketListeners();
     };
   }, [matchId, matchData, navigate]);
 
+  // Freeze the clock and clear saved drafts once the match is decided
+  useEffect(() => {
+    if (!gameOver) return;
+    setFinalSeconds(elapsed);
+    if (matchId) {
+      (Object.keys(LANGUAGE_IDS) as Language[]).forEach((l) => safeRemove(draftKey(matchId, l)));
+      safeRemove(langKey(matchId));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameOver]);
+
+  const handleCodeChange = useCallback(
+    (value: string) => {
+      setDrafts((d) => ({ ...d, [language]: value }));
+      if (!matchId || gameOver) return;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => safeSet(draftKey(matchId, language), value), 300);
+    },
+    [language, matchId, gameOver]
+  );
+
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
-    setCode(STARTER_CODE[lang]);
-    setIsLangMenuOpen(false);
+    if (matchId) safeSet(langKey(matchId), lang);
   };
 
-  const handleSubmit = () => {
-    if (!gameSocket.isConnected()) {
-      setSocketError("Not connected to server");
+  const handleReset = () => {
+    if (!confirmReset) {
+      setConfirmReset(true);
+      setTimeout(() => setConfirmReset(false), 3000);
       return;
     }
+    setConfirmReset(false);
+    setDrafts((d) => ({ ...d, [language]: STARTER_CODE[language] }));
+    if (matchId) safeRemove(draftKey(matchId, language));
+  };
 
+  const submittingRef = useRef(false);
+  submittingRef.current = isSubmitting;
+
+  const handleSubmit = useCallback(() => {
+    if (gameOver || submittingRef.current) return;
+    if (!gameSocket.isConnected()) {
+      setSocketError("Not connected to the match server. Reconnecting.");
+      return;
+    }
+    submittingRef.current = true;
     setIsSubmitting(true);
     setSubmissionResult(null);
     setSocketError(null);
-
+    setResultsCollapsed(false);
     gameSocket.submitCode(code, LANGUAGE_IDS[language]);
-  };
+  }, [code, language, gameOver]);
+
+  // Ctrl/Cmd + Enter submits from anywhere on the page (the editor binds it too)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // The editor's own keymap already handled it (and called preventDefault)
+      if (e.defaultPrevented) return;
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleSubmit]);
 
   const didWin = winner !== null && winner === user?.id;
+  const opponentName = currentMatchData?.opponent?.username || "Opponent";
+  const visibleTests = currentMatchData?.problem?.testCases ?? [];
+  const opponentLabel = describeOpponent(opponentStatus);
+  const opponentSolved = opponentLabel === "Solved";
 
-  // Show loading state
+  const statement = useMemo(
+    () => convertCodeforcesMath(currentMatchData?.problem?.description || ""),
+    [currentMatchData?.problem?.description]
+  );
+
+  // First failing test we are allowed to show in full (a public sample)
+  const sampleFailure = useMemo(() => {
+    const results = submissionResult?.testResults;
+    if (!results || submissionResult?.status === "accepted") return null;
+    for (const r of results) {
+      if (!r || r.passed) continue;
+      const sample = visibleTests.find((t) => t.expectedOutput === r.expected);
+      if (sample) return { index: r.testIndex, input: sample.input, expected: sample.expectedOutput, got: r.stdout ?? "", status: r.status };
+    }
+    return null;
+  }, [submissionResult, visibleTests]);
+
   if (isLoading) {
     return (
-      <div className="h-screen w-full bg-[#050505] flex items-center justify-center font-mono">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 text-stone-400 animate-spin mx-auto mb-4" />
-          <p className="text-stone-400">Loading match...</p>
+      <div className="flex h-[100dvh] flex-col" aria-busy="true">
+        <div className="h-14 border-b border-line" />
+        <div className="grid flex-1 gap-px md:grid-cols-[42%_1fr]">
+          <div className="space-y-3 p-6">
+            <div className="h-6 w-1/2 animate-pulse rounded bg-surface-2" />
+            <div className="h-4 w-full animate-pulse rounded bg-surface-2" />
+            <div className="h-4 w-5/6 animate-pulse rounded bg-surface-2" />
+            <div className="h-4 w-2/3 animate-pulse rounded bg-surface-2" />
+          </div>
+          <div className="hidden bg-surface-1 md:block" />
         </div>
+        <span className="sr-only">Loading match</span>
       </div>
     );
   }
 
-  // Show error state
   if (loadError) {
     return (
-      <div className="h-screen w-full bg-[#050505] flex items-center justify-center font-mono">
-        <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <p className="text-white text-xl mb-2">Match Not Found</p>
-          <p className="text-stone-400 mb-6">{loadError}</p>
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="px-6 py-2 bg-stone-800 hover:bg-stone-700 text-white rounded-lg transition-colors"
-          >
-            Return to Dashboard
-          </button>
+      <div className="flex h-[100dvh] items-center justify-center px-5">
+        <div className="max-w-sm text-center">
+          <WarningCircle className="mx-auto size-9 text-accent-text" weight="duotone" aria-hidden="true" />
+          <h1 className="mt-4 text-2xl font-semibold tracking-[-0.02em] text-fg">This match is over</h1>
+          <p className="mt-2 text-[15px] text-fg-2">{loadError}</p>
+          <div className="mt-8 flex justify-center gap-2">
+            <Button variant="secondary" onClick={() => navigate("/dashboard")}>
+              Back to lobby
+            </Button>
+            <Button onClick={() => navigate("/matchmaking")}>Find a new match</Button>
+          </div>
         </div>
       </div>
     );
   }
 
-  if (gameOver) {
-    return (
-      <div className="fixed inset-0 z-50 bg-[#050505]/95 backdrop-blur-sm flex items-center justify-center">
-        {/* Background code pattern effect */}
-        <div className="absolute inset-0 opacity-10 overflow-hidden pointer-events-none">
-          <pre className="text-[8px] text-stone-500 whitespace-pre-wrap leading-tight">
-            {`for (int i = 0; i < n; i++) { double ans = 0; for (int j = 0; j < m; j++) { ans += a[i][j]; } } 
-int main() { scanf("%d", &n); for (int i = 0; i < n; i++) { printf("%d\\n", solve(i)); } return 0; }
-while (left <= right) { int mid = (left + right) / 2; if (check(mid)) ans = mid, left = mid + 1; else right = mid - 1; }`.repeat(
-              50
-            )}
-          </pre>
-        </div>
+  const submitHint = (
+    <span className="hidden lg:contents">
+      <Kbd>{isMac ? "⌘" : "Ctrl"} {"↵"}</Kbd>
+    </span>
+  );
 
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ type: "spring", duration: 0.5 }}
-          className="relative z-10 text-center px-12 py-10 bg-gradient-to-b from-stone-900/80 to-stone-950/90 border border-stone-800 rounded-2xl shadow-2xl"
-        >
-          {didWin ? (
-            <>
-              {/* Victory */}
-              <div className="text-7xl mb-4">🏆</div>
-              <h1 className="text-5xl font-black text-emerald-400 mb-3 tracking-tight">
-                VICTORY
-              </h1>
-              <p className="text-stone-400 text-lg mb-8">{gameOverReason}</p>
-            </>
-          ) : (
-            <>
-              {/* Defeat */}
-              <div className="text-7xl mb-4">💀</div>
-              <h1 className="text-5xl font-black text-red-500 mb-3 tracking-tight">
-                DEFEAT
-              </h1>
-              <p className="text-stone-400 text-lg mb-8">{gameOverReason}</p>
-            </>
-          )}
-
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="px-8 py-3 bg-white text-stone-900 font-bold rounded-lg hover:bg-stone-200 transition-colors"
-          >
-            Return to Dashboard
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
+  const resultTone = submissionResult?.status === "accepted" ? "text-pass" : "text-accent-text";
 
   return (
-    <div className="h-screen w-full bg-[#050505] flex flex-col font-mono overflow-hidden">
-      {/* Forfeit Confirmation Modal */}
-      {showForfeitModal && (
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center">
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-gradient-to-b from-stone-900 to-stone-950 border border-stone-700 rounded-xl p-6 sm:p-8 max-w-sm w-full mx-4 shadow-2xl"
-          >
-            <div className="text-center">
-              <div className="text-5xl mb-4">🏳️</div>
-              <h2 className="text-2xl font-bold text-white mb-2">
-                Forfeit Match?
-              </h2>
-              <p className="text-stone-400 text-sm mb-6">
-                You will lose this match. This action cannot be undone.
-              </p>
+    <div className="flex h-[100dvh] flex-col overflow-hidden">
+      {/* Top bar */}
+      <header className="relative z-20 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-ink px-3 sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Wordmark className="hidden text-[15px] text-fg sm:inline" />
+          <span className="hidden h-5 w-px bg-line sm:block" aria-hidden="true" />
+          <span className="truncate text-sm text-fg-2">{currentMatchData?.problem?.title}</span>
+        </div>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowForfeitModal(false)}
-                  className="flex-1 px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-white font-medium rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    setShowForfeitModal(false);
-                    gameSocket.forfeit();
-                  }}
-                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white font-medium rounded-lg transition-colors"
-                >
-                  Forfeit
-                </button>
+        <div
+          className={`tabular rounded-[8px] px-2.5 py-1 font-mono text-sm ${gameOver ? "text-fg-3" : "text-fg"}`}
+          aria-label="Match time"
+        >
+          {formatClock(finalSeconds ?? elapsed)}
+        </div>
+
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <div className="hidden items-center gap-3 rounded-[var(--radius-control)] bg-surface-1 px-3 py-1.5 shadow-[inset_0_0_0_1px_var(--color-line)] md:flex">
+            <Avatar name={opponentName} size={24} />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="max-w-[9rem] truncate text-[13px] text-fg">{opponentName}</span>
+                {opponentTests && (
+                  <span className="tabular font-mono text-[12px] text-fg-3">
+                    {opponentTests.passed}/{opponentTests.total}
+                  </span>
+                )}
+              </div>
+              <div className={`text-[11px] ${opponentSolved ? "text-accent-text" : "text-fg-3"}`} aria-live="polite">
+                {opponentLabel}
               </div>
             </div>
-          </motion.div>
+            {opponentTests && (
+              <TestPips className="w-20" passed={opponentTests.passed} total={opponentTests.total} tone="opponent" />
+            )}
+          </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowForfeitModal(true)}
+            disabled={gameOver}
+            aria-label="Forfeit match"
+            className="text-fg-3 hover:text-accent-text"
+          >
+            <Flag className="size-4" />
+            <span className="hidden lg:inline">Forfeit</span>
+          </Button>
+          <Button size="sm" onClick={handleSubmit} loading={isSubmitting} disabled={gameOver} className="pl-3">
+            {!isSubmitting && <Play weight="fill" className="size-3.5" />}
+            Submit
+            {submitHint}
+          </Button>
+        </div>
+      </header>
+
+      {/* Mobile tabs + compact opponent */}
+      <div className="flex h-11 shrink-0 items-stretch border-b border-line md:hidden" role="tablist" aria-label="Arena view">
+        {(["problem", "code"] as MobileTab[]).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={mobileTab === t}
+            onClick={() => setMobileTab(t)}
+            className={`relative px-4 text-sm transition-colors ${mobileTab === t ? "text-fg" : "text-fg-3"}`}
+          >
+            {t === "problem" ? "Problem" : "Code"}
+            {mobileTab === t && <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-accent" />}
+          </button>
+        ))}
+        <div className="ml-auto flex items-center gap-2 pr-3 text-[12px] text-fg-3" aria-live="polite">
+          <span className="max-w-[6rem] truncate text-fg-2">{opponentName}</span>
+          {opponentTests ? (
+            <span className="tabular font-mono">
+              {opponentTests.passed}/{opponentTests.total}
+            </span>
+          ) : (
+            <span>waiting</span>
+          )}
+        </div>
+      </div>
+
+      {gameOver && !showResult && (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface-1 px-4 py-2 text-sm">
+          <span className={didWin ? "text-pass" : "text-accent-text"}>
+            {didWin ? "You won" : "You lost"}. {gameOverReason}
+          </span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" onClick={() => navigate("/dashboard")}>
+              Lobby
+            </Button>
+            <Button size="sm" onClick={() => navigate("/matchmaking")}>
+              Play again
+            </Button>
+          </div>
         </div>
       )}
 
-      {/* Game Header */}
-      <div className="h-12 sm:h-14 border-b border-stone-800 bg-[#0a0a0a] flex items-center justify-between px-2 sm:px-4 z-20 shrink-0">
-        <div className="flex items-center gap-2 sm:gap-4">
-          <div className="hidden sm:flex items-center gap-2 text-stone-400 text-xs">
-            <Clock className="w-3 h-3" />
-            <span>LIVE</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-4">
-          <div className="hidden sm:block text-xs text-stone-500">
-            Opponent: <span className="text-white">{opponentProgress}</span>
-          </div>
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold px-3 sm:px-4 py-1.5 rounded-sm flex items-center gap-2 transition-colors"
-          >
-            {isSubmitting ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <Play className="w-3 h-3 fill-current" />
-            )}
-            SUBMIT
-          </button>
-        </div>
-      </div>
-
-      {/* Mobile Tab Switcher */}
-      <div className="md:hidden flex border-b border-stone-800 bg-[#0a0a0a] shrink-0">
-        <button
-          onClick={() => setMobileTab('problem')}
-          className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors ${
-            mobileTab === 'problem'
-              ? 'text-white border-b-2 border-red-500 bg-white/5'
-              : 'text-stone-500 hover:text-stone-300'
-          }`}
+      <div className="flex min-h-0 flex-1">
+        {/* Problem */}
+        <section
+          aria-label="Problem"
+          className={`${mobileTab === "problem" ? "flex" : "hidden"} min-h-0 w-full flex-col border-line md:flex md:w-[42%] md:border-r`}
         >
-          📄 Problem
-        </button>
-        <button
-          onClick={() => setMobileTab('code')}
-          className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors ${
-            mobileTab === 'code'
-              ? 'text-white border-b-2 border-emerald-500 bg-white/5'
-              : 'text-stone-500 hover:text-stone-300'
-          }`}
-        >
-          💻 Editor
-        </button>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel: Problem */}
-        <div className={`${
-          mobileTab === 'problem' ? 'flex' : 'hidden'
-        } md:flex w-full md:w-1/2 border-r border-stone-800 flex-col bg-[#050505]`}>
-          {/* Tabs */}
-          <div className="flex items-center h-10 bg-[#0a0a0a] border-b border-stone-800 px-2">
-            <button className="flex items-center gap-2 px-4 h-full text-xs font-medium text-white border-b-2 border-white bg-white/5 transition-colors">
-              <span className="text-blue-400">📄</span> Description
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
-            <div className="mb-6">
-              <h1 className="text-xl sm:text-2xl font-bold text-white mb-4 flex items-center gap-3">
-                {currentMatchData?.problem?.title || "Loading..."}
-              </h1>
-
-              <div className="flex items-center gap-3 text-xs">
-                <span
-                  className="px-3 py-1 rounded-full font-medium bg-stone-500/10 border border-stone-500/20 text-stone-400"
-                >
-                  Difficulty: {currentMatchData?.problem?.difficulty || "1000"}
-                </span>
-              </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
+            <h1 className="text-xl font-semibold tracking-[-0.02em] text-fg sm:text-2xl">
+              {currentMatchData?.problem?.title}
+            </h1>
+            <div className="mt-3 flex flex-wrap gap-1.5 text-[12px]">
+              <span className="rounded-[6px] bg-white/[0.06] px-2 py-1 text-fg-2">
+                Rating <span className="tabular font-mono text-fg">{currentMatchData?.problem?.difficulty || "1000"}</span>
+              </span>
+              <span className="rounded-[6px] bg-white/[0.06] px-2 py-1 text-fg-2">stdin / stdout</span>
             </div>
-
-            <div className="prose prose-invert prose-sm max-w-none text-stone-300 leading-relaxed theme-markdown">
-              <ReactMarkdown
-                remarkPlugins={[remarkMath]}
-                rehypePlugins={[rehypeKatex]}
-                components={{
-                  h1: ({ node, ...props }) => (
-                    <h1
-                      className="text-xl font-bold text-white mt-6 mb-3"
-                      {...props}
-                    />
-                  ),
-                  h2: ({ node, ...props }) => (
-                    <h2
-                      className="text-lg font-bold text-white mt-5 mb-2"
-                      {...props}
-                    />
-                  ),
-                  h3: ({ node, ...props }) => (
-                    <h3
-                      className="text-base font-bold text-white mt-4 mb-2"
-                      {...props}
-                    />
-                  ),
-                  p: ({ node, ...props }) => (
-                    <p className="mb-4 text-stone-300 leading-7" {...props} />
-                  ),
-                  code: ({ node, inline, ...props }: any) =>
-                    inline ? (
-                      <code
-                        className="bg-stone-800/50 px-1.5 py-0.5 rounded text-stone-200 border border-stone-700/50 text-sm font-mono"
-                        {...props}
-                      />
-                    ) : (
-                      <code
-                        className="block bg-[#111] p-4 rounded-lg my-4 text-sm font-mono border border-stone-800 overflow-x-auto text-stone-300 leading-6"
-                        {...props}
-                      />
-                    ),
-                  pre: ({ node, ...props }) => (
-                    <pre
-                      className="bg-transparent p-0 m-0 border-0"
-                      {...props}
-                    />
-                  ),
-                  ul: ({ node, ...props }) => (
-                    <ul
-                      className="list-disc list-outside ml-4 mb-4 space-y-2 text-stone-300"
-                      {...props}
-                    />
-                  ),
-                  ol: ({ node, ...props }) => (
-                    <ol
-                      className="list-decimal list-outside ml-4 mb-4 space-y-2 text-stone-300"
-                      {...props}
-                    />
-                  ),
-                  strong: ({ node, ...props }) => (
-                    <strong className="text-white font-semibold" {...props} />
-                  ),
-                  li: ({ node, ...props }) => (
-                    <li className="pl-1" {...props} />
-                  ),
-                }}
-              >
-                {convertCodeforcesMath(
-                  currentMatchData?.problem?.description || "Loading problem..."
-                )}
+            <div className="statement mt-6">
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                {statement}
               </ReactMarkdown>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Right Panel: Editor & Results */}
-        <div
+        {/* Editor + results */}
+        <section
           ref={editorPanelRef}
-          className={`${
-            mobileTab === 'code' ? 'flex' : 'hidden'
-          } md:flex w-full md:w-1/2 flex-col h-full bg-[#080808]`}
+          aria-label="Solution"
+          className={`${mobileTab === "code" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col bg-[#0e0e11] md:flex`}
         >
-          {/* Code Editor Header */}
-          <div className="h-10 bg-[#0a0a0a] border-b border-stone-800 flex items-center justify-between px-2 sm:px-4 shrink-0">
-            <div className="flex items-center gap-4">
-              <div className="relative">
+          <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line bg-ink px-2 sm:px-3">
+            <div className="flex rounded-[9px] bg-surface-1 p-0.5 shadow-[inset_0_0_0_1px_var(--color-line)]" role="radiogroup" aria-label="Language">
+              {LANGUAGES.map((l) => (
                 <button
-                  onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
-                  className="flex items-center gap-2 text-xs text-stone-300 hover:text-white font-medium transition-colors"
+                  key={l.id}
+                  role="radio"
+                  aria-checked={language === l.id}
+                  onClick={() => handleLanguageChange(l.id)}
+                  className={`rounded-[7px] px-2.5 py-1 text-[13px] transition-colors ${
+                    language === l.id ? "bg-surface-3 text-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]" : "text-fg-3 hover:text-fg-2"
+                  }`}
                 >
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  {language === "cpp" ? "C++" : language}
-                  <ChevronDown className="w-3 h-3" />
+                  {l.label}
                 </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="hidden items-center gap-1.5 text-[12px] text-fg-3 xl:inline-flex">
+                <Info className="size-3.5" aria-hidden="true" />
+                Read stdin, print stdout. Include imports and main.
+              </span>
+              <Button variant="ghost" size="sm" onClick={handleReset} className={confirmReset ? "text-accent-text" : "text-fg-3"}>
+                <ArrowCounterClockwise className="size-3.5" />
+                {confirmReset ? "Confirm reset" : "Reset"}
+              </Button>
+            </div>
+          </div>
 
-                {isLangMenuOpen && (
-                  <div className="absolute top-full left-0 mt-2 w-32 bg-[#1a1a1a] border border-stone-700 rounded-md shadow-xl z-50 py-1">
-                    {Object.keys(STARTER_CODE).map((lang) => (
-                      <button
-                        key={lang}
-                        onClick={() => handleLanguageChange(lang as Language)}
-                        className={`w-full text-left px-3 py-2 text-xs font-medium hover:bg-stone-800 ${
-                          language === lang ? "text-blue-400" : "text-stone-300"
-                        }`}
-                      >
-                        {lang === "cpp" ? "C++" : lang}
-                      </button>
+          <div className="relative min-h-0 flex-1">
+            <CodeEditor language={language} code={code} onChange={handleCodeChange} onSubmit={handleSubmit} />
+          </div>
+
+          {/* Results */}
+          <div
+            className="relative flex shrink-0 flex-col border-t border-line bg-ink"
+            style={{ height: resultsCollapsed ? 44 : resultsHeight }}
+          >
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize results panel"
+              onPointerDown={onResizeStart}
+              className="absolute inset-x-0 -top-1.5 z-10 h-3 cursor-ns-resize touch-none after:absolute after:inset-x-0 after:top-1.5 after:h-px after:bg-transparent hover:after:bg-accent/60"
+            />
+            <button
+              type="button"
+              onClick={() => setResultsCollapsed((c) => !c)}
+              aria-expanded={!resultsCollapsed}
+              className="flex h-11 shrink-0 items-center gap-3 px-4 text-left"
+            >
+              <span className="text-[13px] font-medium text-fg-2">Results</span>
+              {isSubmitting ? (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-fg-3">
+                  <CircleNotch className="size-3.5 animate-spin" /> Running tests
+                </span>
+              ) : submissionResult ? (
+                <span className={`inline-flex items-center gap-1.5 text-[13px] ${resultTone}`}>
+                  {submissionResult.status === "accepted" ? (
+                    <CheckCircle weight="fill" className="size-3.5" />
+                  ) : (
+                    <XCircle weight="fill" className="size-3.5" />
+                  )}
+                  {STATUS_LABEL[submissionResult.status] ?? submissionResult.status}
+                  <span className="tabular font-mono text-fg-3">
+                    {submissionResult.passed}/{submissionResult.total}
+                  </span>
+                </span>
+              ) : null}
+              <CaretUp className={`ml-auto size-3.5 text-fg-3 transition-transform ${resultsCollapsed ? "" : "rotate-180"}`} />
+            </button>
+
+            {!resultsCollapsed && (
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 text-sm" aria-live="polite">
+                {socketError && (
+                  <p className="mb-3 rounded-[8px] bg-accent/10 px-3 py-2 text-[13px] text-accent-text">{socketError}</p>
+                )}
+
+                {isSubmitting ? (
+                  <div className="flex gap-[3px]" aria-hidden="true">
+                    {Array.from({ length: submissionResult?.total || 10 }, (_, i) => (
+                      <span key={i} className="h-2 flex-1 animate-pulse rounded-[2px] bg-white/10" style={{ animationDelay: `${i * 60}ms` }} />
                     ))}
                   </div>
-                )}
-              </div>
-            </div>
+                ) : submissionResult ? (
+                  <div className="space-y-4">
+                    {submissionResult.testResults && submissionResult.testResults.length > 0 ? (
+                      <div className="flex gap-[3px]" aria-label={`${submissionResult.passed} of ${submissionResult.total} tests passed`}>
+                        {submissionResult.testResults.map((r, i) => (
+                          <span
+                            key={i}
+                            title={`Test ${i + 1}: ${r?.status ?? ""}`}
+                            className={`h-2 flex-1 rounded-[2px] ${r?.passed ? "bg-pass" : "bg-accent"}`}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <TestPips
+                        passed={submissionResult.passed}
+                        total={submissionResult.total}
+                        tone={submissionResult.status === "accepted" ? "pass" : "you"}
+                      />
+                    )}
 
-            {/* Sub-Header Actions (Opponent Info + Reset) */}
-            <div className="flex items-center gap-2 sm:gap-6">
-              {/* Opponent Info - hidden on mobile */}
-              <div className="hidden lg:flex items-center gap-3 px-3 py-1 bg-stone-900/50 rounded border border-stone-800">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                  <span className="text-xs font-bold text-stone-400 uppercase">
-                    Opponent
-                  </span>
-                </div>
-                <div className="h-3 w-px bg-stone-700"></div>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="text-white font-medium">
-                    {currentMatchData?.opponent?.username || "Unknown"}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 ml-2">
-                  <span className="block w-1.5 h-1.5 rounded-full bg-stone-600"></span>
-                  <span className="text-[10px] text-stone-400 uppercase tracking-wider">
-                    {opponentProgress}
-                  </span>
-                </div>
-              </div>
-
-              <div className="hidden lg:block h-4 w-px bg-stone-800"></div>
-
-              <button
-                onClick={() => setShowForfeitModal(true)}
-                className="text-red-500 hover:text-red-400 hover:bg-red-500/10 px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5"
-                title="Forfeit Match"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                Forfeit
-              </button>
-            </div>
-          </div>
-
-          {/* WARNING MESSAGE */}
-          <div className="bg-blue-900/20 border-b border-blue-900/30 px-4 py-2 flex items-center gap-3">
-            <AlertCircle className="w-4 h-4 text-blue-400 shrink-0" />
-            <p className="text-xs text-blue-200 font-medium">
-              Important: You submitted code must include the full implementation
-              including the{" "}
-              <code className="bg-blue-900/40 px-1 rounded text-blue-100">
-                main
-              </code>{" "}
-              function and imports.
-            </p>
-          </div>
-
-          {socketError && (
-            <div className="bg-red-950/40 border-b border-red-900/40 px-4 py-2 text-xs text-red-300">
-              {socketError}
-            </div>
-          )}
-
-          {/* Code Editor Area */}
-          <div className="flex-1 relative overflow-hidden bg-[#0c0c0c]">
-            <CodeEditor language={language} code={code} onChange={setCode} />
-          </div>
-
-          {/* Resizable Results Area */}
-          <div
-            className="relative flex flex-col border-t border-stone-800 bg-[#0a0a0a]"
-            style={{ height: resultsHeight }}
-          >
-            {/* Drag Handle */}
-            <div
-              className="absolute top-0 left-0 right-0 h-1 cursor-ns-resize hover:bg-blue-500/50 transition-colors z-50 group"
-              onMouseDown={handleMouseDown}
-            >
-              <div className="absolute inset-x-0 -top-2 h-4 w-full"></div>{" "}
-              {/* Invisible hit area */}
-            </div>
-
-            <div className="h-9 border-b border-stone-800 flex items-center px-1 bg-[#0a0a0a] shrink-0">
-              <button className="flex items-center gap-2 px-4 h-full text-xs font-medium text-white border-t-2 border-transparent">
-                <Terminal className="w-3.5 h-3.5 text-stone-400" />
-                Testcase
-              </button>
-              <button className="flex items-center gap-2 px-4 h-full text-xs font-medium text-stone-500 hover:text-stone-300">
-                Test Result
-              </button>
-
-              <div className="ml-auto mr-4 text-[10px] text-stone-600 font-mono">
-                {resultsHeight}px
-              </div>
-            </div>
-
-            <div className="flex-1 p-4 overflow-auto font-mono text-xs custom-scrollbar">
-              {isSubmitting ? (
-                <div className="flex items-center gap-2 text-stone-500">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Submitting to backend...
-                </div>
-              ) : submissionResult ? (
-                <div className="space-y-3">
-                  {submissionResult.status === "accepted" ? (
-                    <div className="flex items-center gap-2 text-emerald-500 font-bold">
-                      <CheckCircle className="w-4 h-4" />
-                      Accepted ({submissionResult.passed}/
-                      {submissionResult.total} tests passed)
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 text-red-500 font-bold">
-                      <XCircle className="w-4 h-4" />
-                      {submissionResult.status} ({submissionResult.passed}/
-                      {submissionResult.total} tests passed)
-                    </div>
-                  )}
-
-                  {submissionResult.stderr && (
-                    <div className="bg-stone-900/50 p-2 rounded-sm border border-red-900/50">
-                      <span className="text-stone-500 block text-[10px] uppercase mb-1">
-                        Error
-                      </span>
-                      <pre className="text-red-400 whitespace-pre-wrap">
+                    {submissionResult.stderr && (
+                      <pre className="overflow-x-auto whitespace-pre-wrap rounded-[8px] bg-surface-1 p-3 font-mono text-[12px] leading-relaxed text-accent-text">
                         {submissionResult.stderr}
                       </pre>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-stone-600 italic">
-                  Submit your code to see results...
-                </div>
-              )}
-            </div>
+                    )}
+
+                    {sampleFailure && (
+                      <div className="grid gap-2 font-mono text-[12px] sm:grid-cols-3">
+                        {[
+                          { label: `Sample test ${sampleFailure.index + 1} input`, value: sampleFailure.input },
+                          { label: "Expected", value: sampleFailure.expected },
+                          { label: "Your output", value: sampleFailure.got || "(no output)" },
+                        ].map((b) => (
+                          <div key={b.label} className="min-w-0">
+                            <div className="mb-1 font-sans text-[12px] text-fg-3">{b.label}</div>
+                            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-[8px] bg-surface-1 p-2.5 text-fg-2">{b.value}</pre>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {!sampleFailure && submissionResult.status !== "accepted" && !submissionResult.stderr && (
+                      <p className="text-[13px] text-fg-3">
+                        The sample tests pass. A hidden test failed, so check edge cases and limits.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[13px] text-fg-3">
+                    Submit to run your code against every test. {isMac ? "Cmd" : "Ctrl"} + Enter works from the editor.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* Forfeit */}
+      <Dialog open={showForfeitModal} onClose={() => setShowForfeitModal(false)} title="Forfeit this match?">
+        <p className="mt-2 text-[15px] leading-relaxed text-fg-2">
+          {opponentName} wins immediately and the loss goes on your record.
+        </p>
+        <div className="mt-6 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setShowForfeitModal(false)}>
+            Keep playing
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              setShowForfeitModal(false);
+              gameSocket.forfeit();
+            }}
+          >
+            Forfeit
+          </Button>
+        </div>
+      </Dialog>
+
+      {/* Result */}
+      <Dialog
+        open={gameOver && showResult}
+        dismissible={false}
+        title={didWin ? "You won" : "You lost"}
+        className="max-w-md text-center"
+        initialFocusRef={playAgainRef}
+      >
+        <p className="mt-2 text-[15px] text-fg-2">{gameOverReason}</p>
+        <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <div className="flex flex-col items-center gap-2">
+            <Avatar src={avatarUrl} name={username} size={44} />
+            <span className={`max-w-full truncate text-sm ${didWin ? "text-pass" : "text-fg-2"}`}>{username}</span>
+          </div>
+          <span className="tabular font-mono text-[13px] text-fg-3">{formatClock(finalSeconds ?? elapsed)}</span>
+          <div className="flex flex-col items-center gap-2">
+            <Avatar name={opponentName} size={44} />
+            <span className={`max-w-full truncate text-sm ${!didWin ? "text-accent-text" : "text-fg-2"}`}>{opponentName}</span>
           </div>
         </div>
-      </div>
+        <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center">
+          <Button variant="ghost" onClick={() => setShowResult(false)}>
+            Review code
+          </Button>
+          <Button variant="secondary" onClick={() => navigate("/dashboard")}>
+            Back to lobby
+          </Button>
+          <Button ref={playAgainRef} onClick={() => navigate("/matchmaking")}>
+            Play again
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 };

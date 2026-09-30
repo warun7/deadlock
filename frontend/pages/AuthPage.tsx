@@ -1,29 +1,26 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { ArrowLeft, CheckCircle, GoogleLogo, WarningCircle } from "@phosphor-icons/react";
 import { useAuth } from "../contexts/AuthContext";
-import {
-  ChevronLeft,
-  Lock,
-  Mail,
-  Key,
-  ArrowRight,
-  AlertTriangle,
-} from "lucide-react";
-import GlitchText from "../components/GlitchText";
+import AuthLayout from "../components/app/AuthLayout";
+import Field from "../components/ui/Field";
+import { Button } from "../components/ui/Button";
 import { isSupabaseConfigured } from "../lib/supabase";
+
+const swap = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -6 },
+  transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const },
+};
 
 const AuthPage: React.FC = () => {
   const navigate = useNavigate();
-  const {
-    signUp,
-    signIn,
-    signInWithGoogle,
-    resetPassword,
-    isLoggedIn,
-    loading: authLoading,
-  } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { signUp, signIn, signInWithGoogle, resetPassword, isLoggedIn, loading: authLoading } = useAuth();
 
-  const [isLogin, setIsLogin] = useState(true);
+  const [isLogin, setIsLogin] = useState(searchParams.get("mode") !== "signup");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -33,9 +30,8 @@ const AuthPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Redirect if already logged in (handles OAuth callback)
-  // Only redirect once to avoid infinite loops
-  // IMPORTANT: Only redirect when ON the auth page, not from other pages
+  // Redirect if already logged in (handles the OAuth callback). Only redirect once,
+  // and only while this page is the one on screen.
   const hasRedirected = React.useRef(false);
   const mountTime = React.useRef(Date.now());
   const isMounted = React.useRef(true);
@@ -43,60 +39,35 @@ const AuthPage: React.FC = () => {
   React.useEffect(() => {
     isMounted.current = true;
 
-    // Check for OAuth errors in URL
     const params = new URLSearchParams(window.location.search);
     const urlError = params.get("error");
     const errorDescription = params.get("error_description");
 
     if (urlError) {
-      console.error("❌ OAuth error from URL:", urlError, errorDescription);
-
-      let friendlyError = "Google OAuth authentication failed.";
-
+      console.error("OAuth error from URL:", urlError, errorDescription);
+      let friendlyError = "Google sign-in failed. Please try again.";
       if (errorDescription?.includes("Unable to exchange external code")) {
         friendlyError =
-          "Google OAuth configuration error. The redirect URI in Google Cloud Console must exactly match the Supabase callback URL.";
+          "Google sign-in is misconfigured: the redirect URI in Google Cloud Console must exactly match the Supabase callback URL.";
       } else if (errorDescription?.includes("redirect_uri_mismatch")) {
         friendlyError =
-          "Redirect URI mismatch. The authorized redirect URI in Google Cloud Console must exactly match your Supabase callback URL.";
+          "Redirect URI mismatch: the authorized redirect URI in Google Cloud Console must exactly match the Supabase callback URL.";
       } else if (errorDescription) {
-        friendlyError = `OAuth Error: ${decodeURIComponent(errorDescription)}`;
+        friendlyError = decodeURIComponent(errorDescription);
       }
-
       setError(friendlyError);
-
-      // Clean up URL without reloading
       window.history.replaceState({}, document.title, window.location.pathname);
       return;
     }
 
-    // Only redirect to dashboard if we're ON the auth page
-    // Don't redirect if user navigated here from another protected page
     const isOnAuthPage = window.location.pathname === "/auth";
-
-    // Add a small delay to prevent race conditions with other navigations
     const timeSinceMount = Date.now() - mountTime.current;
-    const shouldRedirect =
-      isLoggedIn &&
-      !authLoading &&
-      !hasRedirected.current &&
-      isOnAuthPage &&
-      timeSinceMount > 100;
+    const shouldRedirect = isLoggedIn && !authLoading && !hasRedirected.current && isOnAuthPage && timeSinceMount > 100;
 
     if (shouldRedirect) {
-      // Double-check we're still mounted and on the auth page
-      if (!isMounted.current || window.location.pathname !== "/auth") {
-        return;
-      }
-
-      console.log(
-        "User is logged in on auth page, redirecting to dashboard..."
-      );
+      if (!isMounted.current || window.location.pathname !== "/auth") return;
       hasRedirected.current = true;
-
-      // Use a small timeout to let any other pending navigations complete first
       setTimeout(() => {
-        // Triple-check we're still on the auth page before redirecting
         if (isMounted.current && window.location.pathname === "/auth") {
           navigate("/dashboard", { replace: true });
         }
@@ -108,12 +79,12 @@ const AuthPage: React.FC = () => {
     };
   }, [isLoggedIn, authLoading, navigate]);
 
-  const handleBack = () => {
-    if (isLoggedIn) {
-      navigate("/dashboard");
-    } else {
-      navigate("/");
-    }
+  const switchMode = (login: boolean) => {
+    setIsLogin(login);
+    setLoading(false);
+    setError(null);
+    setSuccess(null);
+    setConfirmPassword("");
   };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -122,44 +93,37 @@ const AuthPage: React.FC = () => {
     setError(null);
     setSuccess(null);
 
-    // Validate registration fields
     if (!isLogin) {
       if (!username || username.trim().length < 3) {
-        setError("Username must be at least 3 characters");
-        setLoading(false);
-        return;
-      }
-      if (password !== confirmPassword) {
-        setError("Passwords do not match");
+        setError("Username must be at least 3 characters.");
         setLoading(false);
         return;
       }
       if (password.length < 6) {
-        setError("Password must be at least 6 characters");
+        setError("Password must be at least 6 characters.");
+        setLoading(false);
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
         setLoading(false);
         return;
       }
     }
 
     try {
-      const { error: authError } = isLogin
-        ? await signIn(email, password)
-        : await signUp(email, password, username);
-
+      const { error: authError } = isLogin ? await signIn(email, password) : await signUp(email, password, username);
       if (authError) {
         setError(authError.message);
         setLoading(false);
+      } else if (!isLogin) {
+        setSuccess("Account created. Taking you to the lobby.");
+        setTimeout(() => navigate("/dashboard"), 1200);
       } else {
-        // Success - redirect to dashboard
-        if (!isLogin) {
-          setSuccess("Account created! Redirecting...");
-          setTimeout(() => navigate("/dashboard"), 1500);
-        } else {
-          navigate("/dashboard");
-        }
+        navigate("/dashboard");
       }
     } catch (err: any) {
-      setError(err.message || "An error occurred");
+      setError(err.message || "Something went wrong. Please try again.");
       setLoading(false);
     }
   };
@@ -169,23 +133,17 @@ const AuthPage: React.FC = () => {
     setLoading(true);
     setError(null);
     setSuccess(null);
-
     try {
       const { error: resetError } = await resetPassword(email);
-
       if (resetError) {
         setError(resetError.message);
         setLoading(false);
       } else {
-        setSuccess("Password reset link sent! Check your email.");
-        setTimeout(() => {
-          setShowForgotPassword(false);
-          setLoading(false);
-          setEmail("");
-        }, 2000);
+        setSuccess(`Reset link sent to ${email}. Check your inbox.`);
+        setLoading(false);
       }
     } catch (err: any) {
-      setError(err.message || "An error occurred");
+      setError(err.message || "Something went wrong. Please try again.");
       setLoading(false);
     }
   };
@@ -194,398 +152,193 @@ const AuthPage: React.FC = () => {
     setLoading(true);
     setError(null);
     setSuccess(null);
-
     const { error: authError } = await signInWithGoogle();
-
     if (authError) {
       setError(authError.message);
       setLoading(false);
-    } else {
-      // In demo mode, show success and redirect
-      if (!isSupabaseConfigured()) {
-        setSuccess("Demo login successful! Redirecting...");
-        setTimeout(() => {
-          navigate("/dashboard");
-        }, 1000);
-      }
-      // For real OAuth, redirect happens automatically via Supabase
+    } else if (!isSupabaseConfigured()) {
+      setSuccess("Demo login successful. Redirecting.");
+      setTimeout(() => navigate("/dashboard"), 800);
     }
+    // For real OAuth, Supabase redirects the browser.
   };
 
+  const messages = (
+    <>
+      {error && (
+        <div role="alert" className="flex items-start gap-2.5 rounded-[var(--radius-control)] bg-accent/10 px-3.5 py-3 text-sm text-accent-text">
+          <WarningCircle className="mt-0.5 size-4 shrink-0" weight="bold" />
+          <span>{error}</span>
+        </div>
+      )}
+      {success && (
+        <div role="status" className="flex items-start gap-2.5 rounded-[var(--radius-control)] bg-pass/10 px-3.5 py-3 text-sm text-pass">
+          <CheckCircle className="mt-0.5 size-4 shrink-0" weight="bold" />
+          <span>{success}</span>
+        </div>
+      )}
+    </>
+  );
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden font-mono" style={{ backgroundColor: 'var(--bg-primary)' }}>
-      {/* Background Effects */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute inset-0 opacity-10 [transform:perspective(1000px)_rotateX(60deg)] origin-top h-1/2" style={{ backgroundImage: `linear-gradient(to right, var(--grid-line-color) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-line-color) 1px, transparent 1px)`, backgroundSize: '40px 40px' }}></div>
-        <div className="absolute top-0 left-0 w-full h-full" style={{ background: `radial-gradient(circle at center, transparent 0%, var(--bg-primary) 100%)` }}></div>
-      </div>
+    <AuthLayout backTo={isLoggedIn ? "/dashboard" : "/"} backLabel={isLoggedIn ? "Lobby" : "Home"}>
+      {!isSupabaseConfigured() && (
+        <p className="mb-6 rounded-[var(--radius-control)] bg-warn/10 px-3.5 py-3 text-[13px] leading-relaxed text-warn">
+          Demo mode: Supabase is not configured, so accounts and matches are not saved.
+        </p>
+      )}
 
-      {/* Back Button */}
-      <button
-        onClick={handleBack}
-        className="absolute top-6 left-6 flex items-center gap-2 text-stone-500 hover:text-white transition-colors group z-50"
-      >
-        <ChevronLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-        <span className="text-sm font-bold tracking-wider">Abort_Sequence</span>
-      </button>
-
-      {/* Main Auth Container */}
-      <div className="w-full max-w-md relative z-10">
-        <div className="backdrop-blur-md rounded-sm p-8 relative overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-          {/* Scanline Effect */}
-          <div className="absolute inset-0 pointer-events-none opacity-5">
-            <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(255,255,255,0.05)_50%)] bg-[length:100%_4px]"></div>
-          </div>
-
-          {/* Supabase Info Banner */}
-          {!showForgotPassword && !isSupabaseConfigured() && (
-            <div className="mb-4 p-3 bg-yellow-950/20 border border-yellow-900/30 rounded flex items-start gap-2 text-yellow-500 text-xs">
-              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <div>
-                <strong>DEMO MODE:</strong> Authentication works but data is not
-                saved.
-                <a
-                  href="/SUPABASE_SETUP.md"
-                  target="_blank"
-                  className="underline hover:text-yellow-400 ml-1"
-                >
-                  Set up Supabase
-                </a>{" "}
-                for real authentication.
-              </div>
-            </div>
-          )}
-
-          {/* Header */}
-          <div className="text-center mb-8 relative">
-            <div className="inline-flex items-center gap-2 mb-4 px-3 py-1 bg-red-950/20 border border-red-900/30 rounded text-red-500 text-xs">
-              <Lock className="w-3 h-3" />
-              <span>SECURE_GATEWAY // 443</span>
-            </div>
-            <h2 className="text-3xl font-black mb-2">
-              <GlitchText
-                text={
-                  showForgotPassword
-                    ? "RESET_PASSWORD"
-                    : isLogin
-                    ? "SYSTEM_LOGIN"
-                    : "CREATE_ACCOUNT"
-                }
-              />
-            </h2>
-            <p className="text-stone-500 text-sm">
-              {showForgotPassword
-                ? "Recover access to your account"
-                : isLogin
-                ? "Enter credentials to access mainframe"
-                : "Initialize new user profile"}
-            </p>
-          </div>
-
-          {/* Tab Switcher */}
-          {!showForgotPassword && (
-            <div className="flex gap-2 mb-6 bg-black/50 p-1 rounded">
-              <button
-                onClick={() => {
-                  setIsLogin(true);
-                  setLoading(false);
-                  setError(null);
-                  setSuccess(null);
-                }}
-                className={`flex-1 py-2 text-sm font-bold rounded transition-all ${
-                  isLogin
-                    ? "bg-red-600 text-white"
-                    : "text-stone-500 hover:text-white"
-                }`}
-              >
-                Login
-              </button>
-              <button
-                onClick={() => {
-                  setIsLogin(false);
-                  setLoading(false);
-                  setError(null);
-                  setSuccess(null);
-                  setConfirmPassword("");
-                }}
-                className={`flex-1 py-2 text-sm font-bold rounded transition-all ${
-                  !isLogin
-                    ? "bg-red-600 text-white"
-                    : "text-stone-500 hover:text-white"
-                }`}
-              >
-                Register
-              </button>
-            </div>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <div className="mb-4 p-3 bg-red-950/30 border border-red-900/50 rounded flex items-start gap-2 text-red-400 text-sm">
-              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {/* Success Message */}
-          {success && (
-            <div className="mb-4 p-3 bg-green-950/30 border border-green-900/50 rounded flex items-start gap-2 text-green-400 text-sm">
-              <div className="w-4 h-4 mt-0.5 flex-shrink-0 rounded-full bg-green-500/20 flex items-center justify-center">
-                <div className="w-2 h-2 rounded-full bg-green-500"></div>
-              </div>
-              <span>{success}</span>
-            </div>
-          )}
-
-          {/* Forgot Password View */}
-          {showForgotPassword ? (
-            <>
-              <div className="mb-6 text-center">
-                <h3 className="text-lg font-bold text-white mb-2">
-                  Reset Password
-                </h3>
-                <p className="text-sm text-stone-500">
-                  Enter your email to receive a password reset link
-                </p>
-              </div>
-
-              <form onSubmit={handleForgotPassword} className="space-y-4">
-                <div>
-                  <label className="block text-xs text-stone-500 mb-2 font-bold">
-                    Email Address
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-600" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="usr@deadlock.dev"
-                      required
-                      disabled={loading}
-                      className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
-                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-red-600 hover:bg-red-500 text-white font-black py-3 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? "SENDING..." : "SEND RESET LINK"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowForgotPassword(false);
-                    setLoading(false);
-                    setError(null);
-                    setSuccess(null);
-                  }}
-                  className="w-full text-sm text-stone-500 hover:text-white transition-colors"
-                >
-                  ← Back to Login
-                </button>
-              </form>
-            </>
-          ) : (
-            <>
-              {/* Google OAuth Button */}
-              <button
-                onClick={handleGoogleAuth}
+      <AnimatePresence mode="wait" initial={false}>
+        {showForgotPassword ? (
+          <motion.div key="forgot" {...swap}>
+            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-fg">Reset your password</h1>
+            <p className="mt-2 text-[15px] text-fg-2">We will email you a link to set a new one.</p>
+            <form onSubmit={handleForgotPassword} className="mt-8 space-y-5">
+              <Field
+                label="Email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
                 disabled={loading}
-                className="w-full mb-4 px-4 py-3 bg-white hover:bg-stone-100 text-black font-bold rounded flex items-center justify-center gap-3 transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
-                title={
-                  isSupabaseConfigured()
-                    ? "Sign in with Google"
-                    : "Demo mode - instant login"
-                }
+                autoFocus
+              />
+              {messages}
+              <Button type="submit" size="lg" loading={loading} className="w-full">
+                {loading ? "Sending" : "Send reset link"}
+              </Button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForgotPassword(false);
+                  setLoading(false);
+                  setError(null);
+                  setSuccess(null);
+                }}
+                className="mx-auto flex items-center gap-1.5 text-sm text-fg-2 transition-colors hover:text-fg"
               >
-                <img
-                  src="https://www.svgrepo.com/show/475656/google-color.svg"
-                  alt="Google"
-                  className="w-5 h-5"
-                />
-                <span className="relative z-10">Continue with Google</span>
+                <ArrowLeft className="size-3.5" /> Back to log in
               </button>
+            </form>
+          </motion.div>
+        ) : (
+          <motion.div key="main" {...swap}>
+            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-fg">
+              {isLogin ? "Log in to Deadlock" : "Create your account"}
+            </h1>
+            <p className="mt-2 text-[15px] text-fg-2">
+              {isLogin ? "Pick up where you left off." : "Free to play. Takes under a minute."}
+            </p>
 
-              {/* Divider */}
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full" style={{ borderTop: '1px solid var(--border-primary)' }}></div>
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="px-4 font-bold" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-dim)' }}>
-                    OR USE ENCRYPTION KEY
-                  </span>
-                </div>
-              </div>
-
-              {/* Email/Password Form */}
-              <form onSubmit={handleEmailAuth} className="space-y-4">
-                {/* Username Field (Register Only) */}
-                {!isLogin && (
-                  <div>
-                    <label className="block text-xs text-stone-500 mb-2 font-bold">
-                      Username // Display Name
-                    </label>
-                    <div className="relative">
-                      <svg
-                        className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                        />
-                      </svg>
-                      <input
-                        type="text"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        placeholder="Codemaster_99"
-                        required={!isLogin}
-                        minLength={3}
-                        disabled={loading}
-                        className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
-                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Email Field */}
-                <div>
-                  <label className="block text-xs text-stone-500 mb-2 font-bold">
-                    Identity // Email
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-600" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="usr@deadlock.dev"
-                      required
-                      disabled={loading}
-                      className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
-                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
-                    />
-                  </div>
-                </div>
-
-                {/* Password Field */}
-                <div>
-                  <label className="block text-xs text-stone-500 mb-2 font-bold">
-                    Passphrase {!isLogin && "(min 6 characters)"}
-                  </label>
-                  <div className="relative">
-                    <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-600" />
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••••••"
-                      required
-                      minLength={6}
-                      disabled={loading}
-                      className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
-                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
-                    />
-                  </div>
-                </div>
-
-                {/* Confirm Password Field (Register Only) */}
-                {!isLogin && (
-                  <div>
-                    <label className="block text-xs text-stone-500 mb-2 font-bold">
-                      Confirm Passphrase
-                    </label>
-                    <div className="relative">
-                      <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-600" />
-                      <input
-                        type="password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="••••••••••••"
-                        required
-                        minLength={6}
-                        disabled={loading}
-                        className="w-full rounded pl-10 pr-4 py-3 placeholder:text-stone-700 focus:border-red-600 focus:outline-none transition-colors disabled:opacity-50"
-                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Submit Button */}
+            <div className="mt-8 grid grid-cols-2 rounded-[11px] bg-surface-1 p-1 shadow-[inset_0_0_0_1px_var(--color-line)]" role="tablist" aria-label="Account">
+              {[
+                { id: true, label: "Log in" },
+                { id: false, label: "Sign up" },
+              ].map((t) => (
                 <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-red-600 hover:bg-red-500 text-white font-black py-3 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group"
+                  key={t.label}
+                  type="button"
+                  role="tab"
+                  aria-selected={isLogin === t.id}
+                  onClick={() => switchMode(t.id)}
+                  className={`relative h-9 rounded-[8px] text-sm transition-colors ${isLogin === t.id ? "text-fg" : "text-fg-3 hover:text-fg-2"}`}
                 >
-                  <span className="relative z-10">
-                    {loading
-                      ? "INITIALIZING..."
-                      : isLogin
-                      ? "EXECUTE"
-                      : "CREATE_PROFILE"}
-                  </span>
-                  {!loading && (
-                    <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                  {isLogin === t.id && (
+                    <motion.span
+                      layoutId="auth-tab"
+                      className="absolute inset-0 rounded-[8px] bg-surface-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]"
+                      transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                    />
                   )}
+                  <span className="relative">{t.label}</span>
                 </button>
-              </form>
+              ))}
+            </div>
 
-              {/* Footer Links */}
-              <div className="mt-6 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 text-green-500">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="font-mono">SYSTEM ONLINE</span>
-                </div>
-                <div className="flex gap-4 text-stone-600">
-                  {isLogin && (
+            <Button type="button" variant="secondary" size="lg" className="mt-5 w-full" onClick={handleGoogleAuth} disabled={loading}>
+              <GoogleLogo weight="bold" className="size-4" />
+              Continue with Google
+            </Button>
+
+            <div className="my-6 flex items-center gap-3 text-[12px] text-fg-3" aria-hidden="true">
+              <span className="h-px flex-1 bg-line" />
+              or with email
+              <span className="h-px flex-1 bg-line" />
+            </div>
+
+            <form onSubmit={handleEmailAuth} className="space-y-5" noValidate={false}>
+              {!isLogin && (
+                <Field
+                  label="Username"
+                  hint="At least 3 characters. Shown to your opponents."
+                  autoComplete="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                  minLength={3}
+                  disabled={loading}
+                />
+              )}
+              <Field
+                label="Email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                disabled={loading}
+              />
+              <Field
+                label="Password"
+                type="password"
+                autoComplete={isLogin ? "current-password" : "new-password"}
+                hint={isLogin ? undefined : "At least 6 characters."}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                disabled={loading}
+                labelAside={
+                  isLogin ? (
                     <button
+                      type="button"
                       onClick={() => {
                         setShowForgotPassword(true);
                         setError(null);
                         setSuccess(null);
                       }}
-                      className="hover:text-red-500 transition-colors"
+                      className="text-[13px] text-fg-3 transition-colors hover:text-fg"
                     >
-                      RECOVER_PWD
+                      Forgot password?
                     </button>
-                  )}
-                  <a href="#" className="hover:text-red-500 transition-colors">
-                    HELP
-                  </a>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+                  ) : undefined
+                }
+              />
+              {!isLogin && (
+                <Field
+                  label="Confirm password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  disabled={loading}
+                  error={confirmPassword && password !== confirmPassword ? "Passwords do not match." : null}
+                />
+              )}
 
-        {/* Terms */}
-        <p className="text-center text-xs text-stone-700 mt-4">
-          By accessing this system you agree to the{" "}
-          <a href="#" className="text-red-500 hover:underline">
-            Terms of Service
-          </a>{" "}
-          and{" "}
-          <a href="#" className="text-red-500 hover:underline">
-            Privacy Protocols
-          </a>
-          .
-        </p>
-      </div>
-    </div>
+              {messages}
+
+              <Button type="submit" size="lg" loading={loading} className="w-full">
+                {isLogin ? (loading ? "Logging in" : "Log in") : loading ? "Creating account" : "Create account"}
+              </Button>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </AuthLayout>
   );
 };
 
