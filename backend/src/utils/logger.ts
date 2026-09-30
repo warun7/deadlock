@@ -2,9 +2,14 @@ import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
 
-// Ensure logs directory exists
+// File logging is opt-out. In a container, logs belong on stdout/stderr where
+// the platform collects them -- writing to files inside a container hides them
+// from `docker compose logs` and grows unbounded. Keep files for local dev.
+const logToFile = process.env.LOG_TO_FILE !== 'false';
+
+// Ensure logs directory exists (only needed when file logging is enabled)
 const logsDir = path.join(process.cwd(), 'logs');
-if (!fs.existsSync(logsDir)) {
+if (logToFile && !fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
@@ -28,12 +33,16 @@ const fileFormat = winston.format.combine(
   winston.format.json()
 );
 
-// Create the logger
-const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: fileFormat,
-  defaultMeta: { service: 'deadlock-server' },
-  transports: [
+// Build transports: console is ALWAYS present so container logs are never
+// empty. Production gets structured JSON; development gets colourised output.
+const transports: winston.transport[] = [
+  new winston.transports.Console({
+    format: process.env.NODE_ENV === 'production' ? fileFormat : consoleFormat,
+  }),
+];
+
+if (logToFile) {
+  transports.push(
     // Error logs
     new winston.transports.File({
       filename: path.join(logsDir, 'error.log'),
@@ -46,18 +55,17 @@ const logger = winston.createLogger({
       filename: path.join(logsDir, 'combined.log'),
       maxsize: 5242880, // 5MB
       maxFiles: 5,
-    }),
-  ],
-});
-
-// Add console transport in development
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
-    new winston.transports.Console({
-      format: consoleFormat,
     })
   );
 }
+
+// Create the logger
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: fileFormat,
+  defaultMeta: { service: 'deadlock-server' },
+  transports,
+});
 
 // Create child loggers for different modules
 export const createModuleLogger = (moduleName: string) => {

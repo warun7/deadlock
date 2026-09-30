@@ -1,0 +1,6 @@
+# Real secrets live only on the server
+.env
+.env.*
+!.env.example
+judge0.conf
+.frontend-version

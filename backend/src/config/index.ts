@@ -10,7 +10,13 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || "development",
 
   // Frontend
+  // Comma-separated list so one build serves local dev, a preview URL and
+  // production without code changes. FRONTEND_URL stays for compatibility.
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
+  frontendUrls: (process.env.FRONTEND_URL || "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 
   // Admin / debug
   adminSecret: process.env.ADMIN_SECRET || "",
@@ -32,8 +38,11 @@ export const config = {
   },
 
   // Judge0
+  // Defaults to the standard Judge0 port on the local host. In the Docker
+  // deployment this is overridden with the internal service URL
+  // (http://judge0-server:2358) so Judge0 never needs to be publicly exposed.
   judge0: {
-    url: process.env.JUDGE0_URL || "https://judge.deadlock.sbs",
+    url: process.env.JUDGE0_URL || "http://localhost:2358",
     apiKey: process.env.JUDGE0_API_KEY || "",
   },
 

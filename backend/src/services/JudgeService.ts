@@ -10,6 +10,16 @@ import {
   CheckerType,
 } from '../types';
 import { checkerService } from './CheckerService';
+import { createZipBase64 } from '../utils/zip';
+
+/**
+ * Judge0 CE language id for Python 3.
+ *
+ * Problem checkers from the dataset are Python, and they are executed by
+ * Judge0 in their own sandbox, independent of whatever language the player
+ * submitted in.
+ */
+const CHECKER_LANGUAGE_ID = 71;
 
 /**
  * JudgeService - Handles code execution via Judge0 API
@@ -37,6 +47,97 @@ export class JudgeService {
   }
   
   /**
+   * Run a problem checker inside Judge0.
+   *
+   * Some problems accept several different correct answers ("print any such
+   * string", "output the points in any order"). Comparing against one stored
+   * string marks correct code wrong, so those problems ship a real checker.
+   *
+   * The checker is a standalone program with the contract:
+   *
+   *     python checker.py <input_file> <expected_file> <submission_file>
+   *
+   * printing a score on its last line: 0 for wrong answer, non-zero for
+   * accepted (`1` and `100` are both common).
+   *
+   * It is executed BY JUDGE0 rather than in-process: CheckerService correctly
+   * refuses to eval checker code in the API process, and Judge0 already gives
+   * us cgroup/namespace isolation. The three files are handed over as a ZIP in
+   * `additional_files`, which Judge0 extracts into /box.
+   *
+   * Returns true (accepted), false (rejected), or null if the checker itself
+   * failed to run -- null must NOT be treated as accepted.
+   */
+  async runChecker(
+    checkerCode: string,
+    stdin: string,
+    expectedOutput: string,
+    submissionOutput: string
+  ): Promise<boolean | null> {
+    const additionalFiles = createZipBase64([
+      { name: 'in.txt', data: stdin },
+      { name: 'exp.txt', data: expectedOutput },
+      { name: 'sub.txt', data: submissionOutput },
+    ]);
+
+    let response;
+    try {
+      response = await this.client.post<Judge0Response>(
+        '/submissions?base64_encoded=false&wait=true',
+        {
+          source_code: checkerCode,
+          language_id: CHECKER_LANGUAGE_ID,
+          command_line_arguments: 'in.txt exp.txt sub.txt',
+          additional_files: additionalFiles,
+          cpu_time_limit: 5,
+          memory_limit: 256000,
+        } as Judge0Submission
+      );
+    } catch (error: any) {
+      console.error('Checker submission failed:', error.message);
+      return null;
+    }
+
+    // The checker running successfully means Judge0 reports Accepted -- that
+    // says nothing about the submission. The verdict is in the checker's
+    // stdout, so a non-zero exit status is a checker failure, not a rejection.
+    const statusId = response.data.status?.id;
+    if (statusId !== 3 && statusId !== 4) {
+      console.error(
+        `Checker did not run cleanly (status ${statusId}: ${response.data.status?.description})`
+      );
+      return null;
+    }
+
+    return this.parseCheckerVerdict(response.data.stdout);
+  }
+
+  /**
+   * Read the checker's verdict from its stdout.
+   * Anything that is not a recognisable score returns null rather than a
+   * default, so an unreadable checker never silently accepts code.
+   */
+  private parseCheckerVerdict(stdout: string | null): boolean | null {
+    if (!stdout) return null;
+    const lines = stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    if (lines.length === 0) return null;
+
+    const last = lines[lines.length - 1];
+    const score = Number(last);
+    if (!Number.isNaN(score) && /^-?\d+$/.test(last)) {
+      return score > 0;
+    }
+
+    const word = last.toUpperCase();
+    if (['AC', 'ACCEPTED', 'YES', 'TRUE'].includes(word)) return true;
+    if (['WA', 'WRONG', 'NO', 'FALSE'].includes(word)) return false;
+    return null;
+  }
+
+  /**
    * Execute code against all test cases
    * Returns aggregated results
    * 
@@ -60,8 +161,12 @@ export class JudgeService {
     let passedCount = 0;
     let nextTestIndex = 0;
     
-    // Determine if we should use Judge0's built-in comparison or our checker
+    // Determine how the answer is validated:
+    //   exact          -> Judge0's built-in comparison against expected_output
+    //   custom + code  -> the problem's real checker, run inside Judge0
+    //   anything else  -> CheckerService's in-process heuristics
     const useBuiltinComparison = checkerType === 'exact';
+    const useProblemChecker = checkerType === 'custom' && !!checkerCode;
 
     const workerCount = Math.min(5, testCases.length);
 
@@ -91,8 +196,26 @@ export class JudgeService {
             // Use Judge0's result directly
             passed = result.status.id === 3; // 3 = Accepted
           } else if (result.status.id !== 3 && result.status.id !== 4) {
-            // Not Accepted or Wrong Answer - it's an error
+            // Not Accepted or Wrong Answer - it's an error (CE / TLE / RE).
+            // For a checker problem a compile error or crash is still a failure,
+            // so we never reach the checker here.
             passed = false;
+          } else if (useProblemChecker) {
+            // Ask the problem's own checker. `null` means the checker itself
+            // broke -- treat that as not-passed rather than as a pass.
+            const verdict = await this.runChecker(
+              checkerCode!,
+              testCase.input,
+              testCase.expectedOutput,
+              result.stdout || ''
+            );
+            passed = verdict === true;
+            if (verdict === null) {
+              statusMessage = 'Checker error';
+              console.error(
+                `   Checker failed on test ${i + 1} — treating as not passed`
+              );
+            }
           } else {
             // Use our custom checker
             const checkerResult = checkerService.validate({

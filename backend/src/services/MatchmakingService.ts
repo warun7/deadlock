@@ -391,7 +391,7 @@ export class MatchmakingService {
       // Create bot instance
       const bot = new BotPlayer({
         difficulty: botDifficulty,
-        problemRating: parseInt(problem.difficulty || "1000"),
+        problemRating: problem.difficulty ?? 1000,
         socketServer: this.io,
         matchId,
         onComplete: (result: BotCompletionResult) => {
