@@ -118,6 +118,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       email,
       password,
       options: {
+        // Confirmation emails link back to this site, same rule as OAuth above
+        emailRedirectTo: `${window.location.origin}/auth`,
         data: {
           username: username || email.split("@")[0], // Use username or fallback to email prefix
           display_name: username || email.split("@")[0],
@@ -194,9 +196,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     }
 
     try {
-      // Use the simplest possible configuration as per Supabase docs
+      // Come back to the site that started the login (not Supabase's default
+      // Site URL). The origin must be listed under Authentication > URL
+      // Configuration > Redirect URLs in Supabase, or Supabase falls back to Site URL.
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
+        options: { redirectTo: `${window.location.origin}/auth` },
       });
 
       if (error) {
