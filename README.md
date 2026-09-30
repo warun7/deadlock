@@ -17,7 +17,7 @@ Real-time 1v1 competitive programming platform where players race to solve algor
 - **React** + TypeScript + Vite (routes are lazy-loaded)
 - **Tailwind CSS v4** via the Vite plugin; design tokens live in `frontend/styles/index.css`
 - **GSAP** (ScrollTrigger, SplitText) and **Lenis** for landing-page scroll motion, **Motion** for app UI transitions
-- **ThreeUI `CrtBackground`** (blue-screen variant, MIT) as the hero and auth-panel background, vendored unmodified in `frontend/components/threeui/`
+- **Live duel hero**: CSS 3D arena of two editors typing real solutions, driven by one GSAP timeline per round (`frontend/components/landing/duel/`)
 - **Socket.IO** for real-time communication
 - **CodeMirror** for code editing
 - **Supabase** for authentication & database
