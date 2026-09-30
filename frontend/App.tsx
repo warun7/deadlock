@@ -21,8 +21,8 @@ const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const RouteFallback: React.FC = () => (
   <div className="flex min-h-[100dvh] items-center justify-center" aria-busy="true" aria-live="polite">
     <span className="sr-only">Loading</span>
-    <div className="h-1 w-24 overflow-hidden rounded-full bg-surface-2">
-      <div className="h-full w-1/3 animate-route-load rounded-full bg-accent" />
+    <div className="h-[3px] w-24 overflow-hidden bg-bg-2">
+      <div className="h-full w-1/3 animate-route-load bg-fg" />
     </div>
   </div>
 );
@@ -35,7 +35,6 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 const AppContent: React.FC = () => (
   <>
-    <div className="grain" aria-hidden="true" />
     <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/" element={<LandingPage />} />

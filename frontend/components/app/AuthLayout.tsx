@@ -1,8 +1,13 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "@phosphor-icons/react";
-import CrtScreen from "../threeui/CrtScreen";
-import Wordmark from "../ui/Wordmark";
+import DuelStage from "../landing/duel/DuelStage";
+import { Chip, CrossRow, Figure, Label } from "../ui/Chrome";
+import { Mark } from "../ui/Wordmark";
+import PixelText from "../ui/pixel/PixelText";
+import ThemeChip from "../ui/ThemeChip";
+import { useTheme } from "../../lib/theme";
+import { useShortcuts } from "../../lib/useShortcuts";
 
 interface AuthLayoutProps {
   backTo: string;
@@ -10,40 +15,58 @@ interface AuthLayoutProps {
   children: React.ReactNode;
 }
 
-/** Split auth screen: brand panel with the CRT screen on large screens, form on the right. */
-const AuthLayout: React.FC<AuthLayoutProps> = ({ backTo, backLabel, children }) => (
-  <div className="grid min-h-[100dvh] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-    <aside className="relative isolate hidden overflow-hidden border-r border-line lg:block" aria-hidden="true">
-      <div className="absolute inset-0 -z-10">
-        <div className="shader-frame absolute inset-0">
-          <CrtScreen variant="blue-screen" speed={1.0} motion={1.0} hue={0} saturation={1.0} brightness={1.0} opacity={1.0} />
-        </div>
-        <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-ink via-ink/85 to-transparent" />
-        <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-ink/80 to-transparent" />
-      </div>
-      <div className="flex h-full flex-col justify-between p-10">
-        <Wordmark className="text-lg text-fg" />
-        <p className="max-w-[18ch] text-4xl font-semibold leading-[1.02] tracking-[-0.04em] text-fg">
-          Two coders. One problem.
-        </p>
-      </div>
-    </aside>
-
-    <div className="flex flex-col px-5 py-6 sm:px-10">
-      <div className="flex items-center justify-between">
-        <Link
-          to={backTo}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] py-1.5 pr-2 text-sm text-fg-2 transition-colors hover:text-fg"
-        >
-          <ArrowLeft className="size-4" /> {backLabel}
+/** Split auth screen: the sample match on large screens, form on the right. */
+const AuthLayout: React.FC<AuthLayoutProps> = ({ backTo, backLabel, children }) => {
+  const { toggle } = useTheme();
+  useShortcuts({ t: toggle });
+  return (
+    <div className="grid min-h-[100dvh] lg:grid-cols-12">
+      <aside
+        className="relative hidden flex-col border-r border-rule px-4 pb-6 pt-4 lg:col-span-7 lg:flex"
+        aria-hidden="true"
+      >
+        <Link to="/" tabIndex={-1} className="w-fit rounded-[3px]">
+          <Chip className="px-2">
+            <Mark /> Deadlock
+          </Chip>
         </Link>
-        <Wordmark className="text-[15px] text-fg lg:hidden" />
-      </div>
-      <div className="flex flex-1 items-center justify-center py-10">
-        <div className="w-full max-w-[380px]">{children}</div>
+        <CrossRow className="mt-10" at={[0, 50, 100]} />
+        <p className="mt-8 text-[clamp(3rem,6vw,6.5rem)] font-medium leading-[0.9] tracking-[-0.065em] text-fg">
+          Same problem.
+          <br />
+          Solve it <PixelText text="FIRST" decorative className="h-[0.7em]" />
+          <span className="text-accent">.</span>
+        </p>
+        <div className="mt-auto pt-12">
+          <Label aside="Scripted">Fig. 1 Sample match</Label>
+          <Figure n={1} className="mt-4" bodyClassName="px-4 py-5">
+            <DuelStage compact />
+          </Figure>
+        </div>
+      </aside>
+
+      <div className="flex flex-col px-4 py-4 lg:col-span-5 lg:px-10">
+        <div className="flex items-center justify-between gap-2">
+          <Link to={backTo} className="rounded-[3px]">
+            <Chip>
+              <ArrowLeft className="size-3.5" weight="bold" /> {backLabel}
+            </Chip>
+          </Link>
+          <div className="flex items-center gap-[3px]">
+            <Link to="/" className="rounded-[3px] lg:hidden" aria-label="Deadlock home">
+              <Chip className="px-2">
+                <Mark /> Deadlock
+              </Chip>
+            </Link>
+            <ThemeChip />
+          </div>
+        </div>
+        <div className="flex flex-1 items-center justify-center py-12">
+          <div className="w-full max-w-[400px]">{children}</div>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default AuthLayout;

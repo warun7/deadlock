@@ -13,19 +13,19 @@ interface CodeEditorProps {
   onSubmit?: () => void;
 }
 
-// Keep vscodeDark's syntax colours, match surfaces to the app palette.
+// Keep vscodeDark's syntax colours; surfaces follow the app's dark "screen" tokens.
 const surface = EditorView.theme(
   {
-    '&': { backgroundColor: '#0e0e11', height: '100%' },
+    '&': { backgroundColor: 'var(--screen)', height: '100%' },
     '.cm-scroller': { fontFamily: '"Geist Mono Variable", ui-monospace, monospace', lineHeight: '1.65' },
     '.cm-content': { padding: '12px 0' },
-    '.cm-gutters': { backgroundColor: '#0e0e11', borderRight: '1px solid rgba(255,255,255,0.06)', color: '#55555e' },
-    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: '#a6a6ae' },
-    '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
+    '.cm-gutters': { backgroundColor: 'var(--screen)', borderRight: '1px solid var(--screen-line)', color: '#5a5a5a' },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--screen-fg)' },
+    '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.035)' },
     '&.cm-focused': { outline: 'none' },
-    '&.cm-focused .cm-cursor': { borderLeftColor: '#ff6369' },
+    '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--screen-fail)', borderLeftWidth: '2px' },
     '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
-      backgroundColor: 'rgba(229,72,77,0.28) !important',
+      backgroundColor: 'rgba(255,91,82,0.28) !important',
     },
   },
   { dark: true }

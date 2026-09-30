@@ -1,26 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { CaretDown, Check, Copy, SignOut, UserCircle } from "@phosphor-icons/react";
-import Wordmark from "../ui/Wordmark";
+import { ArrowRight, CaretDown, Check, Copy, SignOut, UserCircle } from "@phosphor-icons/react";
 import Avatar from "../ui/Avatar";
-import { ButtonLink } from "../ui/Button";
+import { Chip, ChipLink } from "../ui/Chrome";
+import { Mark } from "../ui/Wordmark";
+import ThemeChip from "../ui/ThemeChip";
 import { useAuth } from "../../contexts/AuthContext";
 import { useCurrentProfile, invalidateCurrentProfile } from "../../lib/useCurrentProfile";
-
-const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `relative rounded-[var(--radius-control)] px-3 py-2 text-sm transition-colors ${
-    isActive ? "text-fg" : "text-fg-2 hover:bg-white/[0.05] hover:text-fg"
-  }`;
-
-const ActiveBar: React.FC<{ show: boolean }> = ({ show }) =>
-  show ? (
-    <motion.span
-      layoutId="nav-active"
-      className="absolute inset-x-3 -bottom-[9px] h-[2px] rounded-full bg-accent"
-      transition={{ type: "spring", stiffness: 500, damping: 40 }}
-    />
-  ) : null;
+import { useTheme } from "../../lib/theme";
+import { useShortcuts } from "../../lib/useShortcuts";
 
 const AccountMenu: React.FC = () => {
   const navigate = useNavigate();
@@ -70,7 +59,7 @@ const AccountMenu: React.FC = () => {
   };
 
   const item =
-    "flex w-full items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-left text-sm text-fg-2 transition-colors hover:bg-white/[0.06] hover:text-fg focus-visible:bg-white/[0.06] focus-visible:text-fg focus-visible:outline-none";
+    "label flex w-full items-center gap-2.5 border-b border-line px-3 py-2.5 text-left text-fg transition-colors last:border-b-0 hover:bg-bg-2 focus-visible:bg-bg-2 focus-visible:outline-none";
 
   return (
     <div ref={rootRef} className="relative">
@@ -80,11 +69,14 @@ const AccountMenu: React.FC = () => {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-[var(--radius-control)] py-1 pl-1 pr-2 transition-colors hover:bg-white/[0.05]"
+        aria-label={`Account: ${username}`}
+        className="rounded-[3px]"
       >
-        <Avatar src={avatarUrl} name={username} size={30} />
-        <span className="hidden max-w-[10rem] truncate text-sm text-fg sm:block">{username}</span>
-        <CaretDown className={`size-3.5 text-fg-3 transition-transform ${open ? "rotate-180" : ""}`} weight="bold" />
+        <Chip active={open} className="pl-1">
+          <Avatar src={avatarUrl} name={username} size={20} className="rounded-[2px] bg-bg!" />
+          <span className="hidden max-w-[10rem] truncate normal-case sm:block">{username}</span>
+          <CaretDown className={`size-3 transition-transform ${open ? "rotate-180" : ""}`} weight="bold" />
+        </Chip>
       </button>
 
       <AnimatePresence>
@@ -92,25 +84,24 @@ const AccountMenu: React.FC = () => {
           <motion.div
             role="menu"
             aria-label="Account"
-            initial={{ opacity: 0, y: -6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="glass absolute right-0 top-[calc(100%+10px)] z-50 w-60 origin-top-right rounded-[14px] p-1.5"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute right-0 top-[calc(100%+6px)] z-50 w-64 border border-fg bg-bg"
           >
-            <div className="px-2.5 pb-2 pt-1.5">
-              <div className="truncate text-sm font-medium text-fg">{username}</div>
-              <div className="truncate text-[12px] text-fg-3">/u/{username}</div>
+            <div className="border-b border-rule px-3 pb-2.5 pt-3">
+              <div className="truncate text-[15px] font-medium tracking-[-0.01em] text-fg">{username}</div>
+              <div className="label mt-1 truncate normal-case text-fg-3">/u/{username}</div>
             </div>
-            <div className="my-1 h-px bg-line" />
             <Link role="menuitem" to={`/u/${encodeURIComponent(username)}`} className={item} onClick={() => setOpen(false)}>
               <UserCircle className="size-4" /> Public profile
+              <ArrowRight className="ml-auto size-3.5" />
             </Link>
             <button role="menuitem" type="button" className={item} onClick={copyLink}>
-              {copied ? <Check className="size-4 text-pass" /> : <Copy className="size-4" />}
+              {copied ? <Check className="size-4 text-pass-ink" /> : <Copy className="size-4" />}
               {copied ? "Link copied" : "Copy profile link"}
             </button>
-            <div className="my-1 h-px bg-line" />
             <button role="menuitem" type="button" className={item} onClick={handleLogout}>
               <SignOut className="size-4" /> Log out
             </button>
@@ -123,51 +114,53 @@ const AccountMenu: React.FC = () => {
 
 const AppNav: React.FC = () => {
   const { isLoggedIn } = useAuth();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { toggle } = useTheme();
+
+  useShortcuts(
+    isLoggedIn
+      ? { d: () => navigate("/dashboard"), u: () => navigate("/profile"), t: toggle }
+      : { t: toggle, l: () => navigate("/auth"), p: () => navigate("/auth?mode=signup") }
+  );
 
   return (
-    <header className="fixed inset-x-0 top-0 z-40">
-      <nav
-        aria-label="Primary"
-        className="glass mx-auto mt-3 flex h-14 w-[calc(100%-1.5rem)] max-w-[1200px] items-center justify-between rounded-[var(--radius-panel)] pl-4 pr-2 sm:pl-5"
-      >
-        <div className="flex items-center gap-2 sm:gap-6">
-          <Link to={isLoggedIn ? "/dashboard" : "/"} className="text-[17px] text-fg" aria-label="Deadlock home">
-            <Wordmark />
+    <header className="sticky top-0 z-40 bg-bg">
+      <nav aria-label="Primary" className="flex h-[52px] items-center justify-between gap-2 px-4">
+        <div className="flex items-center gap-[3px]">
+          <Link to={isLoggedIn ? "/dashboard" : "/"} aria-label="Deadlock home" className="rounded-[3px]">
+            <Chip className="px-2">
+              <Mark className="size-3.5" />
+              <span className="hidden sm:inline">Deadlock</span>
+            </Chip>
           </Link>
           {isLoggedIn && (
-            <div className="flex items-center">
-              <NavLink to="/dashboard" className={linkClass}>
-                {({ isActive }) => (
-                  <>
-                    Play
-                    <ActiveBar show={isActive} />
-                  </>
-                )}
-              </NavLink>
-              <NavLink to="/profile" className={linkClass}>
-                {({ isActive }) => (
-                  <>
-                    Profile
-                    <ActiveBar show={isActive} />
-                  </>
-                )}
-              </NavLink>
-            </div>
+            <>
+              <ChipLink to="/dashboard" k="D" active={pathname === "/dashboard"} aria-current={pathname === "/dashboard" ? "page" : undefined}>
+                Lobby
+              </ChipLink>
+              <ChipLink to="/profile" k="U" active={pathname === "/profile"} aria-current={pathname === "/profile" ? "page" : undefined}>
+                Profile
+              </ChipLink>
+            </>
           )}
         </div>
 
-        {isLoggedIn ? (
-          <AccountMenu />
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <ButtonLink to="/auth" variant="ghost" size="sm">
-              Log in
-            </ButtonLink>
-            <ButtonLink to="/auth?mode=signup" size="sm">
-              Play now
-            </ButtonLink>
-          </div>
-        )}
+        <div className="flex items-center gap-[3px]">
+          <ThemeChip />
+          {isLoggedIn ? (
+            <AccountMenu />
+          ) : (
+            <>
+              <ChipLink to="/auth" k="L">
+                Log in
+              </ChipLink>
+              <ChipLink to="/auth?mode=signup" k="P" tone="accent">
+                Play
+              </ChipLink>
+            </>
+          )}
+        </div>
       </nav>
     </header>
   );
@@ -176,7 +169,7 @@ const AppNav: React.FC = () => {
 export const AppShell: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = "" }) => (
   <>
     <AppNav />
-    <main id="main" className={`mx-auto w-full max-w-[1200px] px-5 pb-24 pt-28 sm:px-8 ${className}`}>
+    <main id="main" className={`w-full px-4 pb-28 pt-8 md:pt-12 ${className}`}>
       {children}
     </main>
   </>

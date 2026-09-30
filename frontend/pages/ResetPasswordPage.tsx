@@ -64,11 +64,12 @@ const ResetPasswordPage: React.FC = () => {
 
   return (
     <AuthLayout backTo="/auth" backLabel="Log in">
-      <h1 className="text-3xl font-semibold tracking-[-0.03em] text-fg">Set a new password</h1>
-      <p className="mt-2 text-[15px] text-fg-2">Choose something you have not used here before.</p>
+      <p className="label text-fg-3">Account</p>
+      <h1 className="mt-3 text-[clamp(2.5rem,4vw,3.5rem)] font-medium leading-[0.92] tracking-[-0.055em] text-fg">New password</h1>
+      <p className="mt-4 text-[17px] leading-snug text-fg-2">Choose something you have not used here before.</p>
 
       {success ? (
-        <div role="status" className="mt-8 flex items-start gap-2.5 rounded-[var(--radius-control)] bg-pass/10 px-3.5 py-3 text-sm text-pass">
+        <div role="status" className="mt-8 flex items-start gap-2.5 rounded-[3px] border border-pass-ink/40 px-3 py-2.5 text-sm text-pass-ink">
           <CheckCircle className="mt-0.5 size-4 shrink-0" weight="bold" />
           <span>Password updated. Taking you to log in.</span>
         </div>
@@ -98,7 +99,7 @@ const ResetPasswordPage: React.FC = () => {
             error={confirmPassword && newPassword !== confirmPassword ? "Passwords do not match." : null}
           />
           {error && (
-            <div role="alert" className="flex items-start gap-2.5 rounded-[var(--radius-control)] bg-accent/10 px-3.5 py-3 text-sm text-accent-text">
+            <div role="alert" className="flex items-start gap-2.5 rounded-[3px] border border-accent-ink/40 px-3 py-2.5 text-sm text-accent-ink">
               <WarningCircle className="mt-0.5 size-4 shrink-0" weight="bold" />
               <span>{error}</span>
             </div>

@@ -1,23 +1,24 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { WarningCircle } from "@phosphor-icons/react";
 import Avatar from "../components/ui/Avatar";
-import Wordmark from "../components/ui/Wordmark";
+import { Mark } from "../components/ui/Wordmark";
 import { Button, Kbd } from "../components/ui/Button";
+import { Chip, CrossRow, Figure, Label } from "../components/ui/Chrome";
+import PixelText from "../components/ui/pixel/PixelText";
+import { SearchGrid } from "../components/landing/StepDemos";
 import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import { useCurrentProfile } from "../lib/useCurrentProfile";
-import { formatClock } from "../lib/format";
 
 type Status = "connecting" | "searching" | "found" | "error";
 
 const HANDOFF_MS = 3000;
 
 const fade = {
-  initial: { opacity: 0, y: 12, filter: "blur(4px)" },
-  animate: { opacity: 1, y: 0, filter: "blur(0px)" },
-  exit: { opacity: 0, y: -8, filter: "blur(4px)" },
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -8 },
   transition: { duration: 0.45, ease: [0.16, 1, 0.3, 1] as const },
 };
 
@@ -161,103 +162,121 @@ const RealMatchmakingPage: React.FC = () => {
   }, [status]);
 
   const opponentName: string = matchData?.opponent?.username || "Opponent";
+  const clockText = `${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(timer % 60).padStart(2, "0")}`;
+  const queued = status === "searching" || status === "connecting";
+
+  const title = "text-[clamp(2.75rem,6vw,5.75rem)] font-medium leading-[0.9] tracking-[-0.06em] text-fg";
+  const lead = "mt-5 max-w-[30ch] text-[clamp(1.25rem,1.8vw,1.5rem)] leading-[1.15] tracking-[-0.03em] text-fg-2";
 
   return (
-    <div className="relative isolate flex min-h-[100dvh] flex-col overflow-hidden">
-      {/* Search pulse: rings expand while searching, settle into a solid ring once matched */}
-      <div className="pointer-events-none absolute inset-0 -z-10 flex items-center justify-center pb-[18vh]" aria-hidden="true">
-        <div className="relative size-[min(56vw,340px)]">
-          {status === "searching" || status === "connecting" ? (
-            [0, 1, 2].map((i) => (
-              <span
-                key={i}
-                className="absolute inset-0 animate-[queue-pulse_3s_var(--ease-out-expo)_infinite] rounded-full border border-accent/40 motion-reduce:animate-none motion-reduce:opacity-40"
-                style={{ animationDelay: `${i}s` }}
-              />
-            ))
-          ) : status === "found" ? (
-            <span className="absolute inset-[18%] rounded-full border-2 border-accent/70 shadow-[0_0_80px_-10px_rgb(229_72_77/0.6)]" />
-          ) : null}
-          <span className="absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent" />
-        </div>
-        <div className="absolute inset-0 bg-[radial-gradient(closest-side,rgb(229_72_77/0.08),transparent)]" />
-      </div>
-
-      <header className="flex h-16 items-center justify-center">
-        <Wordmark className="text-[17px] text-fg" />
+    <div className="flex min-h-[100dvh] flex-col">
+      <header className="flex h-[52px] shrink-0 items-center justify-between gap-2 px-4">
+        <Chip className="px-2">
+          <Mark /> Deadlock
+        </Chip>
+        {queued && (
+          <button type="button" onClick={handleCancel} className="rounded-[3px]">
+            <Chip k="Esc">Leave queue</Chip>
+          </button>
+        )}
       </header>
 
-      <main className="flex flex-1 flex-col items-center justify-end px-5 pb-16 text-center sm:pb-24" aria-live="polite">
-        <AnimatePresence mode="wait">
-          {status === "connecting" && (
-            <motion.div key="connecting" {...fade} className="flex flex-col items-center">
-              <h1 className="text-2xl font-semibold tracking-[-0.02em] text-fg sm:text-3xl">Connecting</h1>
-              <p className="mt-2 text-[15px] text-fg-2">Reaching the match server.</p>
-              <Button variant="secondary" className="mt-8" onClick={handleCancel}>
-                Cancel <Kbd>Esc</Kbd>
-              </Button>
-            </motion.div>
-          )}
-
-          {status === "searching" && (
-            <motion.div key="searching" {...fade} className="flex flex-col items-center">
-              <p className="tabular font-mono text-5xl font-medium tracking-[-0.03em] text-fg sm:text-6xl" aria-label={`Searching for ${timer} seconds`}>
-                {formatClock(timer)}
-              </p>
-              <h1 className="mt-4 text-xl font-medium tracking-[-0.01em] text-fg sm:text-2xl">Finding an opponent</h1>
-              <p className="mt-2 max-w-[36ch] text-[15px] leading-relaxed text-fg-2">
-                You will be paired with the next player who joins the queue.
-              </p>
-              <Button variant="secondary" className="mt-8" onClick={handleCancel}>
-                Leave queue <Kbd>Esc</Kbd>
-              </Button>
-            </motion.div>
-          )}
-
-          {status === "found" && (
-            <motion.div key="found" {...fade} className="flex w-full max-w-md flex-col items-center">
-              <h1 className="text-3xl font-semibold tracking-[-0.03em] text-fg sm:text-4xl">Match found</h1>
-              <div className="mt-8 grid w-full grid-cols-[1fr_auto_1fr] items-center gap-4">
-                <motion.div
-                  initial={{ x: -24, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  transition={{ type: "spring", stiffness: 260, damping: 24, delay: 0.1 }}
-                  className="flex flex-col items-center gap-2"
-                >
-                  <Avatar src={avatarUrl} name={username} size={56} />
-                  <span className="max-w-full truncate text-sm text-fg">{username}</span>
+      <main className="flex flex-1 flex-col px-4 pb-6">
+        <CrossRow className="mt-3" at={[0, 50, 100]} />
+        <div className="grid flex-1 items-center gap-12 py-10 lg:grid-cols-12 lg:gap-6">
+          <div className="lg:col-span-6" aria-live="polite">
+            <AnimatePresence mode="wait">
+              {status === "connecting" && (
+                <motion.div key="connecting" {...fade}>
+                  <p className="label text-fg-3">Queue</p>
+                  <h1 className={`mt-4 ${title}`}>Connecting</h1>
+                  <p className={lead}>Reaching the match server.</p>
+                  <Button variant="outline" size="lg" className="mt-10" onClick={handleCancel}>
+                    Cancel <Kbd>Esc</Kbd>
+                  </Button>
                 </motion.div>
-                <span className="font-mono text-xs uppercase tracking-[0.14em] text-fg-3">vs</span>
-                <motion.div
-                  initial={{ x: 24, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  transition={{ type: "spring", stiffness: 260, damping: 24, delay: 0.18 }}
-                  className="flex flex-col items-center gap-2"
-                >
-                  <Avatar name={opponentName} size={56} />
-                  <span className="max-w-full truncate text-sm text-fg">{opponentName}</span>
-                </motion.div>
-              </div>
-              <p className="mt-8 text-[15px] text-fg-2">
-                Starting in <span className="tabular font-mono text-fg">{countdown}</span>
-              </p>
-            </motion.div>
-          )}
+              )}
 
-          {status === "error" && (
-            <motion.div key="error" {...fade} className="flex max-w-sm flex-col items-center">
-              <WarningCircle className="size-9 text-accent-text" weight="duotone" aria-hidden="true" />
-              <h1 className="mt-4 text-2xl font-semibold tracking-[-0.02em] text-fg">Could not join the queue</h1>
-              <p className="mt-2 text-[15px] leading-relaxed text-fg-2">{error}</p>
-              <div className="mt-8 flex gap-2">
-                <Button variant="secondary" onClick={() => navigate("/dashboard")}>
-                  Back to lobby
-                </Button>
-                <Button onClick={() => window.location.reload()}>Try again</Button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              {status === "searching" && (
+                <motion.div key="searching" {...fade}>
+                  <p className="label text-fg-3">In queue</p>
+                  <div className="mt-5" role="timer" aria-label={`Searching for ${timer} seconds`}>
+                    <PixelText text={clockText} led gap={0.16} decorative className="h-[clamp(3.5rem,8vw,6.5rem)] text-fg" />
+                  </div>
+                  <h1 className={`mt-8 ${title}`}>Finding an opponent</h1>
+                  <p className={lead}>You will be paired with the next player who joins the queue.</p>
+                  <Button variant="outline" size="lg" className="mt-10" onClick={handleCancel}>
+                    Leave queue <Kbd>Esc</Kbd>
+                  </Button>
+                </motion.div>
+              )}
+
+              {status === "found" && (
+                <motion.div key="found" {...fade}>
+                  <p className="label text-fg-3">Match found</p>
+                  <h1 className={`mt-4 ${title}`}>
+                    Locked in<span className="text-accent">.</span>
+                  </h1>
+                  <ul className="mt-10 border-t border-rule">
+                    {[
+                      { tag: "You", name: username, src: avatarUrl, dot: "bg-fg" },
+                      { tag: "Opponent", name: opponentName, src: undefined, dot: "bg-accent" },
+                    ].map((p, i) => (
+                      <motion.li
+                        key={p.tag}
+                        initial={{ opacity: 0, x: i === 0 ? -16 : 16 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.1 + i * 0.08, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                        className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-4 border-b border-line py-3"
+                      >
+                        <span className="label flex items-center gap-2 text-fg">
+                          <span className={`size-[7px] ${p.dot}`} aria-hidden="true" />
+                          {p.tag}
+                        </span>
+                        <span className="flex min-w-0 items-center gap-3">
+                          <Avatar src={p.src} name={p.name} size={32} />
+                          <span className="truncate text-[clamp(1.25rem,2vw,1.75rem)] leading-tight tracking-[-0.035em] text-fg">
+                            {p.name}
+                          </span>
+                        </span>
+                      </motion.li>
+                    ))}
+                  </ul>
+                  <div className="mt-8 flex items-end gap-4">
+                    <span className="label pb-1 text-fg-2">Starting in</span>
+                    <PixelText key={countdown} text={String(countdown)} intro="mount" label={`${countdown} seconds`} className="h-16 text-accent" />
+                  </div>
+                </motion.div>
+              )}
+
+              {status === "error" && (
+                <motion.div key="error" {...fade}>
+                  <p className="label text-accent-ink">Error</p>
+                  <h1 className={`mt-4 ${title}`}>Could not join the queue</h1>
+                  <p className={lead}>{error}</p>
+                  <div className="mt-10 flex flex-wrap gap-2">
+                    <Button variant="outline" size="lg" onClick={() => navigate("/dashboard")}>
+                      Back to lobby
+                    </Button>
+                    <Button size="lg" onClick={() => window.location.reload()}>
+                      Try again
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <div className="lg:col-span-5 lg:col-start-8">
+            <Label aside={status === "found" ? <span className="text-accent-ink">Matched</span> : queued ? "Live" : "Idle"}>
+              Queue
+            </Label>
+            <Figure n="Q" className="mt-4" bodyClassName="flex items-center justify-center px-5 py-10 sm:px-10 sm:py-16">
+              <SearchGrid found={status === "found"} className="max-w-[460px]" />
+            </Figure>
+          </div>
+        </div>
+        <CrossRow at={[0, 50, 100]} />
       </main>
     </div>
   );

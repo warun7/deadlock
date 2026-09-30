@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { MagnifyingGlass } from "@phosphor-icons/react";
 import { AppShell } from "../components/app/AppNav";
 import StatGrid from "../components/app/StatGrid";
 import HistorySection from "../components/app/HistorySection";
 import Avatar from "../components/ui/Avatar";
+import NameTitle from "../components/app/NameTitle";
+import { ArrowRight } from "@phosphor-icons/react";
 import { ButtonLink } from "../components/ui/Button";
 import { useAuth } from "../contexts/AuthContext";
 import { getAllMatchesByUserId, getRecentMatchesByUserId, getUserProfileByUsername } from "../lib/api";
@@ -37,12 +38,14 @@ const PublicProfilePage: React.FC = () => {
 
   if (notFound) {
     return (
-      <AppShell className="flex min-h-[70dvh] items-center justify-center">
-        <div className="max-w-sm text-center">
-          <MagnifyingGlass className="mx-auto size-9 text-fg-3" weight="duotone" aria-hidden="true" />
-          <h1 className="mt-4 text-2xl font-semibold tracking-[-0.02em] text-fg">No player called {targetUsername}</h1>
-          <p className="mt-2 text-[15px] text-fg-2">Check the spelling, or ask them to send you their profile link.</p>
-          <ButtonLink to={isLoggedIn ? "/dashboard" : "/"} variant="secondary" className="mt-8">
+      <AppShell>
+        <p className="label text-fg-3">Player not found</p>
+        <h1 className="mt-3 max-w-[14ch] text-[clamp(2.5rem,7vw,6.5rem)] font-medium leading-[0.9] tracking-[-0.06em] text-fg">
+          No player called <span className="break-all">{targetUsername}</span>
+        </h1>
+        <div className="mt-10 max-w-md border-t border-rule pt-5">
+          <p className="text-[17px] leading-snug text-fg-2">Check the spelling, or ask them to send you their profile link.</p>
+          <ButtonLink to={isLoggedIn ? "/dashboard" : "/"} variant="outline" className="mt-6">
             {isLoggedIn ? "Back to lobby" : "Go home"}
           </ButtonLink>
         </div>
@@ -55,30 +58,34 @@ const PublicProfilePage: React.FC = () => {
   return (
     <AppShell>
       <motion.header
-        initial={{ opacity: 0, y: 14 }}
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-        className="flex flex-col gap-6 border-b border-line pb-8 sm:flex-row sm:items-center"
+        transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
       >
-        <Avatar src={profile?.avatar_url} name={name} size={88} />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[clamp(1.75rem,3.5vw,2.5rem)] font-semibold tracking-[-0.035em] text-fg">{name}</h1>
-          <p className="mt-1 h-5 text-sm text-fg-3">
-            {loading ? (
-              <span className="inline-block h-3.5 w-32 animate-pulse rounded bg-surface-3 align-middle" />
-            ) : (
-              profile?.created_at && `Joined ${formatDate(profile.created_at)}`
-            )}
-          </p>
+        <p className="label text-fg-3">Player</p>
+        <NameTitle name={name} count={profile?.total_matches ?? undefined} className="mt-3" />
+        <div className="mt-10 grid gap-8 border-t border-rule pt-5 md:grid-cols-12 md:gap-6">
+          <div className="flex items-center gap-4 md:col-span-7">
+            <Avatar src={profile?.avatar_url} name={name} size={72} />
+            <p className="label text-fg-2">
+              {loading ? (
+                <span className="inline-block h-3.5 w-32 animate-pulse bg-bg-2 align-middle" />
+              ) : (
+                profile?.created_at && `Joined ${formatDate(profile.created_at)}`
+              )}
+            </p>
+          </div>
+          {!isLoggedIn && (
+            <div className="md:col-span-4 md:col-start-9">
+              <ButtonLink to="/auth?mode=signup" variant="accent" size="lg" className="w-full justify-between">
+                Play Deadlock <ArrowRight weight="bold" className="size-4" />
+              </ButtonLink>
+            </div>
+          )}
         </div>
-        {!isLoggedIn && (
-          <ButtonLink to="/auth?mode=signup" size="md">
-            Play now
-          </ButtonLink>
-        )}
       </motion.header>
 
-      <StatGrid profile={profile} loading={loading} className="mt-8 md:grid-cols-4" />
+      <StatGrid profile={profile} loading={loading} wide className="mt-14" />
 
       {profile && (
         <HistorySection

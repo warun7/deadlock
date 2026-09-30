@@ -9,7 +9,7 @@ interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   labelAside?: React.ReactNode;
 }
 
-/** Label above input, hint and error below. Password inputs get a show/hide toggle. */
+/** Mono label above input, hint and error below. Password inputs get a show/hide toggle. */
 const Field = React.forwardRef<HTMLInputElement, FieldProps>(
   ({ label, hint, error, labelAside, type = "text", className = "", id, ...rest }, ref) => {
     const autoId = useId();
@@ -21,8 +21,8 @@ const Field = React.forwardRef<HTMLInputElement, FieldProps>(
 
     return (
       <div className={`flex flex-col gap-2 ${className}`}>
-        <div className="flex items-baseline justify-between">
-          <label htmlFor={inputId} className="text-[13px] font-medium text-fg-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <label htmlFor={inputId} className="label text-fg">
             {label}
           </label>
           {labelAside}
@@ -34,9 +34,9 @@ const Field = React.forwardRef<HTMLInputElement, FieldProps>(
             type={isPassword && reveal ? "text" : type}
             aria-invalid={error ? true : undefined}
             aria-describedby={[hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined}
-            className={`h-11 w-full rounded-[var(--radius-control)] bg-surface-1 px-3.5 text-[15px] text-fg shadow-[inset_0_0_0_1px_var(--color-line-strong)] transition-shadow placeholder:text-fg-3/80 focus:shadow-[inset_0_0_0_1px_var(--color-accent-text),0_0_0_3px_rgb(229_72_77/0.18)] focus:outline-none disabled:opacity-60 ${
+            className={`h-11 w-full rounded-[3px] border bg-bg px-3 text-[15px] text-fg transition-[border-color,box-shadow] placeholder:text-fg-3 focus:border-fg focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_22%,transparent)] focus:outline-none disabled:opacity-60 ${
               isPassword ? "pr-11" : ""
-            } ${error ? "shadow-[inset_0_0_0_1px_var(--color-accent-text)]" : ""}`}
+            } ${error ? "border-accent-ink" : "border-line hover:border-fg-3"}`}
             {...rest}
           />
           {isPassword && (
@@ -45,19 +45,19 @@ const Field = React.forwardRef<HTMLInputElement, FieldProps>(
               onClick={() => setReveal((r) => !r)}
               aria-label={reveal ? "Hide password" : "Show password"}
               aria-pressed={reveal}
-              className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-[8px] text-fg-3 transition-colors hover:bg-white/[0.06] hover:text-fg"
+              className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-[3px] text-fg-3 transition-colors hover:bg-bg-2 hover:text-fg"
             >
               {reveal ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
             </button>
           )}
         </div>
         {hint && !error && (
-          <p id={hintId} className="text-[12px] text-fg-3">
+          <p id={hintId} className="text-[13px] text-fg-3">
             {hint}
           </p>
         )}
         {error && (
-          <p id={errorId} className="text-[12px] text-accent-text">
+          <p id={errorId} className="text-[13px] text-accent-ink">
             {error}
           </p>
         )}

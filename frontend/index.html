@@ -3,10 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Deadlock - 1v1 competitive coding</title>
+    <title>Deadlock: 1v1 competitive coding</title>
     <meta name="description" content="Real-time 1v1 coding duels. You and an opponent get the same problem, and the first submission that passes every test wins." />
-    <meta name="theme-color" content="#0b0b0d" />
-    <meta property="og:title" content="Deadlock - 1v1 competitive coding" />
+    <meta name="theme-color" content="#e8e8e6" />
+    <script>
+      try {
+        if (localStorage.getItem("deadlock:theme") === "dark") {
+          document.documentElement.dataset.theme = "dark";
+          document.querySelector('meta[name="theme-color"]').setAttribute("content", "#050505");
+        }
+      } catch (e) {}
+    </script>
+    <meta property="og:title" content="Deadlock: 1v1 competitive coding" />
     <meta property="og:description" content="Real-time 1v1 coding duels. First submission to pass every test wins." />
     <meta property="og:type" content="website" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
