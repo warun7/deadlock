@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Camera, Check, Copy, PencilSimple } from "@phosphor-icons/react";
 import { AppShell } from "../components/app/AppNav";
@@ -7,7 +6,8 @@ import StatGrid from "../components/app/StatGrid";
 import HistorySection from "../components/app/HistorySection";
 import Avatar from "../components/ui/Avatar";
 import Field from "../components/ui/Field";
-import { Button } from "../components/ui/Button";
+import { Button, ButtonLink } from "../components/ui/Button";
+import NameTitle from "../components/app/NameTitle";
 import { useAuth } from "../contexts/AuthContext";
 import { useCurrentProfile } from "../lib/useCurrentProfile";
 import { supabase } from "../lib/supabase";
@@ -143,94 +143,89 @@ const ProfilePage: React.FC = () => {
   return (
     <AppShell>
       <motion.header
-        initial={{ opacity: 0, y: 14 }}
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-        className="flex flex-col gap-6 border-b border-line pb-8 sm:flex-row sm:items-center"
+        transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
       >
-        <div className="relative w-fit">
-          <Avatar src={shownAvatar} name={username} size={88} />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            aria-label="Change photo"
-            className="absolute -bottom-1.5 -right-1.5 flex size-8 items-center justify-center rounded-[10px] bg-surface-3 text-fg-2 shadow-[inset_0_0_0_1px_var(--color-line-strong),0_4px_12px_rgb(0_0_0/0.4)] transition-colors hover:text-fg disabled:opacity-60"
-          >
-            <Camera className="size-4" />
-          </button>
-          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          {editing ? (
-            <form onSubmit={handleUsernameSave} className="flex max-w-md flex-col gap-3 sm:flex-row sm:items-end">
-              <Field
-                label="Username"
-                autoFocus
-                value={newUsername}
-                placeholder={username}
-                onChange={(e) => setNewUsername(e.target.value)}
-                error={usernameError}
-                hint={checking ? "Checking availability" : newUsername && !usernameError ? "Available" : "Letters, numbers and underscores."}
-                className="flex-1"
-                maxLength={20}
-              />
-              <div className="flex gap-2 sm:mb-[26px]">
-                <Button type="submit" loading={saving} disabled={!newUsername.trim() || !!usernameError || checking}>
-                  Save
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    setEditing(false);
-                    setNewUsername("");
-                    setUsernameError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <>
-              <div className="flex items-center gap-2">
-                <h1 className="truncate text-[clamp(1.75rem,3.5vw,2.5rem)] font-semibold tracking-[-0.035em] text-fg">{username}</h1>
-                <Button variant="ghost" size="sm" onClick={() => setEditing(true)} aria-label="Edit username">
-                  <PencilSimple className="size-4" />
-                </Button>
-              </div>
-              <p className="mt-1 text-sm text-fg-3">
-                {user?.email}
-                {profile?.created_at && <> &middot; Joined {formatDate(profile.created_at)}</>}
-              </p>
-            </>
-          )}
-          {(notice || imageError) && (
-            <p role="status" className={`mt-3 text-[13px] ${imageError ? "text-accent-text" : "text-pass"}`}>
-              {imageError || notice}
-            </p>
-          )}
-        </div>
-
-        {!editing && (
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={copyLink}>
-              {copied ? <Check className="size-4 text-pass" /> : <Copy className="size-4" />}
-              {copied ? "Copied" : "Copy link"}
-            </Button>
-            <Link
-              to={`/u/${encodeURIComponent(username)}`}
-              className="inline-flex h-8 items-center rounded-[var(--radius-control)] px-3 text-[13px] text-fg-2 transition-colors hover:bg-white/[0.05] hover:text-fg"
-            >
-              Public view
-            </Link>
-          </div>
+        <p className="label text-fg-3">Profile</p>
+        {editing ? (
+          <form onSubmit={handleUsernameSave} className="mt-4 flex max-w-xl flex-col gap-3 sm:flex-row sm:items-end">
+            <Field
+              label="Username"
+              autoFocus
+              value={newUsername}
+              placeholder={username}
+              onChange={(e) => setNewUsername(e.target.value)}
+              error={usernameError}
+              hint={checking ? "Checking availability" : newUsername && !usernameError ? "Available" : "Letters, numbers and underscores."}
+              className="flex-1"
+              maxLength={20}
+            />
+            <div className="flex gap-2 sm:mb-[26px]">
+              <Button type="submit" loading={saving} disabled={!newUsername.trim() || !!usernameError || checking}>
+                Save
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setEditing(false);
+                  setNewUsername("");
+                  setUsernameError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <NameTitle name={username} count={profile?.total_matches ?? undefined} className="mt-3" />
         )}
+
+        <div className="mt-10 grid gap-8 border-t border-rule pt-5 md:grid-cols-12 md:gap-6">
+          <div className="flex items-center gap-4 md:col-span-7">
+            <div className="relative shrink-0">
+              <Avatar src={shownAvatar} name={username} size={72} />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                aria-label="Change photo"
+                className="absolute -bottom-2 -right-2 flex size-7 items-center justify-center rounded-[3px] bg-fg text-bg transition-colors hover:bg-accent hover:text-on-accent disabled:opacity-60"
+              >
+                <Camera className="size-3.5" weight="bold" />
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+            </div>
+            <div className="label min-w-0 space-y-1.5 text-fg-2">
+              <p className="truncate normal-case">{user?.email}</p>
+              {profile?.created_at && <p>Joined {formatDate(profile.created_at)}</p>}
+              {(notice || imageError) && (
+                <p role="status" className={imageError ? "text-accent-ink" : "text-pass-ink"}>
+                  {imageError || notice}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {!editing && (
+            <div className="flex flex-wrap items-center gap-2 md:col-span-5 md:justify-end">
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                <PencilSimple className="size-3.5" /> Rename
+              </Button>
+              <Button variant="outline" size="sm" onClick={copyLink}>
+                {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                {copied ? "Copied" : "Copy link"}
+              </Button>
+              <ButtonLink to={`/u/${encodeURIComponent(username)}`} variant="ghost" size="sm">
+                Public view
+              </ButtonLink>
+            </div>
+          )}
+        </div>
       </motion.header>
 
-      <StatGrid profile={profile} loading={loading} className="mt-8 md:grid-cols-4" />
+      <StatGrid profile={profile} loading={loading} wide className="mt-14" />
 
       <HistorySection
         subjectKey={user?.id ?? "me"}

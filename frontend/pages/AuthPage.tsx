@@ -166,13 +166,13 @@ const AuthPage: React.FC = () => {
   const messages = (
     <>
       {error && (
-        <div role="alert" className="flex items-start gap-2.5 rounded-[var(--radius-control)] bg-accent/10 px-3.5 py-3 text-sm text-accent-text">
+        <div role="alert" className="flex items-start gap-2.5 rounded-[3px] border border-accent-ink/40 px-3 py-2.5 text-sm text-accent-ink">
           <WarningCircle className="mt-0.5 size-4 shrink-0" weight="bold" />
           <span>{error}</span>
         </div>
       )}
       {success && (
-        <div role="status" className="flex items-start gap-2.5 rounded-[var(--radius-control)] bg-pass/10 px-3.5 py-3 text-sm text-pass">
+        <div role="status" className="flex items-start gap-2.5 rounded-[3px] border border-pass-ink/40 px-3 py-2.5 text-sm text-pass-ink">
           <CheckCircle className="mt-0.5 size-4 shrink-0" weight="bold" />
           <span>{success}</span>
         </div>
@@ -183,16 +183,18 @@ const AuthPage: React.FC = () => {
   return (
     <AuthLayout backTo={isLoggedIn ? "/dashboard" : "/"} backLabel={isLoggedIn ? "Lobby" : "Home"}>
       {!isSupabaseConfigured() && (
-        <p className="mb-6 rounded-[var(--radius-control)] bg-warn/10 px-3.5 py-3 text-[13px] leading-relaxed text-warn">
-          Demo mode: Supabase is not configured, so accounts and matches are not saved.
+        <p className="mb-8 flex gap-2 rounded-[3px] border border-warn-ink/40 px-3 py-2.5 text-[13px] leading-relaxed text-warn-ink">
+          <span className="label shrink-0 pt-px">Demo:</span>
+          Supabase is not configured, so accounts and matches are not saved.
         </p>
       )}
 
       <AnimatePresence mode="wait" initial={false}>
         {showForgotPassword ? (
           <motion.div key="forgot" {...swap}>
-            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-fg">Reset your password</h1>
-            <p className="mt-2 text-[15px] text-fg-2">We will email you a link to set a new one.</p>
+            <p className="label text-fg-3">Account</p>
+            <h1 className="mt-3 text-[clamp(2.5rem,4vw,3.5rem)] font-medium leading-[0.92] tracking-[-0.055em] text-fg">Reset password</h1>
+            <p className="mt-4 text-[17px] leading-snug text-fg-2">We will email you a link to set a new one.</p>
             <form onSubmit={handleForgotPassword} className="mt-8 space-y-5">
               <Field
                 label="Email"
@@ -216,7 +218,7 @@ const AuthPage: React.FC = () => {
                   setError(null);
                   setSuccess(null);
                 }}
-                className="mx-auto flex items-center gap-1.5 text-sm text-fg-2 transition-colors hover:text-fg"
+                className="label mx-auto flex items-center gap-1.5 text-fg-2 transition-colors hover:text-fg"
               >
                 <ArrowLeft className="size-3.5" /> Back to log in
               </button>
@@ -224,14 +226,15 @@ const AuthPage: React.FC = () => {
           </motion.div>
         ) : (
           <motion.div key="main" {...swap}>
-            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-fg">
-              {isLogin ? "Log in to Deadlock" : "Create your account"}
+            <p className="label text-fg-3">Account</p>
+            <h1 className="mt-3 text-[clamp(2.5rem,4vw,3.5rem)] font-medium leading-[0.92] tracking-[-0.055em] text-fg">
+              {isLogin ? "Welcome back" : "Get in the queue"}
             </h1>
-            <p className="mt-2 text-[15px] text-fg-2">
-              {isLogin ? "Pick up where you left off." : "Free to play. Takes under a minute."}
+            <p className="mt-4 text-[17px] leading-snug text-fg-2">
+              {isLogin ? "Log in and pick up where you left off." : "Free to play. Takes under a minute."}
             </p>
 
-            <div className="mt-8 grid grid-cols-2 rounded-[11px] bg-surface-1 p-1 shadow-[inset_0_0_0_1px_var(--color-line)]" role="tablist" aria-label="Account">
+            <div className="mt-8 grid grid-cols-2 gap-[3px]" role="tablist" aria-label="Account">
               {[
                 { id: true, label: "Log in" },
                 { id: false, label: "Sign up" },
@@ -242,13 +245,13 @@ const AuthPage: React.FC = () => {
                   role="tab"
                   aria-selected={isLogin === t.id}
                   onClick={() => switchMode(t.id)}
-                  className={`relative h-9 rounded-[8px] text-sm transition-colors ${isLogin === t.id ? "text-fg" : "text-fg-3 hover:text-fg-2"}`}
+                  className={`label relative h-9 rounded-[3px] transition-colors ${isLogin === t.id ? "text-bg" : "bg-bg-2 text-fg hover:bg-bg-3"}`}
                 >
                   {isLogin === t.id && (
                     <motion.span
                       layoutId="auth-tab"
-                      className="absolute inset-0 rounded-[8px] bg-surface-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]"
-                      transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                      className="absolute inset-0 rounded-[3px] bg-fg"
+                      transition={{ type: "spring", stiffness: 500, damping: 40 }}
                     />
                   )}
                   <span className="relative">{t.label}</span>
@@ -256,14 +259,14 @@ const AuthPage: React.FC = () => {
               ))}
             </div>
 
-            <Button type="button" variant="secondary" size="lg" className="mt-5 w-full" onClick={handleGoogleAuth} disabled={loading}>
+            <Button type="button" variant="outline" size="lg" className="mt-6 w-full" onClick={handleGoogleAuth} disabled={loading}>
               <GoogleLogo weight="bold" className="size-4" />
               Continue with Google
             </Button>
 
-            <div className="my-6 flex items-center gap-3 text-[12px] text-fg-3" aria-hidden="true">
+            <div className="label my-7 flex items-center gap-3 text-fg-3" aria-hidden="true">
               <span className="h-px flex-1 bg-line" />
-              or with email
+              Or with email
               <span className="h-px flex-1 bg-line" />
             </div>
 
@@ -308,7 +311,7 @@ const AuthPage: React.FC = () => {
                         setError(null);
                         setSuccess(null);
                       }}
-                      className="text-[13px] text-fg-3 transition-colors hover:text-fg"
+                      className="label text-fg-3 transition-colors hover:text-fg"
                     >
                       Forgot password?
                     </button>

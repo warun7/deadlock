@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { SplitText } from "gsap/SplitText";
 
 let registered = false;
 
 /** Register GSAP plugins once. Safe to call from any client component. */
 export function ensureGsap() {
   if (!registered) {
-    gsap.registerPlugin(ScrollTrigger, SplitText);
+    gsap.registerPlugin(ScrollTrigger);
     registered = true;
   }
-  return { gsap, ScrollTrigger, SplitText };
+  return { gsap, ScrollTrigger };
 }
 
 const QUERY = "(prefers-reduced-motion: reduce)";

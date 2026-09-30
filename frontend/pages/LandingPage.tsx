@@ -2,8 +2,9 @@ import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import SiteNav from "../components/landing/SiteNav";
 import Hero from "../components/landing/Hero";
-import MatchFlow from "../components/landing/MatchFlow";
-import RankLadder from "../components/landing/RankLadder";
+import HowItWorks from "../components/landing/HowItWorks";
+import Ranks from "../components/landing/Ranks";
+import Faq from "../components/landing/Faq";
 import FinalCta from "../components/landing/FinalCta";
 import SiteFooter from "../components/landing/SiteFooter";
 import { useAuth } from "../contexts/AuthContext";
@@ -24,18 +25,19 @@ const LandingPage: React.FC = () => {
     <>
       <a
         href="#main"
-        className="fixed left-3 top-3 z-[60] -translate-y-20 rounded-[var(--radius-control)] bg-fg px-3 py-2 text-sm font-medium text-ink focus:translate-y-0"
+        className="label fixed left-3 top-3 z-[60] -translate-y-20 rounded-[3px] bg-fg px-3 py-2 text-bg focus:translate-y-0"
       >
         Skip to content
       </a>
       <SiteNav onAnchor={scrollTo} />
       <main id="main">
         <Hero onAnchor={scrollTo} />
-        <MatchFlow />
-        {features.rankLadder && <RankLadder />}
+        <HowItWorks />
+        {features.rankLadder && <Ranks />}
+        <Faq />
         <FinalCta />
       </main>
-      <SiteFooter />
+      <SiteFooter onAnchor={scrollTo} />
     </>
   );
 };

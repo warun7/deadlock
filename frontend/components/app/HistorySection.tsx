@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import MatchList from "./MatchList";
+import MatchList, { EmptyState } from "./MatchList";
 import { Button } from "../ui/Button";
 import type { MatchDetailed } from "../../types/database";
 
@@ -43,29 +43,25 @@ const HistorySection: React.FC<HistorySectionProps> = ({ subjectKey, loadRecent,
   };
 
   return (
-    <section aria-labelledby={`history-${subjectKey}`} className="mt-12">
-      <div className="mb-2 flex items-baseline justify-between gap-4">
-        <h2 id={`history-${subjectKey}`} className="text-lg font-medium tracking-[-0.01em] text-fg">
-          {expanded ? "Match history" : "Recent matches"}
-        </h2>
-        {expanded && <span className="text-[13px] text-fg-3">{matches.length} matches</span>}
+    <section aria-labelledby={`history-${subjectKey}`} className="mt-20 md:mt-28">
+      <h2
+        id={`history-${subjectKey}`}
+        className="text-[clamp(2.25rem,5vw,4.5rem)] font-medium leading-[0.9] tracking-[-0.055em] text-fg"
+      >
+        {expanded ? "Match history" : "Recent matches"}
+        {!loading && (
+          <sup className="tabular ml-1 align-top text-[max(0.22em,13px)] font-normal leading-none tracking-normal">
+            ({matches.length})
+          </sup>
+        )}
+      </h2>
+      <div className="mt-8">
+        <MatchList matches={matches} loading={loading} empty={<EmptyState title={emptyTitle} body={emptyBody} />} />
       </div>
-      <MatchList
-        matches={matches}
-        loading={loading}
-        empty={
-          <div className="rounded-[var(--radius-panel)] border border-dashed border-line-strong px-6 py-10 text-center">
-            <p className="text-[15px] text-fg">{emptyTitle}</p>
-            <p className="mt-1 text-sm text-fg-3">{emptyBody}</p>
-          </div>
-        }
-      />
       {!loading && !expanded && matches.length >= 5 && (
-        <div className="mt-4 flex justify-center">
-          <Button variant="secondary" size="sm" onClick={showAll} loading={loadingAll}>
-            Show all matches
-          </Button>
-        </div>
+        <Button variant="outline" onClick={showAll} loading={loadingAll} className="mt-6 w-full sm:w-auto">
+          Show all matches
+        </Button>
       )}
     </section>
   );

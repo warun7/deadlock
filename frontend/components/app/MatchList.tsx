@@ -2,12 +2,15 @@ import React from "react";
 import { Link } from "react-router-dom";
 import type { MatchDetailed } from "../../types/database";
 import { formatClock, formatRelative, languageLabel } from "../../lib/format";
+import { Tag } from "../ui/Chrome";
 
 const RESULT = {
-  won: { letter: "W", label: "Won", cls: "bg-pass/12 text-pass" },
-  lost: { letter: "L", label: "Lost", cls: "bg-accent/12 text-accent-text" },
-  draw: { letter: "D", label: "Draw", cls: "bg-warn/12 text-warn" },
+  won: { label: "Won", tone: "pass" },
+  lost: { label: "Lost", tone: "fail" },
+  draw: { label: "Draw", tone: "warn" },
 } as const;
+
+const GRID = "grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-4 sm:grid-cols-[88px_minmax(0,1.1fr)_minmax(0,1fr)_120px]";
 
 export const MatchRow: React.FC<{ match: MatchDetailed }> = ({ match }) => {
   const r = RESULT[match.result] ?? RESULT.draw;
@@ -16,18 +19,15 @@ export const MatchRow: React.FC<{ match: MatchDetailed }> = ({ match }) => {
   const linkable = !match.is_bot_match && !!match.opponent_username;
 
   return (
-    <li className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 py-3 sm:grid-cols-[auto_minmax(0,1.1fr)_minmax(0,1fr)_auto] sm:gap-4">
-      <span
-        className={`inline-flex size-8 items-center justify-center rounded-[8px] font-mono text-[13px] font-semibold ${r.cls}`}
-        aria-label={r.label}
-        title={r.label}
-      >
-        {r.letter}
+    <li className={`${GRID} border-b border-line py-3`}>
+      <span className="flex items-center gap-2">
+        <span className="size-[7px] shrink-0 bg-fg" aria-hidden="true" />
+        <Tag tone={r.tone}>{r.label}</Tag>
       </span>
       <div className="min-w-0">
-        <div className="truncate text-[15px] text-fg">
+        <div className="truncate text-[clamp(1.125rem,1.8vw,1.5rem)] leading-tight tracking-[-0.03em] text-fg">
           {linkable ? (
-            <Link to={`/u/${encodeURIComponent(opponent)}`} className="hover:underline hover:underline-offset-4">
+            <Link to={`/u/${encodeURIComponent(opponent)}`} className="transition-colors hover:text-accent-ink">
               {opponent}
             </Link>
           ) : (
@@ -36,45 +36,63 @@ export const MatchRow: React.FC<{ match: MatchDetailed }> = ({ match }) => {
         </div>
         <div className="truncate text-[13px] text-fg-3 sm:hidden">{match.problem_title}</div>
       </div>
-      <div className="hidden min-w-0 truncate text-sm text-fg-2 sm:block">{match.problem_title}</div>
-      <div className="flex flex-col items-end gap-0.5 text-right">
-        <span className="tabular font-mono text-[13px] text-fg-2">
-          {match.duration_seconds != null ? formatClock(match.duration_seconds) : ""}
-        </span>
-        <span className="whitespace-nowrap text-[12px] text-fg-3">
-          {[lang, formatRelative(match.completed_at)].filter(Boolean).join(", ")}
-        </span>
+      <div className="hidden min-w-0 truncate text-[15px] text-fg-2 sm:block">{match.problem_title}</div>
+      <div className="label flex flex-col items-end gap-1 text-right">
+        <span className="tabular text-fg">{match.duration_seconds != null ? formatClock(match.duration_seconds) : ""}</span>
+        <span className="whitespace-nowrap text-fg-3">{[lang, formatRelative(match.completed_at)].filter(Boolean).join(" / ")}</span>
       </div>
     </li>
   );
 };
 
+export const MatchListHeader: React.FC = () => (
+  <div className={`${GRID} label border-b border-rule pb-2 text-fg`} aria-hidden="true">
+    <span>/ Result</span>
+    <span>/ Opponent</span>
+    <span className="hidden sm:block">/ Problem</span>
+    <span className="text-right">/ Time</span>
+  </div>
+);
+
 export const MatchListSkeleton: React.FC<{ rows?: number }> = ({ rows = 4 }) => (
-  <ul aria-hidden="true" className="divide-y divide-line">
+  <ul aria-hidden="true">
     {Array.from({ length: rows }, (_, i) => (
-      <li key={i} className="flex items-center gap-4 py-3.5">
-        <span className="size-8 animate-pulse rounded-[8px] bg-surface-3" />
-        <span className="h-3.5 w-32 animate-pulse rounded bg-surface-3" />
-        <span className="ml-auto h-3.5 w-14 animate-pulse rounded bg-surface-3" />
+      <li key={i} className="flex items-center gap-4 border-b border-line py-4">
+        <span className="h-[22px] w-14 animate-pulse bg-bg-2" />
+        <span className="h-5 w-40 animate-pulse bg-bg-2" />
+        <span className="ml-auto h-4 w-16 animate-pulse bg-bg-2" />
       </li>
     ))}
   </ul>
+);
+
+export const EmptyState: React.FC<{ title: string; body: string; children?: React.ReactNode }> = ({ title, body, children }) => (
+  <div className="dots flex flex-col items-start gap-2 border-b border-line px-0 py-12">
+    <p className="bg-bg pr-2 text-[clamp(1.25rem,2vw,1.625rem)] leading-tight tracking-[-0.03em] text-fg">{title}</p>
+    <p className="bg-bg pr-2 text-[15px] text-fg-2">{body}</p>
+    {children && <div className="mt-4">{children}</div>}
+  </div>
 );
 
 const MatchList: React.FC<{
   matches: MatchDetailed[];
   loading: boolean;
   empty: React.ReactNode;
-}> = ({ matches, loading, empty }) => {
-  if (loading) return <MatchListSkeleton />;
-  if (matches.length === 0) return <>{empty}</>;
-  return (
-    <ul className="divide-y divide-line">
-      {matches.map((m) => (
-        <MatchRow key={m.id} match={m} />
-      ))}
-    </ul>
-  );
-};
+}> = ({ matches, loading, empty }) => (
+  <div>
+    <MatchListHeader />
+    {loading ? (
+      <MatchListSkeleton />
+    ) : matches.length === 0 ? (
+      empty
+    ) : (
+      <ul>
+        {matches.map((m) => (
+          <MatchRow key={m.id} match={m} />
+        ))}
+      </ul>
+    )}
+  </div>
+);
 
 export default MatchList;

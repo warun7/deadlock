@@ -1,9 +1,11 @@
-import React, { useLayoutEffect, useRef } from "react";
-import { ArrowRight } from "@phosphor-icons/react";
+import React, { useLayoutEffect, useRef, useState } from "react";
+import { ArrowRight, ArrowDown } from "@phosphor-icons/react";
 import DuelStage from "./duel/DuelStage";
 import { ButtonLink } from "../ui/Button";
+import { CrossRow, Detail, Figure, Label } from "../ui/Chrome";
+import PixelText from "../ui/pixel/PixelText";
 import { ensureGsap, prefersReducedMotion } from "../../lib/motion";
-import { useMagnetic } from "../../lib/useMagnetic";
+import { ROUNDS } from "./duel/rounds";
 
 interface HeroProps {
   onAnchor: (id: string) => void;
@@ -11,78 +13,60 @@ interface HeroProps {
 
 const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
   const sectionRef = useRef<HTMLElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const headlineRef = useRef<HTMLHeadingElement>(null);
-  const ctaRef = useRef<HTMLAnchorElement>(null);
-
-  useMagnetic(ctaRef, 0.25, 70);
+  const [round, setRound] = useState(ROUNDS[0]);
 
   useLayoutEffect(() => {
-    const { gsap, SplitText } = ensureGsap();
     const section = sectionRef.current;
-    const headline = headlineRef.current;
-    if (!section || !headline || prefersReducedMotion()) return;
-
+    if (!section || prefersReducedMotion()) return;
+    const { gsap } = ensureGsap();
     const ctx = gsap.context(() => {
-      const split = SplitText.create(headline, { type: "words", mask: "words" });
-      const tl = gsap.timeline({ defaults: { ease: "expo.out" }, delay: 0.15 });
-      tl.from(stageRef.current, { opacity: 0, y: 40, rotationX: 24, transformPerspective: 1400, duration: 1.4 })
-        .from(split.words, { yPercent: 110, duration: 1, stagger: 0.05 }, "-=1.1")
-        .from("[data-hero-fade]", { opacity: 0, y: 16, duration: 0.8, stagger: 0.08, clearProps: "opacity,transform" }, "-=0.7");
-
-      // The arena tips back and dims as you scroll past it
-      gsap.to(stageRef.current, {
-        rotationX: 18,
-        y: -30,
-        opacity: 0.25,
-        transformPerspective: 1400,
-        ease: "none",
-        scrollTrigger: { trigger: section, start: "top top", end: "bottom top", scrub: true },
-      });
-      gsap.to(contentRef.current, {
-        y: -40,
-        opacity: 0,
-        ease: "none",
-        scrollTrigger: { trigger: section, start: "20% top", end: "bottom 10%", scrub: true },
-      });
+      const tl = gsap.timeline({ defaults: { ease: "expo.out" }, delay: 0.05 });
+      tl.from("[data-line]", { yPercent: 105, duration: 1.1, stagger: 0.08 })
+        .from("[data-fade]", { opacity: 0, y: 14, duration: 0.8, stagger: 0.06, clearProps: "opacity,transform" }, 0.35)
+        .from("[data-cross] svg", { scale: 0, rotation: 90, duration: 0.6, stagger: 0.03, clearProps: "transform" }, 0.2)
+        .from("[data-fig]", { opacity: 0, y: 30, duration: 1.1, clearProps: "opacity,transform" }, 0.5);
     }, section);
-
     return () => ctx.revert();
   }, []);
 
   return (
-    <section
-      ref={sectionRef}
-      className="relative isolate flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden px-5 pb-14 pt-24 sm:px-8"
-    >
-      <div ref={stageRef} className="w-full max-w-[1040px]">
-        <DuelStage />
-        <p className="sr-only">
-          Preview of a match: two players write solutions to the same problem side by side. The opponent&apos;s
-          submission fails a test, and yours passes every test and is marked Accepted.
-        </p>
+    <section ref={sectionRef} aria-labelledby="hero-title" className="px-4 pt-5 md:pt-8">
+      <div data-cross>
+        <CrossRow at={[0, 62, 86, 100]} />
       </div>
 
-      <div ref={contentRef} className="mt-10 flex flex-col items-center text-center md:mt-12">
-        <h1
-          ref={headlineRef}
-          className="text-[clamp(2.25rem,4.8vw,3.75rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-fg"
-        >
-          Two coders. One problem.
-        </h1>
+      <h1
+        id="hero-title"
+        className="mt-6 text-[clamp(3.4rem,10.4vw,10.5rem)] font-medium leading-[0.9] tracking-[-0.065em] text-fg md:mt-8"
+      >
+        <span className="block overflow-hidden pb-[0.04em]">
+          <span data-line className="block">
+            Code is a
+          </span>
+        </span>
+        <span className="block overflow-hidden pb-[0.06em]">
+          <span data-line className="block whitespace-nowrap">
+            contact{" "}
+            <PixelText text="SPORT" label="sport" intro="mount" delay={0.55} ripple className="h-[0.7em] text-fg" />
+            <span className="text-accent">.</span>
+          </span>
+        </span>
+      </h1>
 
-        <p data-hero-fade className="mt-5 max-w-[34rem] text-[17px] leading-relaxed text-fg-2 md:text-lg">
-          Real-time 1v1 duels on competitive programming problems. The first submission to pass every test wins.
+      <div className="mt-10 grid gap-10 md:mt-12 md:grid-cols-12 md:gap-6">
+        <p
+          data-fade
+          className="max-w-[26ch] text-[clamp(1.5rem,2.55vw,2.25rem)] font-medium leading-[1.06] tracking-[-0.04em] text-fg md:col-span-7 md:max-w-none"
+        >
+          Real-time 1v1 duels on competitive programming problems. Same problem, same clock. The first submission to
+          pass every test wins.
         </p>
 
-        <div data-hero-fade className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <ButtonLink ref={ctaRef} to="/auth?mode=signup" size="lg" className="group">
+        <div data-fade className="flex flex-col gap-3 md:col-span-4 md:col-start-9 md:self-end">
+          <Label>Start</Label>
+          <ButtonLink to="/auth?mode=signup" variant="accent" size="lg" className="group mt-2 w-full justify-between">
             Play now
-            <ArrowRight
-              weight="bold"
-              className="size-4 transition-transform duration-300 ease-[var(--ease-out-expo)] group-hover:translate-x-0.5"
-            />
+            <ArrowRight weight="bold" className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
           </ButtonLink>
           <a
             href="#how-it-works"
@@ -90,11 +74,32 @@ const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
               e.preventDefault();
               onAnchor("how-it-works");
             }}
-            className="inline-flex h-12 items-center rounded-[var(--radius-control)] px-4 text-[15px] font-medium text-fg-2 transition-colors hover:text-fg"
+            className="label group inline-flex h-12 w-full items-center justify-between rounded-full px-6 text-fg shadow-[inset_0_0_0_1px_var(--fg)] transition-colors hover:bg-fg hover:text-bg"
           >
             How it works
+            <ArrowDown weight="bold" className="size-4 transition-transform duration-300 group-hover:translate-y-0.5" />
           </a>
+          <Detail label="Languages" className="mt-1">
+            Python, JavaScript, C++
+          </Detail>
         </div>
+      </div>
+
+      <div data-cross className="mt-12 md:mt-14">
+        <CrossRow at={[0, 62, 86, 100]} />
+      </div>
+
+      <div data-fig className="mt-12 md:mt-14">
+        <Label aside={<span className="hidden sm:inline">{`${round.problem} / rated ${round.rating}`}</span>}>Fig. 1 Sample match</Label>
+        <Figure
+          n={1}
+          caption="A sample match: two players write solutions to the same problem side by side. The opponent's submission fails a test; yours passes every test and is marked Accepted."
+          className="mt-5"
+          bodyClassName="px-3 py-5 md:px-8 md:py-8"
+        >
+          <DuelStage onRound={setRound} />
+        </Figure>
+        <p className="label mt-3 text-fg-3">Scripted for illustration. Real matches use real problems and hidden tests.</p>
       </div>
     </section>
   );

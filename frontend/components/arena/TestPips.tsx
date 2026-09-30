@@ -3,11 +3,11 @@ import React from "react";
 interface TestPipsProps {
   passed: number;
   total: number;
-  /** Colour of filled pips. "pass" when the run was accepted. */
+  /** Colour of filled cells. "pass" when the run was accepted. */
   tone?: "you" | "opponent" | "pass";
   className?: string;
-  /** Stagger fill transitions (used on the landing preview). */
-  stagger?: boolean;
+  /** Cell size in px */
+  size?: number;
 }
 
 const toneClass = {
@@ -16,12 +16,12 @@ const toneClass = {
   pass: "bg-pass",
 };
 
-/** Segmented tests-passed meter, one pip per test. */
-const TestPips: React.FC<TestPipsProps> = ({ passed, total, tone = "you", className = "", stagger }) => {
+/** Tests-passed meter: one square per test. */
+const TestPips: React.FC<TestPipsProps> = ({ passed, total, tone = "you", className = "", size = 8 }) => {
   const count = Math.max(total, 1);
   return (
     <div
-      className={`flex items-center gap-[3px] ${className}`}
+      className={`flex items-center gap-[2px] ${className}`}
       role="meter"
       aria-valuemin={0}
       aria-valuemax={total}
@@ -31,10 +31,8 @@ const TestPips: React.FC<TestPipsProps> = ({ passed, total, tone = "you", classN
       {Array.from({ length: count }, (_, i) => (
         <span
           key={i}
-          className={`h-2 flex-1 rounded-[2px] transition-[background-color,opacity,transform] duration-500 ease-[var(--ease-out-expo)] ${
-            i < passed ? `${toneClass[tone]} opacity-100` : "bg-white/[0.07]"
-          }`}
-          style={stagger ? { transitionDelay: `${i * 45}ms` } : undefined}
+          className={`block shrink-0 transition-colors duration-300 ${i < passed ? toneClass[tone] : "bg-fg/15"}`}
+          style={{ width: size, height: size, transitionDelay: `${i * 30}ms` }}
         />
       ))}
     </div>

@@ -8,7 +8,6 @@ import {
   Flag,
   Info,
   Play,
-  WarningCircle,
   XCircle,
 } from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
@@ -19,19 +18,23 @@ import CodeEditor from "./CodeEditor";
 import TestPips from "./arena/TestPips";
 import Avatar from "./ui/Avatar";
 import Dialog from "./ui/Dialog";
-import Wordmark from "./ui/Wordmark";
+import { Mark } from "./ui/Wordmark";
 import { Button, Kbd } from "./ui/Button";
+import { Chip, Label, Tag } from "./ui/Chrome";
+import PixelText from "./ui/pixel/PixelText";
 import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useCurrentProfile } from "../lib/useCurrentProfile";
-import { formatClock } from "../lib/format";
 import type { MatchFoundPayload } from "../types";
 
-// Codeforces uses $$$...$$$ for inline math; KaTeX expects $...$
+// Codeforces uses $$$...$$$ for inline math; KaTeX expects $...$.
+// Section markers like "-----Input-----" become headings.
 const convertCodeforcesMath = (text: string): string => {
   if (!text) return "";
-  return text.replace(/\$\$\$([^$]+)\$\$\$/g, "$$$1$");
+  return text
+    .replace(/\$\$\$([^$]+)\$\$\$/g, "$$$1$")
+    .replace(/^\s*-{3,}\s*([A-Za-z][A-Za-z ]{0,30}?)\s*-{3,}\s*$/gm, "\n### $1\n");
 };
 
 const LANGUAGE_IDS = { python: 71, javascript: 63, cpp: 54 } as const;
@@ -396,6 +399,8 @@ const RealGameArena: React.FC = () => {
   }, [handleSubmit]);
 
   const didWin = winner !== null && winner === user?.id;
+  // The server ends a timed-out match with no winner
+  const isDraw = gameOver && winner === null;
   const opponentName = currentMatchData?.opponent?.username || "Opponent";
   const visibleTests = currentMatchData?.problem?.testCases ?? [];
   const opponentLabel = describeOpponent(opponentStatus);
@@ -421,15 +426,16 @@ const RealGameArena: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex h-[100dvh] flex-col" aria-busy="true">
-        <div className="h-14 border-b border-line" />
-        <div className="grid flex-1 gap-px md:grid-cols-[42%_1fr]">
+        <div className="h-[52px] border-b border-rule" />
+        <div className="grid flex-1 md:grid-cols-[42%_1fr]">
           <div className="space-y-3 p-6">
-            <div className="h-6 w-1/2 animate-pulse rounded bg-surface-2" />
-            <div className="h-4 w-full animate-pulse rounded bg-surface-2" />
-            <div className="h-4 w-5/6 animate-pulse rounded bg-surface-2" />
-            <div className="h-4 w-2/3 animate-pulse rounded bg-surface-2" />
+            <div className="h-3 w-24 animate-pulse bg-bg-2" />
+            <div className="h-9 w-2/3 animate-pulse bg-bg-2" />
+            <div className="h-4 w-full animate-pulse bg-bg-2" />
+            <div className="h-4 w-5/6 animate-pulse bg-bg-2" />
+            <div className="h-4 w-2/3 animate-pulse bg-bg-2" />
           </div>
-          <div className="hidden bg-surface-1 md:block" />
+          <div className="hidden bg-screen md:block" />
         </div>
         <span className="sr-only">Loading match</span>
       </div>
@@ -438,81 +444,78 @@ const RealGameArena: React.FC = () => {
 
   if (loadError) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center px-5">
-        <div className="max-w-sm text-center">
-          <WarningCircle className="mx-auto size-9 text-accent-text" weight="duotone" aria-hidden="true" />
-          <h1 className="mt-4 text-2xl font-semibold tracking-[-0.02em] text-fg">This match is over</h1>
-          <p className="mt-2 text-[15px] text-fg-2">{loadError}</p>
-          <div className="mt-8 flex justify-center gap-2">
-            <Button variant="secondary" onClick={() => navigate("/dashboard")}>
+      <div className="flex min-h-[100dvh] flex-col px-4">
+        <div className="flex h-[52px] items-center">
+          <Chip className="px-2">
+            <Mark /> Deadlock
+          </Chip>
+        </div>
+        <div className="flex flex-1 flex-col justify-center py-12">
+          <p className="label text-accent-ink">Match unavailable</p>
+          <h1 className="mt-4 text-[clamp(2.75rem,6vw,5.75rem)] font-medium leading-[0.9] tracking-[-0.06em] text-fg">
+            This match is over
+          </h1>
+          <p className="mt-5 max-w-[40ch] text-[clamp(1.25rem,1.8vw,1.5rem)] leading-[1.15] tracking-[-0.03em] text-fg-2">{loadError}</p>
+          <div className="mt-10 flex flex-wrap gap-2">
+            <Button variant="outline" size="lg" onClick={() => navigate("/dashboard")}>
               Back to lobby
             </Button>
-            <Button onClick={() => navigate("/matchmaking")}>Find a new match</Button>
+            <Button variant="accent" size="lg" onClick={() => navigate("/matchmaking")}>
+              Find a new match
+            </Button>
           </div>
         </div>
       </div>
     );
   }
 
+  const clockSeconds = Math.floor(finalSeconds ?? elapsed);
+  const clockText = `${String(Math.min(99, Math.floor(clockSeconds / 60))).padStart(2, "0")}:${String(clockSeconds % 60).padStart(2, "0")}`;
+  const accepted = submissionResult?.status === "accepted";
+  const verdictTone = accepted ? "text-screen-pass" : "text-screen-fail";
+  const outcome = isDraw ? "Draw" : didWin ? "You won" : "You lost";
+  const outcomeStamp = isDraw ? "DRAW" : didWin ? "WIN" : "LOSS";
+
   const submitHint = (
     <span className="hidden lg:contents">
-      <Kbd>{isMac ? "⌘" : "Ctrl"} {"↵"}</Kbd>
+      <Kbd>{isMac ? "⌘↵" : "Ctrl↵"}</Kbd>
     </span>
   );
 
-  const resultTone = submissionResult?.status === "accepted" ? "text-pass" : "text-accent-text";
-
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden">
-      {/* Top bar */}
-      <header className="relative z-20 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-ink px-3 sm:px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <Wordmark className="hidden text-[15px] text-fg sm:inline" />
-          <span className="hidden h-5 w-px bg-line sm:block" aria-hidden="true" />
-          <span className="truncate text-sm text-fg-2">{currentMatchData?.problem?.title}</span>
+      {/* HUD */}
+      <header className="relative z-20 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-rule px-3 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Mark className="hidden size-3.5 sm:block" />
+          <span className="truncate text-[15px] tracking-[-0.01em] text-fg">{currentMatchData?.problem?.title}</span>
         </div>
 
-        <div
-          className={`tabular rounded-[8px] px-2.5 py-1 font-mono text-sm ${gameOver ? "text-fg-3" : "text-fg"}`}
-          aria-label="Match time"
-        >
-          {formatClock(finalSeconds ?? elapsed)}
+        <div role="timer" aria-label={`Match time ${clockText}`} className={gameOver ? "opacity-50" : ""}>
+          <PixelText text={clockText} led gap={0.16} decorative className="h-[18px] text-fg sm:h-[22px]" />
         </div>
 
-        <div className="flex flex-1 items-center justify-end gap-2">
-          <div className="hidden items-center gap-3 rounded-[var(--radius-control)] bg-surface-1 px-3 py-1.5 shadow-[inset_0_0_0_1px_var(--color-line)] md:flex">
-            <Avatar name={opponentName} size={24} />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="max-w-[9rem] truncate text-[13px] text-fg">{opponentName}</span>
-                {opponentTests && (
-                  <span className="tabular font-mono text-[12px] text-fg-3">
-                    {opponentTests.passed}/{opponentTests.total}
-                  </span>
-                )}
-              </div>
-              <div className={`text-[11px] ${opponentSolved ? "text-accent-text" : "text-fg-3"}`} aria-live="polite">
-                {opponentLabel}
-              </div>
-            </div>
-            {opponentTests && (
-              <TestPips className="w-20" passed={opponentTests.passed} total={opponentTests.total} tone="opponent" />
-            )}
+        <div className="flex items-center justify-end gap-[3px] sm:gap-1.5">
+          <div className="mr-2 hidden min-w-0 items-center gap-2.5 md:flex" aria-live="polite">
+            <span className="size-[7px] shrink-0 bg-accent" aria-hidden="true" />
+            <span className="label max-w-[8rem] truncate normal-case text-fg">{opponentName}</span>
+            {opponentTests && <TestPips passed={opponentTests.passed} total={opponentTests.total} tone="opponent" size={7} />}
+            <span className={`label hidden truncate xl:inline ${opponentSolved ? "text-accent-ink" : "text-fg-3"}`}>{opponentLabel}</span>
           </div>
-
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
+            type="button"
             onClick={() => setShowForfeitModal(true)}
             disabled={gameOver}
             aria-label="Forfeit match"
-            className="text-fg-3 hover:text-accent-text"
+            className="rounded-[3px] disabled:pointer-events-none disabled:opacity-40"
           >
-            <Flag className="size-4" />
-            <span className="hidden lg:inline">Forfeit</span>
-          </Button>
-          <Button size="sm" onClick={handleSubmit} loading={isSubmitting} disabled={gameOver} className="pl-3">
-            {!isSubmitting && <Play weight="fill" className="size-3.5" />}
+            <Chip className="hover:text-accent-ink">
+              <Flag className="size-3.5" weight="bold" />
+              <span className="hidden lg:inline">Forfeit</span>
+            </Chip>
+          </button>
+          <Button variant="accent" size="sm" onClick={handleSubmit} loading={isSubmitting} disabled={gameOver} className="pl-3">
+            {!isSubmitting && <Play weight="fill" className="size-3" />}
             Submit
             {submitHint}
           </Button>
@@ -520,41 +523,35 @@ const RealGameArena: React.FC = () => {
       </header>
 
       {/* Mobile tabs + compact opponent */}
-      <div className="flex h-11 shrink-0 items-stretch border-b border-line md:hidden" role="tablist" aria-label="Arena view">
+      <div className="flex h-10 shrink-0 items-center gap-[3px] border-b border-line px-3 md:hidden" role="tablist" aria-label="Arena view">
         {(["problem", "code"] as MobileTab[]).map((t) => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={mobileTab === t}
-            onClick={() => setMobileTab(t)}
-            className={`relative px-4 text-sm transition-colors ${mobileTab === t ? "text-fg" : "text-fg-3"}`}
-          >
-            {t === "problem" ? "Problem" : "Code"}
-            {mobileTab === t && <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-accent" />}
+          <button key={t} role="tab" aria-selected={mobileTab === t} onClick={() => setMobileTab(t)} className="rounded-[3px]">
+            <Chip active={mobileTab === t}>{t === "problem" ? "Problem" : "Code"}</Chip>
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-2 pr-3 text-[12px] text-fg-3" aria-live="polite">
-          <span className="max-w-[6rem] truncate text-fg-2">{opponentName}</span>
+        <div className="label ml-auto flex min-w-0 items-center gap-2 text-fg-3" aria-live="polite">
+          <span className="size-[7px] shrink-0 bg-accent" aria-hidden="true" />
+          <span className="max-w-[6rem] truncate normal-case text-fg">{opponentName}</span>
           {opponentTests ? (
-            <span className="tabular font-mono">
+            <span className="tabular">
               {opponentTests.passed}/{opponentTests.total}
             </span>
           ) : (
-            <span>waiting</span>
+            <span>Waiting</span>
           )}
         </div>
       </div>
 
       {gameOver && !showResult && (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface-1 px-4 py-2 text-sm">
-          <span className={didWin ? "text-pass" : "text-accent-text"}>
-            {didWin ? "You won" : "You lost"}. {gameOverReason}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-rule bg-bg-2 px-4 py-2">
+          <span className={`label ${isDraw ? "text-warn-ink" : didWin ? "text-pass-ink" : "text-accent-ink"}`}>
+            {outcome}. {gameOverReason}
           </span>
           <div className="flex gap-2">
-            <Button size="sm" variant="secondary" onClick={() => navigate("/dashboard")}>
+            <Button size="sm" variant="outline" onClick={() => navigate("/dashboard")}>
               Lobby
             </Button>
-            <Button size="sm" onClick={() => navigate("/matchmaking")}>
+            <Button size="sm" variant="accent" onClick={() => navigate("/matchmaking")}>
               Play again
             </Button>
           </div>
@@ -565,17 +562,16 @@ const RealGameArena: React.FC = () => {
         {/* Problem */}
         <section
           aria-label="Problem"
-          className={`${mobileTab === "problem" ? "flex" : "hidden"} min-h-0 w-full flex-col border-line md:flex md:w-[42%] md:border-r`}
+          className={`${mobileTab === "problem" ? "flex" : "hidden"} min-h-0 w-full flex-col border-rule md:flex md:w-[42%] md:border-r`}
         >
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
-            <h1 className="text-xl font-semibold tracking-[-0.02em] text-fg sm:text-2xl">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 pt-6 sm:px-7">
+            <Label aside={<span className="tabular">Rated {currentMatchData?.problem?.difficulty || "1000"}</span>}>Problem</Label>
+            <h1 className="mt-5 text-[clamp(1.875rem,3vw,2.75rem)] font-medium leading-[0.95] tracking-[-0.05em] text-fg">
               {currentMatchData?.problem?.title}
             </h1>
-            <div className="mt-3 flex flex-wrap gap-1.5 text-[12px]">
-              <span className="rounded-[6px] bg-white/[0.06] px-2 py-1 text-fg-2">
-                Rating <span className="tabular font-mono text-fg">{currentMatchData?.problem?.difficulty || "1000"}</span>
-              </span>
-              <span className="rounded-[6px] bg-white/[0.06] px-2 py-1 text-fg-2">stdin / stdout</span>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              <Tag>stdin / stdout</Tag>
+              <Tag>{visibleTests.length} sample {visibleTests.length === 1 ? "test" : "tests"}</Tag>
             </div>
             <div className="statement mt-6">
               <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
@@ -589,33 +585,39 @@ const RealGameArena: React.FC = () => {
         <section
           ref={editorPanelRef}
           aria-label="Solution"
-          className={`${mobileTab === "code" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col bg-[#0e0e11] md:flex`}
+          className={`${mobileTab === "code" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col bg-screen text-screen-fg md:flex`}
         >
-          <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line bg-ink px-2 sm:px-3">
-            <div className="flex rounded-[9px] bg-surface-1 p-0.5 shadow-[inset_0_0_0_1px_var(--color-line)]" role="radiogroup" aria-label="Language">
+          <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-screen-line px-2 sm:px-3">
+            <div className="flex gap-[3px]" role="radiogroup" aria-label="Language">
               {LANGUAGES.map((l) => (
                 <button
                   key={l.id}
                   role="radio"
                   aria-checked={language === l.id}
                   onClick={() => handleLanguageChange(l.id)}
-                  className={`rounded-[7px] px-2.5 py-1 text-[13px] transition-colors ${
-                    language === l.id ? "bg-surface-3 text-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]" : "text-fg-3 hover:text-fg-2"
+                  className={`label h-7 rounded-[3px] px-2 transition-colors ${
+                    language === l.id ? "bg-screen-fg text-screen" : "text-screen-fg-2 hover:bg-white/10 hover:text-screen-fg"
                   }`}
                 >
                   {l.label}
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-1">
-              <span className="hidden items-center gap-1.5 text-[12px] text-fg-3 xl:inline-flex">
+            <div className="flex items-center gap-2">
+              <span className="label hidden items-center gap-1.5 text-screen-fg-2 xl:inline-flex">
                 <Info className="size-3.5" aria-hidden="true" />
-                Read stdin, print stdout. Include imports and main.
+                Read stdin, print stdout
               </span>
-              <Button variant="ghost" size="sm" onClick={handleReset} className={confirmReset ? "text-accent-text" : "text-fg-3"}>
+              <button
+                type="button"
+                onClick={handleReset}
+                className={`label inline-flex h-7 items-center gap-1.5 rounded-[3px] px-2 transition-colors hover:bg-white/10 ${
+                  confirmReset ? "text-screen-fail" : "text-screen-fg-2 hover:text-screen-fg"
+                }`}
+              >
                 <ArrowCounterClockwise className="size-3.5" />
                 {confirmReset ? "Confirm reset" : "Reset"}
-              </Button>
+              </button>
             </div>
           </div>
 
@@ -625,77 +627,76 @@ const RealGameArena: React.FC = () => {
 
           {/* Results */}
           <div
-            className="relative flex shrink-0 flex-col border-t border-line bg-ink"
-            style={{ height: resultsCollapsed ? 44 : resultsHeight }}
+            className="relative flex shrink-0 flex-col border-t border-screen-line bg-screen-2"
+            style={{ height: resultsCollapsed ? 40 : resultsHeight }}
           >
             <div
               role="separator"
               aria-orientation="horizontal"
               aria-label="Resize results panel"
               onPointerDown={onResizeStart}
-              className="absolute inset-x-0 -top-1.5 z-10 h-3 cursor-ns-resize touch-none after:absolute after:inset-x-0 after:top-1.5 after:h-px after:bg-transparent hover:after:bg-accent/60"
+              className="absolute inset-x-0 -top-1.5 z-10 h-3 cursor-ns-resize touch-none after:absolute after:inset-x-0 after:top-1.5 after:h-px after:bg-transparent hover:after:bg-screen-fail/70"
             />
             <button
               type="button"
               onClick={() => setResultsCollapsed((c) => !c)}
               aria-expanded={!resultsCollapsed}
-              className="flex h-11 shrink-0 items-center gap-3 px-4 text-left"
+              className="label flex h-10 shrink-0 items-center gap-3 px-3 text-left sm:px-4"
             >
-              <span className="text-[13px] font-medium text-fg-2">Results</span>
+              <span className="text-screen-fg">/ Results</span>
               {isSubmitting ? (
-                <span className="inline-flex items-center gap-1.5 text-[13px] text-fg-3">
+                <span className="inline-flex items-center gap-1.5 text-screen-fg-2">
                   <CircleNotch className="size-3.5 animate-spin" /> Running tests
                 </span>
               ) : submissionResult ? (
-                <span className={`inline-flex items-center gap-1.5 text-[13px] ${resultTone}`}>
-                  {submissionResult.status === "accepted" ? (
-                    <CheckCircle weight="fill" className="size-3.5" />
-                  ) : (
-                    <XCircle weight="fill" className="size-3.5" />
-                  )}
+                <span className={`inline-flex items-center gap-1.5 ${verdictTone}`}>
+                  {accepted ? <CheckCircle weight="fill" className="size-3.5" /> : <XCircle weight="fill" className="size-3.5" />}
                   {STATUS_LABEL[submissionResult.status] ?? submissionResult.status}
-                  <span className="tabular font-mono text-fg-3">
+                  <span className="tabular text-screen-fg-2">
                     {submissionResult.passed}/{submissionResult.total}
                   </span>
                 </span>
               ) : null}
-              <CaretUp className={`ml-auto size-3.5 text-fg-3 transition-transform ${resultsCollapsed ? "" : "rotate-180"}`} />
+              <CaretUp className={`ml-auto size-3.5 text-screen-fg-2 transition-transform ${resultsCollapsed ? "" : "rotate-180"}`} />
             </button>
 
             {!resultsCollapsed && (
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 text-sm" aria-live="polite">
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 text-sm sm:px-4" aria-live="polite">
                 {socketError && (
-                  <p className="mb-3 rounded-[8px] bg-accent/10 px-3 py-2 text-[13px] text-accent-text">{socketError}</p>
+                  <p className="mb-3 border border-screen-fail/40 px-3 py-2 text-[13px] text-screen-fail">{socketError}</p>
                 )}
 
                 {isSubmitting ? (
                   <div className="flex gap-[3px]" aria-hidden="true">
                     {Array.from({ length: submissionResult?.total || 10 }, (_, i) => (
-                      <span key={i} className="h-2 flex-1 animate-pulse rounded-[2px] bg-white/10" style={{ animationDelay: `${i * 60}ms` }} />
+                      <span key={i} className="block size-3 animate-pulse bg-white/15" style={{ animationDelay: `${i * 60}ms` }} />
                     ))}
                   </div>
                 ) : submissionResult ? (
                   <div className="space-y-4">
                     {submissionResult.testResults && submissionResult.testResults.length > 0 ? (
-                      <div className="flex gap-[3px]" aria-label={`${submissionResult.passed} of ${submissionResult.total} tests passed`}>
+                      <div className="flex flex-wrap gap-[3px]" aria-label={`${submissionResult.passed} of ${submissionResult.total} tests passed`}>
                         {submissionResult.testResults.map((r, i) => (
                           <span
                             key={i}
                             title={`Test ${i + 1}: ${r?.status ?? ""}`}
-                            className={`h-2 flex-1 rounded-[2px] ${r?.passed ? "bg-pass" : "bg-accent"}`}
+                            className={`block size-3 ${r?.passed ? "bg-screen-pass" : "bg-screen-fail"}`}
                           />
                         ))}
                       </div>
                     ) : (
-                      <TestPips
-                        passed={submissionResult.passed}
-                        total={submissionResult.total}
-                        tone={submissionResult.status === "accepted" ? "pass" : "you"}
-                      />
+                      <div className="flex flex-wrap gap-[3px]" aria-label={`${submissionResult.passed} of ${submissionResult.total} tests passed`}>
+                        {Array.from({ length: Math.max(submissionResult.total, 1) }, (_, i) => (
+                          <span
+                            key={i}
+                            className={`block size-3 ${i < submissionResult.passed ? (accepted ? "bg-screen-pass" : "bg-screen-fg") : "bg-white/15"}`}
+                          />
+                        ))}
+                      </div>
                     )}
 
                     {submissionResult.stderr && (
-                      <pre className="overflow-x-auto whitespace-pre-wrap rounded-[8px] bg-surface-1 p-3 font-mono text-[12px] leading-relaxed text-accent-text">
+                      <pre className="overflow-x-auto whitespace-pre-wrap bg-screen p-3 font-mono text-[12px] leading-relaxed text-screen-fail">
                         {submissionResult.stderr}
                       </pre>
                     )}
@@ -703,26 +704,26 @@ const RealGameArena: React.FC = () => {
                     {sampleFailure && (
                       <div className="grid gap-2 font-mono text-[12px] sm:grid-cols-3">
                         {[
-                          { label: `Sample test ${sampleFailure.index + 1} input`, value: sampleFailure.input },
+                          { label: `Sample ${sampleFailure.index + 1} input`, value: sampleFailure.input },
                           { label: "Expected", value: sampleFailure.expected },
                           { label: "Your output", value: sampleFailure.got || "(no output)" },
                         ].map((b) => (
                           <div key={b.label} className="min-w-0">
-                            <div className="mb-1 font-sans text-[12px] text-fg-3">{b.label}</div>
-                            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-[8px] bg-surface-1 p-2.5 text-fg-2">{b.value}</pre>
+                            <div className="label mb-1.5 text-screen-fg-2">/ {b.label}</div>
+                            <pre className="max-h-40 overflow-auto whitespace-pre-wrap bg-screen p-2.5 text-screen-fg">{b.value}</pre>
                           </div>
                         ))}
                       </div>
                     )}
 
-                    {!sampleFailure && submissionResult.status !== "accepted" && !submissionResult.stderr && (
-                      <p className="text-[13px] text-fg-3">
+                    {!sampleFailure && !accepted && !submissionResult.stderr && (
+                      <p className="text-[13px] text-screen-fg-2">
                         The sample tests pass. A hidden test failed, so check edge cases and limits.
                       </p>
                     )}
                   </div>
                 ) : (
-                  <p className="text-[13px] text-fg-3">
+                  <p className="text-[13px] text-screen-fg-2">
                     Submit to run your code against every test. {isMac ? "Cmd" : "Ctrl"} + Enter works from the editor.
                   </p>
                 )}
@@ -733,12 +734,12 @@ const RealGameArena: React.FC = () => {
       </div>
 
       {/* Forfeit */}
-      <Dialog open={showForfeitModal} onClose={() => setShowForfeitModal(false)} title="Forfeit this match?">
-        <p className="mt-2 text-[15px] leading-relaxed text-fg-2">
+      <Dialog open={showForfeitModal} onClose={() => setShowForfeitModal(false)} eyebrow="Forfeit" title="Give up this match?">
+        <p className="mt-4 text-[16px] leading-snug text-fg-2">
           {opponentName} wins immediately and the loss goes on your record.
         </p>
-        <div className="mt-6 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setShowForfeitModal(false)}>
+        <div className="mt-8 flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setShowForfeitModal(false)}>
             Keep playing
           </Button>
           <Button
@@ -757,30 +758,50 @@ const RealGameArena: React.FC = () => {
       <Dialog
         open={gameOver && showResult}
         dismissible={false}
-        title={didWin ? "You won" : "You lost"}
-        className="max-w-md text-center"
+        eyebrow="Result"
+        title={outcome}
+        className="max-w-md"
         initialFocusRef={playAgainRef}
       >
-        <p className="mt-2 text-[15px] text-fg-2">{gameOverReason}</p>
-        <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-          <div className="flex flex-col items-center gap-2">
-            <Avatar src={avatarUrl} name={username} size={44} />
-            <span className={`max-w-full truncate text-sm ${didWin ? "text-pass" : "text-fg-2"}`}>{username}</span>
-          </div>
-          <span className="tabular font-mono text-[13px] text-fg-3">{formatClock(finalSeconds ?? elapsed)}</span>
-          <div className="flex flex-col items-center gap-2">
-            <Avatar name={opponentName} size={44} />
-            <span className={`max-w-full truncate text-sm ${!didWin ? "text-accent-text" : "text-fg-2"}`}>{opponentName}</span>
-          </div>
+        <div className="mt-6">
+          <PixelText
+            text={outcomeStamp}
+            intro="mount"
+            delay={0.15}
+            decorative
+            className={`h-14 ${isDraw ? "text-warn-ink" : didWin ? "text-pass" : "text-accent"}`}
+          />
         </div>
-        <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center">
+        <p className="mt-5 text-[16px] leading-snug text-fg-2">{gameOverReason}</p>
+        <ul className="mt-6 border-t border-rule">
+          {[
+            { tag: "You", name: username, src: avatarUrl, win: didWin },
+            { tag: "Rival", name: opponentName, src: undefined, win: !didWin && !isDraw },
+          ].map((p) => (
+            <li key={p.tag} className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-line py-2.5">
+              <span className="label flex items-center gap-2 text-fg">
+                <span className={`size-[7px] ${p.tag === "You" ? "bg-fg" : "bg-accent"}`} aria-hidden="true" />
+                {p.tag}
+              </span>
+              <span className="flex min-w-0 items-center gap-2.5">
+                <Avatar src={p.src} name={p.name} size={24} />
+                <span className="truncate text-[16px] tracking-[-0.01em] text-fg">{p.name}</span>
+              </span>
+              {p.win ? <Tag tone="pass">Winner</Tag> : <span />}
+            </li>
+          ))}
+        </ul>
+        <p className="label mt-3 text-fg-3">
+          Match time <span className="tabular text-fg">{clockText}</span>
+        </p>
+        <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={() => setShowResult(false)}>
             Review code
           </Button>
-          <Button variant="secondary" onClick={() => navigate("/dashboard")}>
-            Back to lobby
+          <Button variant="outline" onClick={() => navigate("/dashboard")}>
+            Lobby
           </Button>
-          <Button ref={playAgainRef} onClick={() => navigate("/matchmaking")}>
+          <Button ref={playAgainRef} variant="accent" onClick={() => navigate("/matchmaking")}>
             Play again
           </Button>
         </div>
