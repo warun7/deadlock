@@ -42,6 +42,8 @@ const cases: { name: string; lang: number; code: string; expect: RegExp }[] = [
   { name: "C++ infinite loop on test 3", lang: 54, code: CPP.replace("int n; cin >> n;", "int n; cin >> n; if (n == 150) for (volatile int k = 0;; k++);"), expect: /^AAT/ },
   { name: "C++ crash on test 4", lang: 54, code: CPP.replace("int n; cin >> n;", "int n; cin >> n; if (n == 200) { volatile int* p = nullptr; *p = 1; }"), expect: /^AAAR/ },
   { name: "C++ compile error", lang: 54, code: "int main( { return 0; }", expect: /^C{20}$/ },
+  // Output that is not valid UTF-8 must still come back as a verdict
+  { name: "C++ prints a non-UTF-8 byte", lang: 54, code: CPP.replace('cout << s << "\\n";', 'cout << s << "\\xff\\n";'), expect: /^W{20}$/ },
 ];
 
 function letter(status: string): string {

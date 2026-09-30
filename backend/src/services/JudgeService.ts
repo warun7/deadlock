@@ -70,6 +70,41 @@ export class JudgeService {
   }
   
   /**
+   * Run one submission synchronously.
+   *
+   * Always base64: with base64_encoded=false Judge0 answers
+   * `{ token, error }` and NO status whenever any output is not valid UTF-8
+   * (g++ quotes identifiers with curly quotes, a program can print any byte),
+   * which used to surface as "Judge0 service temporarily unavailable".
+   */
+  private async submit(submission: Judge0Submission): Promise<Judge0Response> {
+    const encode = (text?: string) =>
+      text === undefined ? undefined : Buffer.from(text, 'utf8').toString('base64');
+    const decode = (text: string | null | undefined) =>
+      text == null ? null : Buffer.from(text, 'base64').toString('utf8');
+
+    const { data } = await this.client.post<Judge0Response & { error?: string }>(
+      '/submissions?base64_encoded=true&wait=true',
+      {
+        ...submission,
+        source_code: encode(submission.source_code),
+        stdin: encode(submission.stdin),
+        expected_output: encode(submission.expected_output),
+      }
+    );
+    if (!data?.status) {
+      throw new Error(`Judge0 returned no status: ${data?.error || JSON.stringify(data).slice(0, 200)}`);
+    }
+    return {
+      ...data,
+      stdout: decode(data.stdout),
+      stderr: decode(data.stderr),
+      compile_output: decode(data.compile_output),
+      message: decode(data.message),
+    };
+  }
+
+  /**
    * Run a problem checker inside Judge0.
    *
    * Some problems accept several different correct answers ("print any such
@@ -103,19 +138,18 @@ export class JudgeService {
       { name: 'sub.txt', data: submissionOutput },
     ]);
 
-    let response;
+    let response: { data: Judge0Response };
     try {
-      response = await this.client.post<Judge0Response>(
-        '/submissions?base64_encoded=false&wait=true',
-        {
+      response = {
+        data: await this.submit({
           source_code: checkerCode,
           language_id: CHECKER_LANGUAGE_ID,
           command_line_arguments: 'in.txt exp.txt sub.txt',
           additional_files: additionalFiles,
           cpu_time_limit: 5,
           memory_limit: 256000,
-        } as Judge0Submission
-      );
+        }),
+      };
     } catch (error: any) {
       console.error('Checker submission failed:', error.message);
       return null;
@@ -199,7 +233,7 @@ export class JudgeService {
           }
         } catch (error: any) {
           console.error(`   Batch judging failed: ${this.describeError(error)}`);
-          if (!error?.response) {
+          if (axios.isAxiosError(error) && !error.response) {
             // Judge0 did not answer at all (timeout, connection refused).
             // Judging test by test would only fail more slowly.
             return this.summarize(
@@ -300,18 +334,15 @@ export class JudgeService {
       ...testCases.map((tc, i) => ({ name: `in/${i + 1}`, data: tc.input })),
     ];
 
-    const { data } = await this.client.post<Judge0Response>(
-      '/submissions?base64_encoded=false&wait=true',
-      {
-        language_id: MULTI_FILE_LANGUAGE_ID,
-        additional_files: createZipBase64(files),
-        cpu_time_limit: cpu,
-        wall_time_limit: wall,
-        memory_limit: 256000,
-        stack_limit: Math.min(128000, limits.maxStack),
-        max_file_size: Math.min(4096, limits.maxFileSize),
-      } as Judge0Submission
-    );
+    const data = await this.submit({
+      language_id: MULTI_FILE_LANGUAGE_ID,
+      additional_files: createZipBase64(files),
+      cpu_time_limit: cpu,
+      wall_time_limit: wall,
+      memory_limit: 256000,
+      stack_limit: Math.min(128000, limits.maxStack),
+      max_file_size: Math.min(4096, limits.maxFileSize),
+    });
 
     const statusId = data.status?.id;
     if (statusId === STATUS_COMPILE_ERROR) {
@@ -522,13 +553,7 @@ export class JudgeService {
       ...(languageId === 54 && { compiler_options: '-O2 -std=gnu++17 -DONLINE_JUDGE' }),
     };
     
-    // Submit with wait=true for synchronous result
-    const response = await this.client.post<Judge0Response>(
-      '/submissions?base64_encoded=false&wait=true',
-      submission
-    );
-    
-    return response.data;
+    return this.submit(submission);
   }
   
   /**
