@@ -10,7 +10,7 @@ const RESULT = {
   draw: { label: "Draw", tone: "warn" },
 } as const;
 
-const GRID = "grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-4 sm:grid-cols-[88px_minmax(0,1.1fr)_minmax(0,1fr)_120px]";
+const GRID = "grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-4 sm:grid-cols-[120px_minmax(0,1.1fr)_minmax(0,1fr)_120px]";
 
 export const MatchRow: React.FC<{ match: MatchDetailed }> = ({ match }) => {
   const r = RESULT[match.result] ?? RESULT.draw;
@@ -26,6 +26,12 @@ export const MatchRow: React.FC<{ match: MatchDetailed }> = ({ match }) => {
           aria-hidden="true"
         />
         <Tag tone={r.tone}>{r.label}</Tag>
+        {!!match.rating_change && (
+          <span className={`label tabular hidden sm:inline ${match.rating_change > 0 ? "text-pass-ink" : "text-accent-ink"}`}>
+            {match.rating_change > 0 ? "+" : "\u2212"}
+            {Math.abs(match.rating_change)}
+          </span>
+        )}
       </span>
       <div className="min-w-0">
         <div className="truncate text-[clamp(1.125rem,1.8vw,1.5rem)] leading-tight tracking-[-0.03em] text-fg">

@@ -27,7 +27,7 @@ import { motion } from "framer-motion";
 import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
-import { useCurrentProfile } from "../lib/useCurrentProfile";
+import { invalidateCurrentProfile, useCurrentProfile } from "../lib/useCurrentProfile";
 import type { MatchFoundPayload } from "../types";
 
 // Codeforces uses $$$...$$$ for inline math; KaTeX expects $...$.
@@ -119,6 +119,10 @@ function describeOpponent(raw: string | null): string {
       return "Solved";
     case "error":
       return "Submission errored";
+    case "disconnected":
+      return "Disconnected, waiting for them";
+    case "reconnected":
+      return "Back online";
     default:
       return s || "No submissions yet";
   }
@@ -195,6 +199,9 @@ const RealGameArena: React.FC = () => {
   const [gameOverReason, setGameOverReason] = useState("");
   const [finalSeconds, setFinalSeconds] = useState<number | null>(null);
   const [showForfeitModal, setShowForfeitModal] = useState(false);
+  const [ratingResult, setRatingResult] = useState<{ change: number; rating: number } | null>(null);
+  const [opponentDeadline, setOpponentDeadline] = useState<number | null>(null);
+  const [connectionLost, setConnectionLost] = useState(false);
   const [socketError, setSocketError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const playAgainRef = useRef<HTMLButtonElement>(null);
@@ -284,15 +291,32 @@ const RealGameArena: React.FC = () => {
       };
 
       // The server broadcasts progress to the whole room, including our own submissions
-      const handleOpponentProgress = (data: { playerId?: string; status: string; testsProgress?: string }) => {
+      const handleOpponentProgress = (data: {
+        playerId?: string;
+        status: string;
+        testsProgress?: string;
+        reconnectDeadline?: number;
+      }) => {
         if (data.playerId && data.playerId === userIdRef.current) return;
         setOpponentStatus(data.status);
+        setOpponentDeadline(data.reconnectDeadline ?? null);
         const m = data.testsProgress?.match(/^(\d+)\/(\d+)$/);
         if (m) setOpponentTests({ passed: Number(m[1]), total: Number(m[2]) });
       };
 
-      const handleGameOver = (data: { winnerId: string | null; reason?: string }) => {
+      const handleGameOver = (data: {
+        winnerId: string | null;
+        reason?: string;
+        ratingChange?: number;
+        newRating?: number;
+      }) => {
         setGameOver(true);
+        setOpponentDeadline(null);
+        if (typeof data.ratingChange === "number" && typeof data.newRating === "number") {
+          setRatingResult({ change: data.ratingChange, rating: data.newRating });
+        }
+        // Stats and rating changed: make the lobby and profile fetch them again
+        invalidateCurrentProfile();
         setShowResult(true);
         setIsSubmitting(false);
         setWinner(data.winnerId);
@@ -318,6 +342,12 @@ const RealGameArena: React.FC = () => {
         socket.off("connect", handleConnect);
       };
 
+      // The server holds the match while we are away; say so instead of looking frozen
+      const handleDisconnect = () => setConnectionLost(true);
+      const handleReconnect = () => setConnectionLost(false);
+      socket.on("disconnect", handleDisconnect);
+      socket.on("connect", handleReconnect);
+
       socket.on("match_found", handleMatchFound);
       socket.on("submission_result", handleSubmissionResult);
       socket.on("opponent_progress", handleOpponentProgress);
@@ -328,6 +358,8 @@ const RealGameArena: React.FC = () => {
       else socket.on("connect", handleConnect);
 
       cleanupSocketListeners = () => {
+        socket.off("disconnect", handleDisconnect);
+        socket.off("connect", handleReconnect);
         socket.off("match_found", handleMatchFound);
         socket.off("submission_result", handleSubmissionResult);
         socket.off("opponent_progress", handleOpponentProgress);
@@ -436,7 +468,10 @@ const RealGameArena: React.FC = () => {
   const isDraw = gameOver && winner === null;
   const opponentName = currentMatchData?.opponent?.username || "Opponent";
   const visibleTests = currentMatchData?.problem?.testCases ?? [];
-  const opponentLabel = describeOpponent(opponentStatus);
+  const opponentAway = !!opponentDeadline && !gameOver;
+  const opponentLabel = opponentAway
+    ? `Disconnected, ${Math.max(0, Math.ceil((opponentDeadline! - now) / 1000))}s to return`
+    : describeOpponent(opponentStatus);
   const opponentSolved = opponentLabel === "Solved";
 
   const statement = useMemo(
@@ -550,7 +585,13 @@ const RealGameArena: React.FC = () => {
             </span>
             <span className="label max-w-[8rem] truncate normal-case text-fg">{opponentName}</span>
             {opponentTests && <TestPips passed={opponentTests.passed} total={opponentTests.total} tone="opponent" size={7} />}
-            <span className={`label hidden truncate xl:inline ${opponentSolved ? "text-accent-ink" : "text-fg-3"}`}>{opponentLabel}</span>
+            <span
+              className={`label truncate ${opponentAway ? "inline text-warn-ink" : "hidden xl:inline"} ${
+                !opponentAway && opponentSolved ? "text-accent-ink" : !opponentAway ? "text-fg-3" : ""
+              }`}
+            >
+              {opponentLabel}
+            </span>
           </div>
           <button
             type="button"
@@ -614,7 +655,9 @@ const RealGameArena: React.FC = () => {
               )}
             </span>
           <span className="max-w-[6rem] truncate normal-case text-fg">{opponentName}</span>
-          {opponentTests ? (
+          {opponentAway ? (
+            <span className="tabular text-warn-ink">Away {Math.max(0, Math.ceil((opponentDeadline! - now) / 1000))}s</span>
+          ) : opponentTests ? (
             <span className="tabular">
               {opponentTests.passed}/{opponentTests.total}
             </span>
@@ -623,6 +666,16 @@ const RealGameArena: React.FC = () => {
           )}
         </div>
       </div>
+
+      {connectionLost && !gameOver && (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-3 border-b border-rule bg-bg-2 px-4 py-2"
+        >
+          <DotLoader pattern="orbit" className="text-accent" />
+          <span className="label text-fg">Connection lost. Reconnecting; your match and code are held for you.</span>
+        </div>
+      )}
 
       {gameOver && !showResult && (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-rule bg-bg-2 px-4 py-2">
@@ -896,9 +949,20 @@ const RealGameArena: React.FC = () => {
             </li>
           ))}
         </ul>
-        <p className="label mt-3 text-fg-3">
-          Match time <span className="tabular text-fg">{clockText}</span>
-        </p>
+        <div className="label mt-3 flex flex-wrap items-center justify-between gap-2 text-fg-3">
+          <span>
+            Match time <span className="tabular text-fg">{clockText}</span>
+          </span>
+          {ratingResult && (
+            <span>
+              Rating <span className="tabular text-fg">{ratingResult.rating}</span>{" "}
+              <span className={`tabular ${ratingResult.change >= 0 ? "text-pass-ink" : "text-accent-ink"}`}>
+                ({ratingResult.change >= 0 ? "+" : "\u2212"}
+                {Math.abs(ratingResult.change)})
+              </span>
+            </span>
+          )}
+        </div>
         <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={() => setShowResult(false)}>
             Review code
