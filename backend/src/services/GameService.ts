@@ -34,6 +34,9 @@ const supabase = createClient(
 export class GameService {
   private io: SocketServer<ClientToServerEvents, ServerToClientEvents>;
   private cleanupTimers: Map<string, NodeJS.Timeout> = new Map();
+  private submissionsInFlight = new Set<string>();
+  private lastSubmissionAt = new Map<string, number>();
+  private static readonly SUBMISSION_COOLDOWN_MS = 3000;
   private matchmakingService: MatchmakingService | null = null;
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
@@ -50,7 +53,55 @@ export class GameService {
   /**
    * Handle code submission from a player
    */
+  /**
+   * Handle code submission from a player.
+   *
+   * Every submission runs the full test set on the Judge0 instance that shares
+   * this server, so each player gets one submission in flight at a time and a
+   * short cooldown between them. The client already prevents double submits;
+   * this is what stops a script from doing it.
+   */
   async handleSubmission(
+    socket: AuthenticatedSocket,
+    payload: SubmitCodePayload
+  ): Promise<void> {
+    const userId = socket.user.id;
+
+    if (this.submissionsInFlight.has(userId)) {
+      socket.emit("error", {
+        message: "Your last submission is still being judged.",
+        code: "SUBMISSION_IN_PROGRESS",
+      });
+      return;
+    }
+
+    const now = Date.now();
+    const sinceLast = now - (this.lastSubmissionAt.get(userId) ?? 0);
+    if (sinceLast < GameService.SUBMISSION_COOLDOWN_MS) {
+      const wait = Math.ceil((GameService.SUBMISSION_COOLDOWN_MS - sinceLast) / 1000);
+      socket.emit("error", {
+        message: `Wait ${wait}s before submitting again.`,
+        code: "SUBMISSION_TOO_FAST",
+      });
+      return;
+    }
+
+    this.submissionsInFlight.add(userId);
+    this.lastSubmissionAt.set(userId, now);
+    if (this.lastSubmissionAt.size > 5000) {
+      for (const [id, at] of this.lastSubmissionAt) {
+        if (now - at > GameService.SUBMISSION_COOLDOWN_MS) this.lastSubmissionAt.delete(id);
+      }
+    }
+
+    try {
+      await this.runSubmission(socket, payload);
+    } finally {
+      this.submissionsInFlight.delete(userId);
+    }
+  }
+
+  private async runSubmission(
     socket: AuthenticatedSocket,
     payload: SubmitCodePayload
   ): Promise<void> {
@@ -212,73 +263,34 @@ export class GameService {
       testsProgress: `${result.passed}/${result.total}`,
     });
 
-    // Get updated match state
-    const finalMatch = await redisService.getMatch(
-      matchId,
-      "submission_read_final_match"
-    );
-
-    if (!finalMatch) return;
-
-    // Calculate match duration
     const duration = Math.floor((Date.now() - match.startedAt) / 1000);
+    const loserId = match.player1.id === user.id ? match.player2.id : match.player1.id;
 
-    // Determine loser
-    const loserId =
-      match.player1.id === user.id ? match.player2.id : match.player1.id;
+    if (match.player2.socketId === "bot") {
+      // Human beat the bot. Bot ids are not user ids, so this goes through the
+      // bot recorder (record_match_pair would reject it and nothing would save).
+      const bot = this.matchmakingService?.getBot(matchId);
+      await this.saveBotMatchToDatabase({
+        matchId,
+        humanId: user.id,
+        botId: match.player2.id,
+        botUsername: match.player2.username,
+        winnerId: user.id,
+        problemId: match.problemId,
+        problemTitle: match.problemTitle,
+        duration,
+        botDifficulty: bot?.getDifficulty() || "medium",
+      });
+      this.matchmakingService?.cleanupBot(matchId);
+      socket.emit("game_over", { winnerId: user.id, reason: "You solved it first!" });
+      this.scheduleCleanup(matchId);
+      return;
+    }
 
-    // === PERSIST TO POSTGRESQL ===
-    // Calculate ELO changes (simplified K=32 formula)
-    const winnerElo =
-      user.id === match.player1.id ? match.player1.elo : match.player2.elo;
-    const loserElo =
-      user.id === match.player1.id ? match.player2.elo : match.player1.elo;
-    const eloChange = this.calculateEloChange(winnerElo, loserElo);
-
-    await this.saveMatchToDatabase({
-      matchId,
-      winnerId: user.id,
-      loserId,
-      problemId: match.problemId,
-      problemTitle: match.problemTitle,
-      duration,
-      player1Id: match.player1.id,
-      player2Id: match.player2.id,
-      eloChange, // Pass the calculated ELO change
-      language: this.getLanguageName(languageId), // Track language used
+    await this.recordHumanResult(match, user.id, loserId, duration, this.getLanguageName(languageId), {
+      winner: "You solved it first!",
+      loser: "Opponent solved first",
     });
-
-    // Get winner and loser sockets
-    const winnerSocket = socket; // The one who solved it
-    const loserSocketId =
-      match.player1.id === user.id
-        ? match.player2.socketId
-        : match.player1.socketId;
-    const loserSocket = this.io.sockets.sockets.get(loserSocketId);
-
-    // Send personalized messages
-    if (winnerSocket) {
-      winnerSocket.emit("game_over", {
-        winnerId: user.id,
-        reason: "You solved it first!",
-        newElo: winnerElo + eloChange,
-      });
-    }
-
-    if (loserSocket) {
-      loserSocket.emit("game_over", {
-        winnerId: user.id,
-        reason: "Opponent solved first",
-        newElo: loserElo - eloChange,
-      });
-    }
-
-    // Schedule cleanup with timer tracking to prevent memory leaks
-    const timerId = setTimeout(async () => {
-      this.cleanupTimers.delete(matchId);
-      await this.cleanupMatch(matchId);
-    }, 60000); // 60 second delay for review
-    this.cleanupTimers.set(matchId, timerId);
   }
 
   /**
@@ -330,58 +342,20 @@ export class GameService {
         if (this.matchmakingService) {
           this.matchmakingService.cleanupBot(matchId);
         }
-      } else {
-        // Human vs human match
-        const winnerElo =
-          winnerId === match.player1.id ? match.player1.elo : match.player2.elo;
-        const loserElo =
-          user.id === match.player1.id ? match.player1.elo : match.player2.elo;
-        const eloChange = this.calculateEloChange(winnerElo, loserElo);
 
-        await this.saveMatchToDatabase({
-          matchId,
-          winnerId,
-          loserId: user.id,
-          problemId: match.problemId,
-          problemTitle: match.problemTitle,
-          duration: Math.floor((Date.now() - match.startedAt) / 1000),
-          player1Id: match.player1.id,
-          player2Id: match.player2.id,
-          result: "forfeit",
-          eloChange,
-          language: "unknown", // Forfeit - no language tracked
-        });
+        socket.emit("game_over", { winnerId, reason: "You forfeited" });
+        this.scheduleCleanup(matchId);
+        return;
       }
 
-      // Get winner and loser sockets
-      const winnerSocket =
-        match.player1.id === winnerId
-          ? this.io.sockets.sockets.get(match.player1.socketId)
-          : this.io.sockets.sockets.get(match.player2.socketId);
-
-      const loserSocket = socket; // The one who forfeited
-
-      // Send personalized messages
-      if (winnerSocket) {
-        winnerSocket.emit("game_over", {
-          winnerId,
-          reason: "Opponent forfeited",
-        });
-      }
-
-      if (loserSocket) {
-        loserSocket.emit("game_over", {
-          winnerId,
-          reason: "You forfeited",
-        });
-      }
-
-      // Schedule cleanup with timer tracking
-      const timerId = setTimeout(async () => {
-        this.cleanupTimers.delete(matchId);
-        await this.cleanupMatch(matchId);
-      }, 60000);
-      this.cleanupTimers.set(matchId, timerId);
+      await this.recordHumanResult(
+        match,
+        winnerId,
+        user.id,
+        Math.floor((Date.now() - match.startedAt) / 1000),
+        "unknown",
+        { winner: "Opponent forfeited", loser: "You forfeited" }
+      );
     }
   }
 
@@ -476,12 +450,7 @@ export class GameService {
         this.matchmakingService.cleanupBot(matchId);
       }
 
-      // Schedule match cleanup
-      const timerId = setTimeout(async () => {
-        this.cleanupTimers.delete(matchId);
-        await this.cleanupMatch(matchId);
-      }, 60000);
-      this.cleanupTimers.set(matchId, timerId);
+      this.scheduleCleanup(matchId);
     } catch (error) {
       console.error(`❌ Error in handleBotCompletion:`, error);
     }
@@ -503,9 +472,9 @@ export class GameService {
     result?: string;
     language?: string;
     eloChange?: number;
-  }): Promise<void> {
+  }): Promise<boolean> {
     try {
-      const ratingChange = data.eloChange || 25; // Use calculated ELO or default to 25
+      const ratingChange = data.eloChange ?? 0;
       // Migration 006 dropped the original 8-argument signature and redefined
       // this function with `p_problem_id_ref` (no default) so it can write the
       // canonical `game_sessions` row. PostgREST resolves RPCs by argument
@@ -539,15 +508,18 @@ export class GameService {
             "stats were written for this game:",
           { matchId: data.matchId, problemId: data.problemId, error }
         );
+        return false;
       } else {
         console.log(`💾 Match records saved for both players`);
-        console.log(`📊 Stats will be auto-updated by database trigger`);
+        console.log(`📊 Stats and ratings are updated by database triggers`);
+        return true;
       }
 
       // NOTE: Stats are automatically updated by the database trigger
       // `update_user_stats_after_match` - no need to manually update here!
     } catch (error) {
       console.error("❌ Error in saveMatchToDatabase:", error);
+      return false;
     }
   }
 
@@ -602,7 +574,96 @@ export class GameService {
   private calculateEloChange(winnerElo: number, loserElo: number): number {
     const K = 32;
     const expectedScore = 1 / (1 + Math.pow(10, (loserElo - winnerElo) / 400));
-    return Math.round(K * (1 - expectedScore));
+    // A win is always worth at least one point, even against a far weaker player
+    return Math.max(1, Math.round(K * (1 - expectedScore)));
+  }
+
+  /**
+   * Score a finished human-vs-human match: rate it with both players' current
+   * ratings (read fresh, since a socket can outlive several matches), write
+   * both history rows (a database trigger applies the rating change), tell
+   * each player their own result, and schedule cleanup.
+   */
+  public async recordHumanResult(
+    match: MatchState,
+    winnerId: string,
+    loserId: string,
+    duration: number,
+    language: string,
+    reasons: { winner: string; loser: string }
+  ): Promise<void> {
+    const ratings = await this.fetchRatings([winnerId, loserId]);
+    const winnerRating = ratings.get(winnerId) ?? this.ratingFromMatch(match, winnerId);
+    const loserRating = ratings.get(loserId) ?? this.ratingFromMatch(match, loserId);
+    const change = this.calculateEloChange(winnerRating, loserRating);
+
+    const saved = await this.saveMatchToDatabase({
+      matchId: match.id,
+      winnerId,
+      loserId,
+      problemId: match.problemId,
+      problemTitle: match.problemTitle,
+      duration,
+      player1Id: match.player1.id,
+      player2Id: match.player2.id,
+      eloChange: change,
+      language,
+    });
+
+    // Only promise a rating change the database actually recorded
+    this.emitToUser(winnerId, "game_over", {
+      winnerId,
+      reason: reasons.winner,
+      ...(saved ? { ratingChange: change, newRating: winnerRating + change } : {}),
+    });
+    this.emitToUser(loserId, "game_over", {
+      winnerId,
+      reason: reasons.loser,
+      ...(saved ? { ratingChange: -change, newRating: Math.max(0, loserRating - change) } : {}),
+    });
+
+    this.scheduleCleanup(match.id);
+  }
+
+  /** Current ratings from profiles; missing rows are simply left out */
+  private async fetchRatings(userIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    try {
+      const { data, error } = await supabase.from("profiles").select("id, rating").in("id", userIds);
+      if (error) throw error;
+      for (const row of data ?? []) {
+        if (typeof row.rating === "number") out.set(row.id, row.rating);
+      }
+    } catch (error) {
+      console.error("⚠️ Could not read current ratings, using the ones from match start:", error);
+    }
+    return out;
+  }
+
+  private ratingFromMatch(match: MatchState, userId: string): number {
+    return match.player1.id === userId ? match.player1.elo : match.player2.elo;
+  }
+
+  /** Emit to every live socket of a player (they may have reconnected on a new one) */
+  private emitToUser<E extends keyof ServerToClientEvents>(
+    userId: string,
+    event: E,
+    ...args: Parameters<ServerToClientEvents[E]>
+  ): void {
+    for (const s of this.io.sockets.sockets.values()) {
+      if ((s as AuthenticatedSocket).user?.id === userId) s.emit(event, ...args);
+    }
+  }
+
+  /** Keep a finished match around for a minute so players can review, then drop it */
+  private scheduleCleanup(matchId: string): void {
+    const existing = this.cleanupTimers.get(matchId);
+    if (existing) clearTimeout(existing);
+    const timerId = setTimeout(async () => {
+      this.cleanupTimers.delete(matchId);
+      await this.cleanupMatch(matchId);
+    }, 60000);
+    this.cleanupTimers.set(matchId, timerId);
   }
 
   /**

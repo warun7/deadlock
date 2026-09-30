@@ -49,6 +49,10 @@ export const config = {
   // Match settings
   match: {
     timeoutMs: parseInt(process.env.MATCH_TIMEOUT_MS || "1800000", 10), // 30 minutes default
+    // How long a player who drops out of an active match (refresh, network
+    // blip, laptop sleep) has to come back before the opponent is awarded
+    // the win.
+    reconnectGraceMs: parseInt(process.env.RECONNECT_GRACE_MS || "45000", 10),
   },
 
   // Bot configuration

@@ -202,11 +202,15 @@ export interface ServerToClientEvents {
     playerId: string;
     status: string;
     testsProgress?: string;
+    /** Epoch ms by which a disconnected player must be back */
+    reconnectDeadline?: number;
   }) => void;
   game_over: (data: {
     winnerId: string | null;
     reason: string;
-    newElo?: number;
+    /** Rating points gained (+) or lost (-); only for rated, recorded matches */
+    ratingChange?: number;
+    newRating?: number;
   }) => void;
   error: (data: { message: string; code?: string }) => void;
   active_match_found: (data: { matchId: string }) => void; // Notify client of active match

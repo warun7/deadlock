@@ -44,15 +44,38 @@ export async function authMiddleware(
       return next(new Error('Authentication required'));
     }
     
-    // Verify JWT
-    let decoded: SupabaseJwtPayload;
-    
-    try {
-      // Supabase JWTs are signed with the JWT secret
-      decoded = jwt.verify(token, config.supabase.jwtSecret) as SupabaseJwtPayload;
-    } catch (jwtError: any) {
-      console.log('❌ Auth failed: Invalid token -', jwtError.message);
-      return next(new Error('Invalid authentication token'));
+    // Verify the access token. Projects on the legacy shared JWT secret can be
+    // checked locally (fast). Projects on Supabase's asymmetric signing keys,
+    // or a secret that was rotated without updating this server, fall back to
+    // asking Supabase Auth directly, so logins keep working either way.
+    let decoded: SupabaseJwtPayload | null = null;
+
+    if (config.supabase.jwtSecret) {
+      try {
+        decoded = jwt.verify(token, config.supabase.jwtSecret, { algorithms: ['HS256'] }) as SupabaseJwtPayload;
+      } catch (jwtError: any) {
+        if (jwtError.name === 'TokenExpiredError') {
+          console.log('❌ Auth failed: Token expired');
+          return next(new Error('Token expired'));
+        }
+        // Not signed with this secret: let Supabase decide below
+      }
+    }
+
+    if (!decoded) {
+      const { data, error } = await supabase.auth.getUser(token);
+      if (error || !data?.user) {
+        console.log('❌ Auth failed: Invalid token -', error?.message ?? 'no user');
+        return next(new Error('Invalid authentication token'));
+      }
+      decoded = {
+        sub: data.user.id,
+        email: data.user.email,
+        user_metadata: data.user.user_metadata,
+        iat: 0,
+        exp: 0,
+        aud: data.user.aud,
+      };
     }
     
     // Check expiration
@@ -75,19 +98,20 @@ export async function authMiddleware(
                    decoded.email?.split('@')[0] ||
                    'Player';
     
-    // Optionally fetch additional user data from database
-    let elo = 1200; // Default ELO for new players
-    
+    // The profile holds the current username (renames update it, not the
+    // token) and the player's rating
+    let elo = 1000; // Same default as profiles.rating
+
     try {
       const { data: profile } = await supabase
         .from('profiles')
-        .select('username, current_rating')
+        .select('username, rating')
         .eq('id', userId)
         .single();
-      
+
       if (profile) {
         username = profile.username || username;
-        elo = profile.current_rating || elo;
+        if (typeof profile.rating === 'number') elo = profile.rating;
       }
     } catch (dbError) {
       // Profile might not exist yet, use defaults
