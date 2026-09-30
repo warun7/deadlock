@@ -9,6 +9,7 @@ import MatchList, { EmptyState } from "../components/app/MatchList";
 import { Button, ButtonLink, Kbd } from "../components/ui/Button";
 import { Detail, Figure, Label } from "../components/ui/Chrome";
 import { QueueDemo } from "../components/landing/StepDemos";
+import { RollText } from "../components/ui/micro";
 import { useAuth } from "../contexts/AuthContext";
 import { useCurrentProfile } from "../lib/useCurrentProfile";
 import { useShortcuts } from "../lib/useShortcuts";
@@ -141,17 +142,17 @@ const DashboardPage: React.FC = () => {
               </Detail>
               <div className="mt-6">
                 {inMatch ? (
-                  <Button variant="accent" size="lg" autoFocus onClick={() => navigate(`/game/${activeMatchId}`)} className="w-full justify-between">
+                  <Button variant="accent" size="lg" autoFocus onClick={() => navigate(`/game/${activeMatchId}`)} className="group w-full justify-between">
                     <span className="inline-flex items-center gap-2">
                       <ArrowClockwise weight="bold" className="size-4" />
-                      Rejoin match
+                      <RollText>Rejoin match</RollText>
                     </span>
                     <Kbd>M</Kbd>
                   </Button>
                 ) : (
                   <ButtonLink to="/matchmaking" variant="accent" size="lg" autoFocus className="group w-full justify-between">
                     <span className="inline-flex items-center gap-2">
-                      Find match
+                      <RollText>Find match</RollText>
                       <ArrowRight weight="bold" className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
                     </span>
                     <Kbd>M</Kbd>

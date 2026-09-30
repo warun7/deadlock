@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, CaretDown, Check, Copy, SignOut, UserCircle } from "@phosphor-icons/react";
 import Avatar from "../ui/Avatar";
+import { Swap } from "../ui/micro";
 import { Chip, ChipLink } from "../ui/Chrome";
 import { Mark } from "../ui/Wordmark";
 import ThemeChip from "../ui/ThemeChip";
@@ -99,8 +100,8 @@ const AccountMenu: React.FC = () => {
               <ArrowRight className="ml-auto size-3.5" />
             </Link>
             <button role="menuitem" type="button" className={item} onClick={copyLink}>
-              {copied ? <Check className="size-4 text-pass-ink" /> : <Copy className="size-4" />}
-              {copied ? "Link copied" : "Copy profile link"}
+              <Swap on={copied} off={<Copy className="size-4" />} onNode={<Check weight="bold" className="size-4 text-pass-ink" />} />
+              <Swap on={copied} off="Copy profile link" onNode="Link copied" align="start" />
             </button>
             <button role="menuitem" type="button" className={item} onClick={handleLogout}>
               <SignOut className="size-4" /> Log out

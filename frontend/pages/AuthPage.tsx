@@ -166,7 +166,7 @@ const AuthPage: React.FC = () => {
   const messages = (
     <>
       {error && (
-        <div role="alert" className="flex items-start gap-2.5 rounded-[3px] border border-accent-ink/40 px-3 py-2.5 text-sm text-accent-ink">
+        <div key={error} role="alert" className="flex animate-[shake_0.35s_ease-in-out] items-start gap-2.5 rounded-[3px] border border-accent-ink/40 px-3 py-2.5 text-sm text-accent-ink motion-reduce:animate-none">
           <WarningCircle className="mt-0.5 size-4 shrink-0" weight="bold" />
           <span>{error}</span>
         </div>

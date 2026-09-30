@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import DotLoader from "./components/ui/pixel/DotLoader";
 
 // Route-level code splitting: the landing page never downloads the editor or KaTeX.
 const AuthPage = lazy(() => import("./pages/AuthPage"));
@@ -21,9 +22,7 @@ const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const RouteFallback: React.FC = () => (
   <div className="flex min-h-[100dvh] items-center justify-center" aria-busy="true" aria-live="polite">
     <span className="sr-only">Loading</span>
-    <div className="h-[3px] w-24 overflow-hidden bg-bg-2">
-      <div className="h-full w-1/3 animate-route-load bg-fg" />
-    </div>
+    <DotLoader pattern="spiral" size={5} cell={5} gap={2} className="text-fg" />
   </div>
 );
 

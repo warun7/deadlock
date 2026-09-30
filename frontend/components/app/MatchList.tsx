@@ -19,9 +19,12 @@ export const MatchRow: React.FC<{ match: MatchDetailed }> = ({ match }) => {
   const linkable = !match.is_bot_match && !!match.opponent_username;
 
   return (
-    <li className={`${GRID} border-b border-line py-3`}>
+    <li className={`${GRID} group relative border-b border-line py-3 transition-colors hover:bg-bg-2/60`}>
       <span className="flex items-center gap-2">
-        <span className="size-[7px] shrink-0 bg-fg" aria-hidden="true" />
+        <span
+          className="size-[7px] shrink-0 bg-fg transition-[background-color,transform] duration-300 ease-[var(--ease-out-expo)] group-hover:rotate-45 group-hover:bg-accent"
+          aria-hidden="true"
+        />
         <Tag tone={r.tone}>{r.label}</Tag>
       </span>
       <div className="min-w-0">
