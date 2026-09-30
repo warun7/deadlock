@@ -149,7 +149,8 @@ export interface TestResult {
 // ============================================
 
 export interface Judge0Submission {
-  source_code: string;
+  /** Absent for multi-file programs (language 89), which ship everything in additional_files */
+  source_code?: string;
   language_id: number;
   stdin?: string;
   expected_output?: string;
@@ -162,6 +163,11 @@ export interface Judge0Submission {
   additional_files?: string;
   /** Space-separated argv passed to the program. Used to invoke checkers. */
   command_line_arguments?: string;
+  compiler_options?: string;
+  wall_time_limit?: number;
+  stack_limit?: number;
+  /** Largest file the program may write, in KB (stdout included) */
+  max_file_size?: number;
 }
 
 export interface Judge0Response {

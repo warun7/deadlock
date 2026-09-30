@@ -44,6 +44,17 @@ export const config = {
   judge0: {
     url: process.env.JUDGE0_URL || "http://localhost:2358",
     apiKey: process.env.JUDGE0_API_KEY || "",
+    // Compile once and run every test in one Judge0 run (see BatchJudge).
+    // JUDGE0_BATCH=false goes back to one Judge0 submission per test.
+    batch: process.env.JUDGE0_BATCH !== "false",
+    // Wall-clock limit for each test in a batch run
+    testTimeLimitMs: parseInt(process.env.JUDGE_TEST_TIME_LIMIT_MS || "3000", 10),
+    // Submissions judged at the same time. Time limits are wall-clock, so on
+    // a 1-vCPU server a second run would push the first into false TLEs.
+    maxParallelRuns: Math.max(1, parseInt(process.env.JUDGE0_MAX_PARALLEL_RUNS || "1", 10) || 1),
+    // Concurrent Judge0 requests when judging test by test
+    perTestConcurrency: Math.max(1, parseInt(process.env.JUDGE0_PER_TEST_CONCURRENCY || "2", 10) || 2),
+    requestTimeoutMs: parseInt(process.env.JUDGE0_TIMEOUT_MS || "60000", 10),
   },
 
   // Match settings
