@@ -1,9 +1,9 @@
-import React, { useId, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
 
 interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label: string;
-  hint?: string;
+  hint?: React.ReactNode;
   error?: string | null;
   /** Rendered at the right end of the label row (e.g. "Forgot password?") */
   labelAside?: React.ReactNode;
@@ -18,6 +18,16 @@ const Field = React.forwardRef<HTMLInputElement, FieldProps>(
     const errorId = `${inputId}-error`;
     const [reveal, setReveal] = useState(false);
     const isPassword = type === "password";
+    const boxRef = useRef<HTMLDivElement>(null);
+
+    // A new error nudges the field sideways, like a head shake
+    useEffect(() => {
+      if (!error || !boxRef.current) return;
+      const el = boxRef.current;
+      el.classList.remove("animate-[shake_0.35s_ease-in-out]");
+      void el.offsetWidth;
+      el.classList.add("animate-[shake_0.35s_ease-in-out]");
+    }, [error]);
 
     return (
       <div className={`flex flex-col gap-2 ${className}`}>
@@ -27,7 +37,7 @@ const Field = React.forwardRef<HTMLInputElement, FieldProps>(
           </label>
           {labelAside}
         </div>
-        <div className="relative">
+        <div ref={boxRef} className="relative motion-reduce:animate-none">
           <input
             ref={ref}
             id={inputId}
@@ -52,7 +62,7 @@ const Field = React.forwardRef<HTMLInputElement, FieldProps>(
           )}
         </div>
         {hint && !error && (
-          <p id={hintId} className="text-[13px] text-fg-3">
+          <p id={hintId} className="flex items-center gap-2 text-[13px] text-fg-3">
             {hint}
           </p>
         )}

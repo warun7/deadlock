@@ -8,6 +8,8 @@ import Avatar from "../components/ui/Avatar";
 import Field from "../components/ui/Field";
 import { Button, ButtonLink } from "../components/ui/Button";
 import NameTitle from "../components/app/NameTitle";
+import { Swap } from "../components/ui/micro";
+import DotLoader from "../components/ui/pixel/DotLoader";
 import { useAuth } from "../contexts/AuthContext";
 import { useCurrentProfile } from "../lib/useCurrentProfile";
 import { supabase } from "../lib/supabase";
@@ -157,7 +159,17 @@ const ProfilePage: React.FC = () => {
               placeholder={username}
               onChange={(e) => setNewUsername(e.target.value)}
               error={usernameError}
-              hint={checking ? "Checking availability" : newUsername && !usernameError ? "Available" : "Letters, numbers and underscores."}
+              hint={
+                checking ? (
+                  <>
+                    <DotLoader pattern="orbit" /> Checking availability
+                  </>
+                ) : newUsername && !usernameError ? (
+                  <span className="text-pass-ink">Available</span>
+                ) : (
+                  "Letters, numbers and underscores."
+                )
+              }
               className="flex-1"
               maxLength={20}
             />
@@ -214,8 +226,8 @@ const ProfilePage: React.FC = () => {
                 <PencilSimple className="size-3.5" /> Rename
               </Button>
               <Button variant="outline" size="sm" onClick={copyLink}>
-                {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                {copied ? "Copied" : "Copy link"}
+                <Swap on={copied} off={<Copy className="size-3.5" />} onNode={<Check weight="bold" className="size-3.5" />} />
+                <Swap on={copied} off="Copy link" onNode="Copied" />
               </Button>
               <ButtonLink to={`/u/${encodeURIComponent(username)}`} variant="ghost" size="sm">
                 Public view

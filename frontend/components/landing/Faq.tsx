@@ -39,7 +39,12 @@ const Row: React.FC<{ q: string; a: string; index: number }> = ({ q, a, index })
           className="group grid w-full grid-cols-[40px_minmax(0,1fr)_24px] items-center gap-4 py-3 text-left sm:grid-cols-[88px_minmax(0,1fr)_24px]"
         >
           <span className="label flex items-center gap-2 text-fg">
-            <span className="size-[7px] bg-fg" aria-hidden="true" />
+            <span
+              className={`size-[7px] transition-[background-color,transform] duration-300 ease-[var(--ease-out-expo)] group-hover:rotate-45 group-hover:bg-accent ${
+                open ? "rotate-45 bg-accent" : "bg-fg"
+              }`}
+              aria-hidden="true"
+            />
             {String(index + 1).padStart(2, "0")}
           </span>
           <span className="text-[clamp(1.25rem,2.2vw,1.875rem)] leading-[1.1] tracking-[-0.035em] text-fg transition-colors group-hover:text-accent-ink">

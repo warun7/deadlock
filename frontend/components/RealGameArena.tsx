@@ -4,7 +4,6 @@ import {
   ArrowCounterClockwise,
   CaretUp,
   CheckCircle,
-  CircleNotch,
   Flag,
   Info,
   Play,
@@ -22,6 +21,9 @@ import { Mark } from "./ui/Wordmark";
 import { Button, Kbd } from "./ui/Button";
 import { Chip, Label, Tag } from "./ui/Chrome";
 import PixelText from "./ui/pixel/PixelText";
+import DotLoader from "./ui/pixel/DotLoader";
+import { PixelBurst } from "./ui/micro";
+import { motion } from "framer-motion";
 import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -136,6 +138,8 @@ function safeRemove(key: string) {
     /* ignore */
   }
 }
+
+const WIN_BURST = ["var(--pass)", "var(--fg)", "var(--pass)"];
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -330,10 +334,28 @@ const RealGameArena: React.FC = () => {
     };
   }, [matchId, matchData, navigate]);
 
+  // The Submit button shows the verdict for a moment after each run
+  const [flash, setFlash] = useState<"pass" | "fail" | null>(null);
+  useEffect(() => {
+    if (!submissionResult) return;
+    setFlash(submissionResult.status === "accepted" ? "pass" : "fail");
+    const t = setTimeout(() => setFlash(null), 1600);
+    return () => clearTimeout(t);
+  }, [submissionResult]);
+
+  // Ping the rival's marker whenever their progress changes
+  const [oppPing, setOppPing] = useState(0);
+  useEffect(() => {
+    if (opponentStatus === null && !opponentTests) return;
+    setOppPing((n) => n + 1);
+  }, [opponentStatus, opponentTests?.passed]);
+
   // Freeze the clock and clear saved drafts once the match is decided
   useEffect(() => {
     if (!gameOver) return;
     setFinalSeconds(elapsed);
+    // A little celebration buzz on phones for a win, one tap otherwise
+    navigator.vibrate?.(winner !== null && winner === userIdRef.current ? [30, 50, 30, 50, 70] : 60);
     if (matchId) {
       (Object.keys(LANGUAGE_IDS) as Language[]).forEach((l) => safeRemove(draftKey(matchId, l)));
       safeRemove(langKey(matchId));
@@ -377,6 +399,7 @@ const RealGameArena: React.FC = () => {
       return;
     }
     submittingRef.current = true;
+    setFlash(null);
     setIsSubmitting(true);
     setSubmissionResult(null);
     setSocketError(null);
@@ -497,7 +520,12 @@ const RealGameArena: React.FC = () => {
 
         <div className="flex items-center justify-end gap-[3px] sm:gap-1.5">
           <div className="mr-2 hidden min-w-0 items-center gap-2.5 md:flex" aria-live="polite">
-            <span className="size-[7px] shrink-0 bg-accent" aria-hidden="true" />
+            <span className="relative size-[7px] shrink-0" aria-hidden="true">
+              <span className="absolute inset-0 bg-accent" />
+              {oppPing > 0 && (
+                <span key={oppPing} className="absolute -inset-[3px] animate-[ping-once_0.9s_ease-out_forwards] border border-accent motion-reduce:hidden" />
+              )}
+            </span>
             <span className="label max-w-[8rem] truncate normal-case text-fg">{opponentName}</span>
             {opponentTests && <TestPips passed={opponentTests.passed} total={opponentTests.total} tone="opponent" size={7} />}
             <span className={`label hidden truncate xl:inline ${opponentSolved ? "text-accent-ink" : "text-fg-3"}`}>{opponentLabel}</span>
@@ -514,10 +542,37 @@ const RealGameArena: React.FC = () => {
               <span className="hidden lg:inline">Forfeit</span>
             </Chip>
           </button>
-          <Button variant="accent" size="sm" onClick={handleSubmit} loading={isSubmitting} disabled={gameOver} className="pl-3">
-            {!isSubmitting && <Play weight="fill" className="size-3" />}
-            Submit
-            {submitHint}
+          <Button
+            variant="accent"
+            size="sm"
+            onClick={handleSubmit}
+            loading={isSubmitting}
+            disabled={gameOver}
+            aria-live="polite"
+            className={`min-w-[6.5rem] pl-3 ${flash === "pass" ? "bg-pass! text-[#04130b]! disabled:opacity-100" : ""} ${
+              flash === "fail" ? "animate-[shake_0.4s_ease-in-out] motion-reduce:animate-none" : ""
+            }`}
+          >
+            <span key={isSubmitting ? "run" : flash ?? "idle"} className="inline-flex animate-[rise-in_0.25s_var(--ease-out-expo)] items-center gap-2 motion-reduce:animate-none">
+              {isSubmitting ? (
+                "Judging"
+              ) : flash === "pass" ? (
+                <>
+                  <CheckCircle weight="fill" className="size-3.5" /> Accepted
+                </>
+              ) : flash === "fail" && submissionResult ? (
+                <>
+                  <XCircle weight="fill" className="size-3.5" />
+                  <span className="tabular">
+                    {submissionResult.passed}/{submissionResult.total}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Play weight="fill" className="size-3" /> Submit {submitHint}
+                </>
+              )}
+            </span>
           </Button>
         </div>
       </header>
@@ -530,7 +585,12 @@ const RealGameArena: React.FC = () => {
           </button>
         ))}
         <div className="label ml-auto flex min-w-0 items-center gap-2 text-fg-3" aria-live="polite">
-          <span className="size-[7px] shrink-0 bg-accent" aria-hidden="true" />
+          <span className="relative size-[7px] shrink-0" aria-hidden="true">
+              <span className="absolute inset-0 bg-accent" />
+              {oppPing > 0 && (
+                <span key={oppPing} className="absolute -inset-[3px] animate-[ping-once_0.9s_ease-out_forwards] border border-accent motion-reduce:hidden" />
+              )}
+            </span>
           <span className="max-w-[6rem] truncate normal-case text-fg">{opponentName}</span>
           {opponentTests ? (
             <span className="tabular">
@@ -595,11 +655,18 @@ const RealGameArena: React.FC = () => {
                   role="radio"
                   aria-checked={language === l.id}
                   onClick={() => handleLanguageChange(l.id)}
-                  className={`label h-7 rounded-[3px] px-2 transition-colors ${
-                    language === l.id ? "bg-screen-fg text-screen" : "text-screen-fg-2 hover:bg-white/10 hover:text-screen-fg"
+                  className={`label relative h-7 rounded-[3px] px-2 transition-colors duration-200 ${
+                    language === l.id ? "text-screen" : "text-screen-fg-2 hover:bg-white/10 hover:text-screen-fg"
                   }`}
                 >
-                  {l.label}
+                  {language === l.id && (
+                    <motion.span
+                      layoutId="lang-pill"
+                      className="absolute inset-0 rounded-[3px] bg-screen-fg"
+                      transition={{ type: "spring", stiffness: 520, damping: 38 }}
+                    />
+                  )}
+                  <span className="relative">{l.label}</span>
                 </button>
               ))}
             </div>
@@ -646,7 +713,7 @@ const RealGameArena: React.FC = () => {
               <span className="text-screen-fg">/ Results</span>
               {isSubmitting ? (
                 <span className="inline-flex items-center gap-1.5 text-screen-fg-2">
-                  <CircleNotch className="size-3.5 animate-spin" /> Running tests
+                  <DotLoader pattern="scan" /> Running tests
                 </span>
               ) : submissionResult ? (
                 <span className={`inline-flex items-center gap-1.5 ${verdictTone}`}>
@@ -669,7 +736,11 @@ const RealGameArena: React.FC = () => {
                 {isSubmitting ? (
                   <div className="flex gap-[3px]" aria-hidden="true">
                     {Array.from({ length: submissionResult?.total || 10 }, (_, i) => (
-                      <span key={i} className="block size-3 animate-pulse bg-white/15" style={{ animationDelay: `${i * 60}ms` }} />
+                      <span
+                        key={i}
+                        className="block size-3 animate-[dot-blink_1.4s_ease-in-out_infinite] bg-white/40 motion-reduce:animate-none"
+                        style={{ animationDelay: `${i * 70}ms` }}
+                      />
                     ))}
                   </div>
                 ) : submissionResult ? (
@@ -680,7 +751,12 @@ const RealGameArena: React.FC = () => {
                           <span
                             key={i}
                             title={`Test ${i + 1}: ${r?.status ?? ""}`}
-                            className={`block size-3 ${r?.passed ? "bg-screen-pass" : "bg-screen-fail"}`}
+                            className={`block size-3 motion-reduce:animate-none! ${r?.passed ? "bg-screen-pass" : "bg-screen-fail"}`}
+                            style={{
+                              animation: r?.passed
+                                ? `cell-pop 0.35s var(--ease-spring) ${i * 40}ms both`
+                                : `cell-pop 0.35s var(--ease-spring) ${i * 40}ms both, shake 0.4s ease-in-out ${i * 40 + 380}ms`,
+                            }}
                           />
                         ))}
                       </div>
@@ -689,7 +765,10 @@ const RealGameArena: React.FC = () => {
                         {Array.from({ length: Math.max(submissionResult.total, 1) }, (_, i) => (
                           <span
                             key={i}
-                            className={`block size-3 ${i < submissionResult.passed ? (accepted ? "bg-screen-pass" : "bg-screen-fg") : "bg-white/15"}`}
+                            className={`block size-3 animate-[cell-pop_0.35s_var(--ease-spring)_both] motion-reduce:animate-none ${
+                              i < submissionResult.passed ? (accepted ? "bg-screen-pass" : "bg-screen-fg") : "bg-white/15"
+                            }`}
+                            style={{ animationDelay: `${i * 40}ms` }}
                           />
                         ))}
                       </div>
@@ -763,7 +842,8 @@ const RealGameArena: React.FC = () => {
         className="max-w-md"
         initialFocusRef={playAgainRef}
       >
-        <div className="mt-6">
+        <div className="relative mt-6 w-fit">
+          {didWin && <PixelBurst colors={WIN_BURST} delay={0.35} />}
           <PixelText
             text={outcomeStamp}
             intro="mount"

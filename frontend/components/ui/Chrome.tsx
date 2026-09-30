@@ -76,7 +76,8 @@ export const Chip: React.FC<{
   };
   return (
     <span
-      className={`label inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[3px] px-2 transition-colors duration-150 ${tones[tone]} ${className}`}
+      data-kbd={k?.toLowerCase()}
+      className={`label inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[3px] px-2 transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-expo)] active:scale-[0.95] data-pressed:scale-[0.92] data-pressed:bg-accent data-pressed:text-on-accent ${tones[tone]} ${className}`}
     >
       {k && <span className="opacity-70 [@media(pointer:coarse)]:hidden">[{k}]</span>}
       {children}

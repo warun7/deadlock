@@ -1,12 +1,12 @@
 import React from "react";
 import { Link, LinkProps } from "react-router-dom";
-import { CircleNotch } from "@phosphor-icons/react";
+import DotLoader from "./pixel/DotLoader";
 
 type Variant = "primary" | "accent" | "outline" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
 const base =
-  "relative inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium tracking-[-0.01em] transition-[background-color,color,box-shadow,transform] duration-200 ease-[var(--ease-out-expo)] active:translate-y-px disabled:pointer-events-none disabled:opacity-45";
+  "relative inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium tracking-[-0.01em] transition-[background-color,color,box-shadow,transform] duration-200 ease-[var(--ease-out-expo)] active:scale-[0.97] data-pressed:scale-[0.97] disabled:pointer-events-none disabled:opacity-45";
 
 const variants: Record<Variant, string> = {
   primary: "bg-fg text-bg hover:bg-accent hover:text-on-accent",
@@ -36,12 +36,13 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ variant = "primary", size = "md", loading, className = "", children, disabled, ...rest }, ref) => (
     <button
       ref={ref}
-      className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+      // Busy is not unavailable: a loading button keeps full strength
+      className={`${base} ${variants[variant]} ${sizes[size]} ${loading ? "cursor-progress disabled:opacity-100" : ""} ${className}`}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       {...rest}
     >
-      {loading && <CircleNotch className="size-4 animate-spin" weight="bold" aria-hidden="true" />}
+      {loading && <DotLoader pattern="scan" />}
       {children}
     </button>
   )
@@ -61,7 +62,10 @@ ButtonLink.displayName = "ButtonLink";
 
 /** Keyboard hint in the house style: [K]. Hidden on touch screens. */
 export const Kbd: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = "" }) => (
-  <kbd className={`font-mono text-[11px] font-normal tracking-normal opacity-60 [@media(pointer:coarse)]:hidden ${className}`}>
+  <kbd
+    data-kbd={typeof children === "string" ? children.toLowerCase() : undefined}
+    className={`font-mono text-[11px] font-normal tracking-normal opacity-60 transition-opacity data-pressed:opacity-100 [@media(pointer:coarse)]:hidden ${className}`}
+  >
     [{children}]
   </kbd>
 );

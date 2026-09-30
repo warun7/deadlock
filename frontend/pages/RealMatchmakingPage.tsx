@@ -7,6 +7,7 @@ import { Button, Kbd } from "../components/ui/Button";
 import { Chip, CrossRow, Figure, Label } from "../components/ui/Chrome";
 import PixelText from "../components/ui/pixel/PixelText";
 import { SearchGrid } from "../components/landing/StepDemos";
+import DotLoader from "../components/ui/pixel/DotLoader";
 import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import { useCurrentProfile } from "../lib/useCurrentProfile";
@@ -165,6 +166,25 @@ const RealMatchmakingPage: React.FC = () => {
   const clockText = `${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(timer % 60).padStart(2, "0")}`;
   const queued = status === "searching" || status === "connecting";
 
+  // The tab title carries the queue clock, so you can wait in another tab
+  useEffect(() => {
+    const original = document.title;
+    return () => {
+      document.title = original;
+    };
+  }, []);
+  useEffect(() => {
+    if (status === "searching") document.title = `${clockText} In queue \u00b7 Deadlock`;
+    else if (status === "found") document.title = "Match found \u00b7 Deadlock";
+    else if (status === "connecting") document.title = "Connecting \u00b7 Deadlock";
+    else document.title = "Queue error \u00b7 Deadlock";
+  }, [status, clockText]);
+
+  // A short double buzz on phones when an opponent is found
+  useEffect(() => {
+    if (status === "found") navigator.vibrate?.([24, 60, 24]);
+  }, [status]);
+
   const title = "text-[clamp(2.75rem,6vw,5.75rem)] font-medium leading-[0.9] tracking-[-0.06em] text-fg";
   const lead = "mt-5 max-w-[30ch] text-[clamp(1.25rem,1.8vw,1.5rem)] leading-[1.15] tracking-[-0.03em] text-fg-2";
 
@@ -189,7 +209,8 @@ const RealMatchmakingPage: React.FC = () => {
               {status === "connecting" && (
                 <motion.div key="connecting" {...fade}>
                   <p className="label text-fg-3">Queue</p>
-                  <h1 className={`mt-4 ${title}`}>Connecting</h1>
+                  <DotLoader pattern="ripple" size={5} cell={10} gap={4} className="mt-5 text-fg" label="Connecting" />
+                  <h1 className={`mt-8 ${title}`}>Connecting</h1>
                   <p className={lead}>Reaching the match server.</p>
                   <Button variant="outline" size="lg" className="mt-10" onClick={handleCancel}>
                     Cancel <Kbd>Esc</Kbd>

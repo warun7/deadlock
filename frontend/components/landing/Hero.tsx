@@ -4,6 +4,7 @@ import DuelStage from "./duel/DuelStage";
 import { ButtonLink } from "../ui/Button";
 import { CrossRow, Detail, Figure, Label } from "../ui/Chrome";
 import PixelText from "../ui/pixel/PixelText";
+import { RollText } from "../ui/micro";
 import { ensureGsap, prefersReducedMotion } from "../../lib/motion";
 import { ROUNDS } from "./duel/rounds";
 
@@ -48,7 +49,8 @@ const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
           <span data-line className="block whitespace-nowrap">
             Solve it{" "}
             <PixelText text="FIRST" label="first" intro="mount" delay={0.55} ripple className="h-[0.7em] text-fg" />
-            <span className="text-accent">.</span>
+            {/* The full stop doubles as a terminal caret */}
+            <span className="inline-block animate-[duel-caret_1.1s_steps(1)_infinite] text-accent motion-reduce:animate-none">.</span>
           </span>
         </span>
       </h1>
@@ -65,7 +67,7 @@ const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
         <div data-fade className="flex flex-col gap-3 md:col-span-4 md:col-start-9 md:self-end">
           <Label>Start</Label>
           <ButtonLink to="/auth?mode=signup" variant="accent" size="lg" className="group mt-2 w-full justify-between">
-            Play now
+            <RollText>Play now</RollText>
             <ArrowRight weight="bold" className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
           </ButtonLink>
           <a

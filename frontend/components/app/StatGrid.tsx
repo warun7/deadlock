@@ -1,5 +1,6 @@
 import React from "react";
 import type { Profile } from "../../types/database";
+import { RollingNumber } from "../ui/micro";
 
 interface Stat {
   label: string;
@@ -45,9 +46,10 @@ const StatGrid: React.FC<{ profile: Profile | null; loading: boolean; wide?: boo
             {loading ? (
               <span className="block h-10 w-20 animate-pulse bg-bg-2" aria-hidden="true" />
             ) : (
-              <span className="tabular block text-[clamp(2.25rem,4vw,3.25rem)] font-medium leading-none tracking-[-0.05em] text-fg">
-                {s.value}
-              </span>
+              <RollingNumber
+                value={s.value}
+                className="tabular text-[clamp(2.25rem,4vw,3.25rem)] font-medium leading-none tracking-[-0.05em] text-fg"
+              />
             )}
           </dd>
         </div>

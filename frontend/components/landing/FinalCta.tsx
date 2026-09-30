@@ -2,6 +2,7 @@ import React from "react";
 import { ArrowRight } from "@phosphor-icons/react";
 import { ButtonLink } from "../ui/Button";
 import { CrossRow, Label } from "../ui/Chrome";
+import { RollText } from "../ui/micro";
 import { useReveal } from "./useReveal";
 
 const FinalCta: React.FC = () => {
@@ -31,7 +32,7 @@ const FinalCta: React.FC = () => {
         <div data-reveal className="flex flex-col gap-3 md:col-span-4 md:col-start-9 md:self-end">
           <Label>Play</Label>
           <ButtonLink to="/auth?mode=signup" variant="accent" size="lg" className="group mt-2 w-full justify-between">
-            Create an account
+            <RollText>Create an account</RollText>
             <ArrowRight weight="bold" className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
           </ButtonLink>
           <ButtonLink to="/auth" variant="outline" size="lg" className="w-full justify-between">
