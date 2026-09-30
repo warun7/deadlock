@@ -37,17 +37,17 @@ const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
 
       <h1
         id="hero-title"
-        className="mt-6 text-[clamp(3.4rem,10.4vw,10.5rem)] font-medium leading-[0.9] tracking-[-0.065em] text-fg md:mt-8"
+        className="mt-6 text-[clamp(3rem,15vw,3.4rem)] font-medium sm:text-[clamp(3.4rem,10.4vw,10.5rem)] leading-[0.9] tracking-[-0.065em] text-fg md:mt-8"
       >
         <span className="block overflow-hidden pb-[0.04em]">
           <span data-line className="block">
-            Code is a
+            Same problem.
           </span>
         </span>
         <span className="block overflow-hidden pb-[0.06em]">
           <span data-line className="block whitespace-nowrap">
-            contact{" "}
-            <PixelText text="SPORT" label="sport" intro="mount" delay={0.55} ripple className="h-[0.7em] text-fg" />
+            Solve it{" "}
+            <PixelText text="FIRST" label="first" intro="mount" delay={0.55} ripple className="h-[0.7em] text-fg" />
             <span className="text-accent">.</span>
           </span>
         </span>
@@ -58,7 +58,7 @@ const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
           data-fade
           className="max-w-[26ch] text-[clamp(1.5rem,2.55vw,2.25rem)] font-medium leading-[1.06] tracking-[-0.04em] text-fg md:col-span-7 md:max-w-none"
         >
-          Real-time 1v1 duels on competitive programming problems. Same problem, same clock. The first submission to
+          Real-time 1v1 duels on competitive programming problems. One clock for both of you, and the first submission to
           pass every test wins.
         </p>
 

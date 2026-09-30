@@ -56,7 +56,7 @@ export const Figure: React.FC<{
       <span className="font-mono text-[9.5px] tracking-[0.08em]">[ FIG. {n} ]</span>
       <SlidersHorizontal className="size-3.5" />
     </div>
-    <div className={`relative m-[5px] mt-0 min-h-0 flex-1 border border-fg ${dots ? "dots" : ""} ${bodyClassName}`}>{children}</div>
+    <div className={`relative m-[5px] mt-0 min-h-0 flex-1 overflow-hidden border border-fg ${dots ? "dots" : ""} ${bodyClassName}`}>{children}</div>
     {caption && <figcaption className="sr-only">{caption}</figcaption>}
   </figure>
 );

@@ -32,8 +32,9 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ backTo, backLabel, children }) 
         </Link>
         <CrossRow className="mt-10" at={[0, 50, 100]} />
         <p className="mt-8 text-[clamp(3rem,6vw,6.5rem)] font-medium leading-[0.9] tracking-[-0.065em] text-fg">
-          Code is a<br />
-          contact <PixelText text="SPORT" decorative className="h-[0.7em]" />
+          Same problem.
+          <br />
+          Solve it <PixelText text="FIRST" decorative className="h-[0.7em]" />
           <span className="text-accent">.</span>
         </p>
         <div className="mt-auto pt-12">

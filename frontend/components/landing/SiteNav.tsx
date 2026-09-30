@@ -35,7 +35,7 @@ const SiteNav: React.FC<SiteNavProps> = ({ onAnchor }) => {
           <Link to="/" aria-label="Deadlock home" className="rounded-[3px]">
             <Chip className="px-2">
               <Mark className="size-3.5" />
-              <span>Deadlock</span>
+              <span className="hidden min-[360px]:inline">Deadlock</span>
             </Chip>
           </Link>
           <div className="hidden items-center gap-[3px] md:flex">
