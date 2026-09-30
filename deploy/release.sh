@@ -29,7 +29,12 @@ DEPLOY="$ROOT/deploy"
 # rsync rules per directory. Secrets and build output stay as they are.
 APP_EXCLUDES=(--exclude '.env*' --exclude node_modules --exclude dist --exclude logs --exclude '*.log')
 DEPLOY_RULES=(--include .env.example --exclude '.env*' --exclude judge0.conf
-  --exclude .deployed-version --exclude .frontend-version)
+  --exclude .deployed-version --exclude .frontend-version --exclude .release-incomplete)
+
+# Present from the moment new source is copied in until the containers match
+# it. If a release dies in between (a dropped SSH session, a reboot), the
+# source already looks deployed, so the next release must rebuild anyway.
+INCOMPLETE="$DEPLOY/.release-incomplete"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 fail() { printf '\n\033[1;31mERROR: %s\033[0m\n' "$1" >&2; exit 1; }
@@ -69,6 +74,10 @@ main() {
   differs deploy "${DEPLOY_RULES[@]}" && deploy_changed=true
   cmp -s "$TMP/deploy/docker-compose.yml" "$DEPLOY/docker-compose.yml" || compose_changed=true
   cmp -s "$TMP/deploy/Caddyfile" "$DEPLOY/Caddyfile" || caddy_changed=true
+  if [ -f "$INCOMPLETE" ]; then
+    echo "The previous release did not finish, so everything is rebuilt."
+    frontend_changed=true backend_changed=true compose_changed=true caddy_changed=true deploy_changed=true
+  fi
   echo "frontend: $frontend_changed  backend: $backend_changed  compose: $compose_changed  caddy: $caddy_changed  other deploy files: $deploy_changed"
 
   if ! $frontend_changed && ! $backend_changed && ! $deploy_changed; then
@@ -102,6 +111,7 @@ main() {
   # 4. Copy the new source and build. A failed build changes nothing live.
   # --------------------------------------------------------
   log "Copying the new source"
+  touch "$INCOMPLETE"
   sync_dir frontend "${APP_EXCLUDES[@]}" --delete
   sync_dir backend "${APP_EXCLUDES[@]}" --delete
   # --inplace keeps the Caddyfile's inode, so edge's bind mount sees the new file
@@ -114,6 +124,7 @@ main() {
     log "Building ${build[*]} (a minute or two)"
     if ! docker compose build "${build[@]}"; then
       restore_source
+      rm -f "$INCOMPLETE"
       fail "Build failed. The live site was not changed and the source was put back."
     fi
   fi
@@ -139,6 +150,7 @@ main() {
       # Caddy keeps serving the old config when a reload is rejected
       tar -xzf "$BACKUP" -C "$TMP" deploy/Caddyfile
       cat "$TMP/deploy/Caddyfile" > "$DEPLOY/Caddyfile"
+      rm -f "$INCOMPLETE"
       fail "The new Caddyfile was rejected. Edge is still serving the old one, which is back on disk."
     fi
   fi
@@ -160,11 +172,13 @@ main() {
         docker compose up -d --no-deps --force-recreate "${restored[@]}"
         wait_for_backend || true
       fi
+      rm -f "$INCOMPLETE"
       fail "Backend failed its health check after the release. Logs are above."
     fi
   fi
 
   echo "$sha" > "$DEPLOY/.deployed-version"
+  rm -f "$INCOMPLETE"
   docker image prune -f >/dev/null || true
   log "Done. Live: ${sha:0:7}"
   docker compose ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || docker compose ps
