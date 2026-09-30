@@ -26,11 +26,13 @@ interface RedisDebugMatchesSnapshot {
 
 const redisLogger = createModuleLogger("redis");
 
-// Redis connection options for Upstash (TLS required)
+// Base Redis connection options.
+// TLS is applied conditionally by buildRedisOptions() so that the same build
+// works against a managed TLS provider (Upstash, rediss://) and a plain
+// Redis on a private network / same VPS (redis://).
 const REDIS_OPTIONS = {
   maxRetriesPerRequest: null, // Disable per-request retry limit to prevent unhandled rejections
   enableReadyCheck: false, // Faster reconnect
-  tls: {}, // Required for Upstash - enables TLS connection
   retryStrategy: (times: number) => {
     // Exponential backoff: 100ms, 200ms, 400ms... max 5 seconds
     const delay = Math.min(times * 100, 5000);
@@ -53,6 +55,31 @@ const REDIS_OPTIONS = {
 };
 
 /**
+ * Decide whether TLS is required for this Redis endpoint.
+ *
+ * A `rediss://` URL always implies TLS (Upstash, Redis Cloud, ElastiCache with
+ * in-transit encryption). A plain `redis://` URL does not, which is what you
+ * get from a local Redis, a Docker Compose service, or Redis bound to a
+ * private network on the same host. REDIS_TLS=true forces TLS on regardless,
+ * for providers that hand out a redis:// URL but still require TLS.
+ */
+function shouldUseTls(redisUrl: string): boolean {
+  if (redisUrl.startsWith("rediss://")) {
+    return true;
+  }
+
+  return process.env.REDIS_TLS === "true";
+}
+
+function buildRedisOptions(redisUrl: string) {
+  if (!shouldUseTls(redisUrl)) {
+    return REDIS_OPTIONS;
+  }
+
+  return { ...REDIS_OPTIONS, tls: {} };
+}
+
+/**
  * RedisService - Manages all Redis operations for the real-time layer
  *
  * Redis is the source of truth for active match state and reconnect support.
@@ -66,8 +93,29 @@ export class RedisService {
   private commandMetrics: Map<string, RedisMetricBucket> = new Map();
 
   constructor() {
-    this.client = new Redis(config.redisUrl, REDIS_OPTIONS);
+    this.client = new Redis(config.redisUrl, buildRedisOptions(config.redisUrl));
     this.setupEventHandlers();
+  }
+
+  /**
+   * Current ioredis connection state: 'wait' | 'connecting' | 'connect' |
+   * 'ready' | 'reconnecting' | 'end'. Exposed for the health endpoint.
+   */
+  getStatus(): string {
+    return this.client.status;
+  }
+
+  /**
+   * Round-trip liveness probe. Used by /health so an orchestrator (or a human)
+   * can tell "process is up" apart from "process can actually reach Redis".
+   */
+  async ping(): Promise<boolean> {
+    try {
+      const reply = await this.client.ping();
+      return reply === "PONG";
+    } catch {
+      return false;
+    }
   }
 
   private setupEventHandlers(): void {

@@ -1,6 +1,11 @@
 # Dependencies
 node_modules/
-package-lock.json
+# package-lock.json is deliberately NOT ignored. This is an application, not a
+# library, so the lockfile is what keeps transitive dependencies pinned. While
+# it was ignored, a fresh clone resolved "@supabase/supabase-js": "^2.39.0" to
+# whatever was newest at build time -- which is how a Node 20 image ended up
+# crash-looping on a version that requires Node 22. The Dockerfile also runs
+# `npm ci`, which cannot work without it.
 
 # Environment variables
 .env

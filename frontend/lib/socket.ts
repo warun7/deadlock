@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client';
+import { supabase } from './supabase';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 
@@ -21,7 +22,6 @@ class GameSocket {
 
   connect(token: string) {
     if (this.socket) {
-      this.socket.auth = { token };
 
       if (this.socket.connected) {
         console.log('Socket already connected');
@@ -36,14 +36,22 @@ class GameSocket {
     console.log('Connecting to socket:', SOCKET_URL);
 
     this.socket = io(SOCKET_URL, {
-      auth: { token },
+      // Read the session on every (re)connect: Supabase refreshes access
+      // tokens hourly, and a reconnect with an expired one would be refused.
+      auth: (cb) => {
+        supabase.auth
+          .getSession()
+          .then(({ data }) => cb({ token: data.session?.access_token ?? token }))
+          .catch(() => cb({ token }));
+      },
       transports: ['websocket', 'polling'],
+      // Keep trying: the server holds an active match for 45s while a player
+      // is away, and a laptop waking up can take longer than a few attempts.
       reconnection: true,
-      reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
       autoConnect: false,
     });
-
     this.bindCoreListeners(this.socket);
     this.socket.connect();
 

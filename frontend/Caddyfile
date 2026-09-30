@@ -1,0 +1,21 @@
+# Static file server for the built SPA.
+#
+# This replaces frontend/vercel.json, whose only job was the catch-all rewrite
+# to /index.html. `try_files {path} /index.html` is the equivalent for
+# client-side routing: real files are served as-is, unknown paths fall through
+# to the SPA shell so react-router can handle /game/:id, /u/:username, etc.
+:80 {
+	root * /usr/share/caddy
+
+	encode gzip zstd
+
+	# Vite emits content-hashed filenames under /assets, so they can be cached
+	# forever. index.html must never be cached or clients pin a stale bundle.
+	@immutable path /assets/*
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+	@html not path /assets/*
+	header @html Cache-Control "no-cache"
+
+	try_files {path} /index.html
+	file_server
+}

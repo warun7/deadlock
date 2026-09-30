@@ -6,6 +6,8 @@ export interface Profile {
   email: string;
   avatar_url: string | null;
   global_rank: number | null;
+  /** Elo rating, 1000 for new players. Changes after every human match. */
+  rating: number;
   win_rate: number;
   current_streak: number;
   best_streak: number;

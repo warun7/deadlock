@@ -73,8 +73,17 @@ async function main(): Promise<void> {
   app.use(requestLogger);
   
   // CORS
+  // Accepts any origin in FRONTEND_URL (comma-separated), plus requests with no
+  // Origin header at all (health probes, curl, server-to-server calls).
   app.use(cors({
-    origin: config.frontendUrl,
+    origin: (origin, callback) => {
+      if (!origin || config.frontendUrls.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`Origin not allowed by CORS: ${origin}`));
+    },
     credentials: true,
   }));
   
@@ -85,11 +94,26 @@ async function main(): Promise<void> {
   app.use(apiLimiter);
   
   // Health check endpoint
-  app.get('/health', (req, res) => {
-    res.json({
-      status: 'ok',
+  // Reports the state of the dependencies that actually matter, so that
+  // `docker compose ps` / an uptime monitor can distinguish "process is up"
+  // from "the app can serve matches".
+  app.get('/health', async (req, res) => {
+    const redisOk = await redisService.ping();
+
+    res.status(redisOk ? 200 : 503).json({
+      status: redisOk ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
+      redis: {
+        connected: redisOk,
+        state: redisService.getStatus(),
+      },
+      judge0: {
+        url: config.judge0.url,
+      },
+      queue: {
+        length: socketServer?.getQueueLength() ?? 0,
+      },
     });
   });
   

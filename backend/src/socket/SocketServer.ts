@@ -43,7 +43,8 @@ export class DeadlockSocketServer {
     // Initialize Socket.IO
     this.io = new SocketServer(httpServer, {
       cors: {
-        origin: config.frontendUrl,
+        // Same allow-list as the Express layer (FRONTEND_URL, comma-separated).
+        origin: config.frontendUrls,
         methods: ["GET", "POST"],
         credentials: true,
       },
@@ -139,12 +140,9 @@ export class DeadlockSocketServer {
 
       console.log(`   🎧 Registering event listeners for socket ${socket.id}`);
 
-      // Debug: Log ALL incoming events
-      socket.onAny((eventName, ...args) => {
-        console.log(
-          `🔔 Event received: "${eventName}" from ${user.username} (${socket.id})`,
-          args.length > 0 ? args : ""
-        );
+      // Log event names only: payloads include players' source code
+      socket.onAny((eventName) => {
+        console.log(`🔔 Event received: "${eventName}" from ${user.username} (${socket.id})`);
       });
 
       // ============================================
@@ -282,6 +280,7 @@ export class DeadlockSocketServer {
           "socket_reconnect_update_socket"
         );
 
+        this.matchmakingService.markReconnected(matchId, user.id);
         console.log(
           `🔄 ${user.username} reconnected - has active match ${matchId}`
         );
@@ -391,6 +390,7 @@ export class DeadlockSocketServer {
         socket.id,
         "rejoin_update_socket"
       );
+      this.matchmakingService.markReconnected(matchId, user.id);
 
       // Emit match_found with full data
       socket.emit("match_found", {
@@ -466,6 +466,7 @@ export class DeadlockSocketServer {
 
     // Stop matchmaking
     this.matchmakingService.stop();
+    this.matchmakingService.clearDisconnectTimers();
 
     // Clear all cleanup timers to prevent memory leaks
     this.gameService.clearAllTimers();

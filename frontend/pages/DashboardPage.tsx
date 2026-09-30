@@ -5,6 +5,7 @@ import { ArrowClockwise, ArrowRight } from "@phosphor-icons/react";
 import { AppShell } from "../components/app/AppNav";
 import StatGrid from "../components/app/StatGrid";
 import NameTitle from "../components/app/NameTitle";
+import RankPanel from "../components/app/RankPanel";
 import MatchList, { EmptyState } from "../components/app/MatchList";
 import { Button, ButtonLink, Kbd } from "../components/ui/Button";
 import { Detail, Figure, Label } from "../components/ui/Chrome";
@@ -175,7 +176,8 @@ const DashboardPage: React.FC = () => {
           aria-labelledby="stats-title"
           className="lg:col-span-4 lg:col-start-9"
         >
-          <Label as="h2" id="stats-title" rule={false}>
+          <RankPanel rating={profile?.rating} loading={profileLoading} />
+          <Label as="h2" id="stats-title" rule={false} className="mt-10">
             Record
           </Label>
           <StatGrid profile={profile} loading={profileLoading} className="mt-0" />

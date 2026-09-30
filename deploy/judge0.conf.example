@@ -1,0 +1,29 @@
+# ============================================================
+# Judge0 configuration
+# ============================================================
+# You do NOT need to create this file by hand.
+#
+# deploy.sh generates deploy/judge0.conf on first run, with freshly generated
+# random secrets, and chmod 600 it. This example exists to document what that
+# file contains and why it must stay secret.
+#
+# If you ever need to recreate it (which will invalidate the existing database
+# volume's credentials), delete judge0.conf and re-run deploy.sh -- but note
+# that judge0-db-data volume still holds the old password, so use
+# `docker compose down -v` first if you want a clean slate.
+# ============================================================
+
+# Container hostnames for Judge0's own dependencies.
+# These must match the service names in docker-compose.yml.
+POSTGRES_HOST=judge0-db
+POSTGRES_DB=judge0
+POSTGRES_USER=judge0
+POSTGRES_PASSWORD=replace-with-a-long-random-string
+
+REDIS_HOST=judge0-redis
+REDIS_PASSWORD=replace-with-a-long-random-string
+
+# Rails session/signing key. Judge0 refuses to boot without it.
+# 64 hex characters:
+#   openssl rand -hex 64
+SECRET_KEY_BASE=replace-with-64-hex-characters

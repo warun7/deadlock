@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Camera, Check, Copy, PencilSimple } from "@phosphor-icons/react";
 import { AppShell } from "../components/app/AppNav";
 import StatGrid from "../components/app/StatGrid";
+import RankPanel from "../components/app/RankPanel";
 import HistorySection from "../components/app/HistorySection";
 import Avatar from "../components/ui/Avatar";
 import Field from "../components/ui/Field";
@@ -237,7 +238,8 @@ const ProfilePage: React.FC = () => {
         </div>
       </motion.header>
 
-      <StatGrid profile={profile} loading={loading} wide className="mt-14" />
+      <RankPanel rating={profile?.rating} loading={loading} className="mt-14 max-w-xl" />
+      <StatGrid profile={profile} loading={loading} wide className="mt-12" />
 
       <HistorySection
         subjectKey={user?.id ?? "me"}

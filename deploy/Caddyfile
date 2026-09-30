@@ -1,0 +1,39 @@
+# ============================================================
+# Edge routing + automatic TLS
+# ============================================================
+# Caddy obtains and renews Let's Encrypt certificates automatically, which is
+# why there is no certbot/nginx in this stack.
+#
+# Requires DNS A records pointing at this server BEFORE the first boot, or the
+# certificate challenge fails:
+#
+#   deadlock.sbs      -> <server ip>
+#   www.deadlock.sbs  -> <server ip>
+#   api.deadlock.sbs  -> <server ip>
+# ============================================================
+
+{
+	# Where Let's Encrypt sends expiry warnings.
+	email {$ACME_EMAIL}
+}
+
+# Redirect the www host to the apex domain so there is one canonical origin.
+# The frontend is built with a single origin in mind, and a second origin would
+# also need adding to FRONTEND_URL for CORS.
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
+
+# Frontend: the built SPA.
+{$DOMAIN} {
+	encode gzip zstd
+	reverse_proxy frontend:80
+}
+
+# Backend: REST + Socket.IO.
+# Caddy's reverse_proxy upgrades WebSockets transparently, including the
+# long-lived Socket.IO connection, so no special configuration is needed here.
+{$API_DOMAIN} {
+	encode gzip zstd
+	reverse_proxy backend:3001
+}

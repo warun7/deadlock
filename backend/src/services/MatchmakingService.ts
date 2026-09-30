@@ -28,6 +28,7 @@ export class MatchmakingService {
   private isProcessingQueue = false;
   private shouldProcessQueueAgain = false;
   private activeBots: Map<string, BotPlayer> = new Map(); // Track active bots by matchId
+  private disconnectTimers: Map<string, NodeJS.Timeout> = new Map(); // `${matchId}:${userId}` -> forfeit timer
   private gameService: GameService | null = null; // Set by GameService (for saving match results)
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
@@ -391,7 +392,7 @@ export class MatchmakingService {
       // Create bot instance
       const bot = new BotPlayer({
         difficulty: botDifficulty,
-        problemRating: parseInt(problem.difficulty || "1000"),
+        problemRating: problem.difficulty ?? 1000,
         socketServer: this.io,
         matchId,
         onComplete: (result: BotCompletionResult) => {
@@ -443,7 +444,7 @@ export class MatchmakingService {
           title: problem.title,
           description: problem.description,
           difficulty: problem.difficulty,
-          testCases: problem.testCases,
+          testCases: problem.testCases.filter((tc) => !tc.isHidden), // Only visible test cases
         },
         opponent: bot.getPlayerInfo(),
         startTime: Date.now(),
@@ -629,7 +630,12 @@ export class MatchmakingService {
   }
 
   /**
-   * Handle player disconnect during queue/match
+   * Handle player disconnect during queue/match.
+   *
+   * Leaving the queue is immediate. Dropping out of an active match is not:
+   * a refresh, a network blip or a laptop lid closing all look like a
+   * disconnect, so the player gets a grace period to come back (see
+   * markReconnected) before the opponent is awarded the win.
    */
   async handleDisconnect(socket: AuthenticatedSocket): Promise<void> {
     const user = socket.user;
@@ -640,104 +646,144 @@ export class MatchmakingService {
       console.log(`📤 ${user.username} removed from queue on disconnect`);
     }
 
-    // Check if in match
+    // Only forget the socket mapping if it still points at this socket; a
+    // second tab or an already-reconnected socket may own it now.
+    const mappedSocketId = await redisService.getUserSocket(user.id, "disconnect_get_user_socket");
+    if (!mappedSocketId || mappedSocketId === socket.id) {
+      await redisService.deleteUserSocket(user.id, "disconnect_delete_user_socket");
+    }
+
     const matchId =
       socket.data.currentMatchId ||
-      (await redisService.getUserMatchId(
-        user.id,
-        "disconnect_get_user_match"
-      ));
+      (await redisService.getUserMatchId(user.id, "disconnect_get_user_match"));
+    if (!matchId) return;
 
-    if (matchId) {
-      const match = await redisService.getMatch(
-        matchId,
-        "disconnect_read_match"
+    const match = await redisService.getMatch(matchId, "disconnect_read_match");
+    if (!match || match.status !== "active") return;
+
+    // Another tab of the same player is still in the match: nothing is lost
+    if (this.isUserInMatchRoom(matchId, user.id, socket.id)) return;
+
+    const key = this.disconnectKey(matchId, user.id);
+    if (this.disconnectTimers.has(key)) return;
+
+    const graceMs = config.match.reconnectGraceMs;
+    const deadline = Date.now() + graceMs;
+    console.log(`⏳ ${user.username} dropped out of match ${matchId}; holding it for ${graceMs / 1000}s`);
+
+    this.io.to(matchId).emit("opponent_progress", {
+      playerId: user.id,
+      status: "Disconnected",
+      reconnectDeadline: deadline,
+    });
+
+    const timer = setTimeout(() => {
+      this.disconnectTimers.delete(key);
+      void this.resolveDisconnect(matchId, user.id).catch((error) =>
+        console.error(`❌ Error resolving disconnect for match ${matchId}:`, error)
       );
+    }, graceMs);
+    this.disconnectTimers.set(key, timer);
+  }
 
-      if (match && match.status === "active") {
-        // Player disconnected during active match - opponent wins
-        const winnerId =
-          match.player1.id === user.id ? match.player2.id : match.player1.id;
-        const loserId = user.id;
+  /**
+   * A player is back in their match (new socket joined the room). Cancels a
+   * pending disconnect forfeit and tells the opponent.
+   */
+  markReconnected(matchId: string, userId: string): void {
+    const key = this.disconnectKey(matchId, userId);
+    const timer = this.disconnectTimers.get(key);
+    if (!timer) return;
 
-        const won = await redisService.setMatchWinner(
+    clearTimeout(timer);
+    this.disconnectTimers.delete(key);
+    console.log(`🔄 ${userId} is back in match ${matchId} before the grace period ran out`);
+    this.io.to(matchId).emit("opponent_progress", {
+      playerId: userId,
+      status: "Reconnected",
+    });
+  }
+
+  /** Clear pending disconnect timers (server shutdown) */
+  clearDisconnectTimers(): void {
+    for (const timer of this.disconnectTimers.values()) clearTimeout(timer);
+    this.disconnectTimers.clear();
+  }
+
+  private disconnectKey(matchId: string, userId: string): string {
+    return `${matchId}:${userId}`;
+  }
+
+  /**
+   * Whether this player has a live socket in the match room (other than the
+   * one given). Single-instance: checks this server's sockets.
+   */
+  private isUserInMatchRoom(matchId: string, userId: string, exceptSocketId?: string): boolean {
+    for (const s of this.io.sockets.sockets.values()) {
+      if (s.id === exceptSocketId) continue;
+      if ((s as AuthenticatedSocket).user?.id === userId && s.rooms.has(matchId)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The grace period ran out. If the player still is not back, the opponent
+   * wins by disconnect; if both players are gone, the match ends with no
+   * winner and nothing is recorded.
+   */
+  private async resolveDisconnect(matchId: string, userId: string): Promise<void> {
+    const match = await redisService.getMatch(matchId, "disconnect_resolve_read_match");
+    if (!match || match.status !== "active") return;
+    if (this.isUserInMatchRoom(matchId, userId)) return;
+
+    const isBotMatch = match.player2.socketId === "bot";
+    const winnerId = match.player1.id === userId ? match.player2.id : match.player1.id;
+    const loserId = userId;
+
+    if (!isBotMatch && !this.isUserInMatchRoom(matchId, winnerId)) {
+      await redisService.updateMatchStatus(matchId, "finished", "disconnect_both_gone");
+      this.io.to(matchId).emit("game_over", {
+        winnerId: null,
+        reason: "Both players disconnected",
+      });
+      console.log(`🏁 Match ${matchId} ended: both players disconnected`);
+      return;
+    }
+
+    const won = await redisService.setMatchWinner(matchId, winnerId, "disconnect_finish_match");
+    if (!won) return;
+
+    console.log(`🏆 ${winnerId} wins by disconnect in match ${matchId}`);
+    const duration = Math.floor((Date.now() - match.startedAt) / 1000);
+
+    if (this.gameService) {
+      if (isBotMatch) {
+        // Bot match - save only for human player
+        const bot = this.activeBots.get(matchId);
+        await this.gameService.saveBotMatchToDatabase({
           matchId,
+          humanId: match.player1.id,
+          botId: match.player2.id,
+          botUsername: match.player2.username,
           winnerId,
-          "disconnect_finish_match"
-        );
-
-        if (won) {
-          console.log(`🏆 ${winnerId} wins by disconnect in match ${matchId}`);
-
-          // Calculate match duration
-          const duration = Math.floor((Date.now() - match.startedAt) / 1000);
-
-          // Save match to database
-          if (this.gameService) {
-            // Check if this is a bot match (bot is always player2 with socketId "bot")
-            const isBotMatch = match.player2.socketId === "bot";
-
-            if (isBotMatch) {
-              // Bot match - save only for human player
-              const bot = this.activeBots.get(matchId);
-              const botDifficulty = bot?.getDifficulty() || "medium";
-
-              await this.gameService.saveBotMatchToDatabase({
-                matchId,
-                humanId: match.player1.id,
-                botId: match.player2.id,
-                botUsername: match.player2.username, // Get bot username from match state
-                winnerId,
-                problemId: match.problemId,
-                problemTitle: match.problemTitle,
-                duration,
-                botDifficulty,
-              });
-
-              // Clean up bot
-              this.cleanupBot(matchId);
-            } else {
-              // Human vs human match - save for both players
-              const winnerElo =
-                winnerId === match.player1.id
-                  ? match.player1.elo
-                  : match.player2.elo;
-              const loserElo =
-                loserId === match.player1.id
-                  ? match.player1.elo
-                  : match.player2.elo;
-
-              // Calculate ELO change (simplified K=32 formula)
-              const K = 32;
-              const expectedScore =
-                1 / (1 + Math.pow(10, (loserElo - winnerElo) / 400));
-              const eloChange = Math.round(K * (1 - expectedScore));
-
-              await this.gameService.saveMatchToDatabase({
-                matchId,
-                winnerId,
-                loserId,
-                problemId: match.problemId,
-                problemTitle: match.problemTitle,
-                duration,
-                player1Id: match.player1.id,
-                player2Id: match.player2.id,
-                eloChange,
-                language: "unknown", // Disconnected - no language tracked
-              });
-            }
-          }
-
-          // Notify the remaining player
-          this.io.to(matchId).emit("game_over", {
-            winnerId,
-            reason: "Opponent disconnected",
-          });
-        }
+          problemId: match.problemId,
+          problemTitle: match.problemTitle,
+          duration,
+          botDifficulty: bot?.getDifficulty() || "medium",
+        });
+        this.cleanupBot(matchId);
+      } else {
+        await this.gameService.recordHumanResult(match, winnerId, loserId, duration, "unknown", {
+          winner: "Opponent disconnected",
+          loser: "You disconnected",
+        });
+        return; // recordHumanResult notifies both players with their rating changes
       }
     }
 
-    // Clean up socket mappings
-    await redisService.deleteUserSocket(user.id, "disconnect_delete_user_socket");
+    this.io.to(matchId).emit("game_over", {
+      winnerId,
+      reason: "Opponent disconnected",
+    });
   }
 }

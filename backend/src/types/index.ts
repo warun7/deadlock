@@ -61,7 +61,9 @@ export interface MatchFoundPayload {
     id: string;
     title: string;
     description: string;
-    difficulty: string;
+    // Codeforces rating as an integer. Was a string until migration 007; the
+    // DB column is now integer so range filters compare numerically.
+    difficulty: number;
     testCases: TestCase[];
   };
   opponent: {
@@ -96,7 +98,7 @@ export interface Problem {
   id: string;
   title: string;
   description: string;
-  difficulty: string;
+  difficulty: number;
   testCases: TestCase[];
   checkerType?: CheckerType; // How to validate answers (defaults to 'exact')
   checkerCode?: string; // Custom JS code for 'custom' checker type
@@ -127,12 +129,17 @@ export interface SubmissionResult {
   testResults?: TestResult[];
 }
 
+// Internal results carry stdout/expected/message for every test.
+// Results sent to clients go through sanitizeSubmissionResult first, which
+// strips everything but testIndex/passed/status/hidden from hidden tests.
 export interface TestResult {
   testIndex: number;
   passed: boolean;
   status: string;
+  hidden?: boolean;
   stdout?: string;
   expected?: string;
+  message?: string; // Checker detail, may quote the expected output
   time?: string;
   memory?: number;
 }
@@ -148,6 +155,13 @@ export interface Judge0Submission {
   expected_output?: string;
   cpu_time_limit?: number;
   memory_limit?: number;
+  /**
+   * Base64-encoded ZIP whose entries Judge0 extracts into the sandbox (/box).
+   * Used to hand a problem checker its input/expected/submission files.
+   */
+  additional_files?: string;
+  /** Space-separated argv passed to the program. Used to invoke checkers. */
+  command_line_arguments?: string;
 }
 
 export interface Judge0Response {
@@ -188,11 +202,15 @@ export interface ServerToClientEvents {
     playerId: string;
     status: string;
     testsProgress?: string;
+    /** Epoch ms by which a disconnected player must be back */
+    reconnectDeadline?: number;
   }) => void;
   game_over: (data: {
     winnerId: string | null;
     reason: string;
-    newElo?: number;
+    /** Rating points gained (+) or lost (-); only for rated, recorded matches */
+    ratingChange?: number;
+    newRating?: number;
   }) => void;
   error: (data: { message: string; code?: string }) => void;
   active_match_found: (data: { matchId: string }) => void; // Notify client of active match

@@ -1,26 +1,29 @@
-name: Deploy frontend
+name: Deploy
 
-# Every push to main that touches the frontend is built and type-checked here,
-# then deployed to the droplet. Setup: deploy/README.md.
+# Every push to main that touches the app or its deploy config is built and
+# type-checked here, then released to the droplet by deploy/release.sh, which
+# rebuilds only what changed. Setup: deploy/README.md.
 on:
   push:
     branches: [main]
     paths:
       - "frontend/**"
-      - ".github/workflows/deploy-frontend.yml"
+      - "backend/**"
+      - "deploy/**"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 # Queue deploys instead of cancelling one halfway through a container swap
 concurrency:
-  group: deploy-frontend
+  group: deploy
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build and type-check
+  frontend:
+    name: Frontend build and type-check
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -36,9 +39,25 @@ jobs:
       - run: npx tsc --noEmit -p .
       - run: npm run build
 
+  backend:
+    name: Backend build and type-check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
   deploy:
-    name: Deploy to droplet
-    needs: build
+    name: Release to droplet
+    needs: [frontend, backend]
     runs-on: ubuntu-latest
     steps:
       - name: Check deploy settings
@@ -47,7 +66,7 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
           if [ -z "$HOST" ]; then
-            echo "::warning::Deploy secrets are not set yet, so this run only built the site. See deploy/README.md."
+            echo "::warning::Deploy secrets are not set yet, so this run only built the app. See deploy/README.md."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -64,7 +83,7 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          # The server only lets this key run deploy/ci-deploy.sh, which takes the commit to deploy
+          # The server only lets this key run deploy/ci-deploy.sh, which takes the commit to release
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o ConnectTimeout=20 "root@$HOST" "$GITHUB_SHA"
 
       - name: Clean up key

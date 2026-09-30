@@ -1,0 +1,260 @@
+# ============================================================
+# Deadlock -- complete stack on a single host
+# ============================================================
+# One `docker compose up -d` runs:
+#
+#   edge           Caddy: terminates TLS, serves deadlock.sbs, proxies the API
+#   frontend       built Vite bundle, served by an internal Caddy
+#   backend        Node + Socket.IO game server
+#   redis          app match state / reconnect mapping
+#   judge0-*       self-hosted code execution (server, workers, db, redis)
+#
+# Managed off-box (deliberately, to keep this cheap):
+#   Supabase       Postgres + Auth on the free tier
+#   DNS            Namecheap
+#
+# Judge0 is NOT published to the internet. The backend reaches it over the
+# internal Docker network at http://judge0-server:2358, so there is no public
+# judge endpoint to secure, rate-limit or pay a certificate for.
+#
+# Bring the whole thing up:      ./deploy.sh
+# Bring it up without Judge0:    docker compose up -d edge frontend backend redis
+# ============================================================
+
+name: deadlock
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ----------------------------------------------------------
+  # Edge: TLS termination + routing for every public hostname
+  # ----------------------------------------------------------
+  edge:
+    image: caddy:2-alpine
+    container_name: deadlock-edge
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data       # persisted certificates -- do not delete casually
+      - caddy-config:/config
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - deadlock
+    logging: *default-logging
+
+  # ----------------------------------------------------------
+  # Frontend: static SPA bundle
+  # ----------------------------------------------------------
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        # Baked into the bundle at build time (see frontend/Dockerfile)
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_SOCKET_URL: ${VITE_SOCKET_URL}
+    container_name: deadlock-frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - deadlock
+    logging: *default-logging
+
+  # ----------------------------------------------------------
+  # Backend: game server (REST + Socket.IO)
+  # ----------------------------------------------------------
+  backend:
+    build:
+      context: ../backend
+    container_name: deadlock-backend
+    restart: unless-stopped
+    init: true          # reap zombies and forward SIGTERM for graceful shutdown
+    # Bound to 127.0.0.1 only -- lets you run `curl localhost:3001/health` on the
+    # server to see dependency state, without exposing the API directly.
+    ports:
+      - "127.0.0.1:3001:3001"
+    expose:
+      - "3001"
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+
+      # Comma-separated allow-list. Must include the browser-facing origin or
+      # Socket.IO handshakes are rejected.
+      FRONTEND_URL: ${FRONTEND_URL}
+
+      # Internal Docker DNS names -- nothing here is public.
+      REDIS_URL: redis://redis:6379
+      JUDGE0_URL: http://judge0-server:2358
+
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+
+      ADMIN_SECRET: ${ADMIN_SECRET}
+
+      MATCH_TIMEOUT_MS: ${MATCH_TIMEOUT_MS:-1800000}
+      # How long a player who drops out of a match has to come back before
+      # the opponent is awarded the win.
+      RECONNECT_GRACE_MS: ${RECONNECT_GRACE_MS:-45000}
+      BOT_ENABLED: ${BOT_ENABLED:-true}
+      BOT_TRIGGER_DELAY: ${BOT_TRIGGER_DELAY:-60000}
+      BOT_DEFAULT_DIFFICULTY: ${BOT_DEFAULT_DIFFICULTY:-medium}
+
+      # Containers should log to stdout, not to files inside themselves.
+      LOG_TO_FILE: "false"
+      # Single instance -- the socket.io Redis adapter is unnecessary here.
+      ENABLE_REDIS_ADAPTER: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+      judge0-server:
+        condition: service_started
+    networks:
+      - deadlock
+    logging: *default-logging
+
+  # ----------------------------------------------------------
+  # Redis: active match state + reconnect mapping
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: deadlock-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      # Hard ceiling so Redis can never starve the other containers on a small
+      # droplet. noeviction is deliberate: silently dropping an in-flight match
+      # is worse than failing a write, because players would be stranded in a
+      # match the server can no longer see.
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - deadlock
+    logging: *default-logging
+
+  # ----------------------------------------------------------
+  # Judge0: self-hosted code execution
+  # Needs privileged containers, so it can only run on a host you control.
+  # Sized for one worker -- see JUDGE0_WORKERS in deploy/.env and the README.
+  # ----------------------------------------------------------
+  judge0-server:
+    image: judge0/judge0:1.13.1
+    container_name: deadlock-judge0
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    # Bound to 127.0.0.1 only -- reachable from the server itself for health
+    # checks and debugging, never from the internet.
+    ports:
+      - "127.0.0.1:2358:2358"
+    expose:
+      - "2358"
+    depends_on:
+      judge0-db:
+        condition: service_healthy
+      judge0-redis:
+        condition: service_healthy
+    networks:
+      - deadlock
+    logging: *default-logging
+
+  judge0-workers:
+    image: judge0/judge0:1.13.1
+    # No container_name here on purpose: a fixed name is incompatible with
+    # `--scale judge0-workers=N`, which is how worker count is controlled.
+    command: ["./scripts/workers"]
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    depends_on:
+      judge0-db:
+        condition: service_healthy
+      judge0-redis:
+        condition: service_healthy
+      judge0-server:
+        condition: service_started
+    networks:
+      - deadlock
+    logging: *default-logging
+
+  judge0-db:
+    image: postgres:16.2
+    container_name: deadlock-judge0-db
+    restart: unless-stopped
+    env_file:
+      - ./judge0.conf
+    volumes:
+      - judge0-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - deadlock
+    logging: *default-logging
+
+  judge0-redis:
+    image: redis:7.2.4
+    container_name: deadlock-judge0-redis
+    restart: unless-stopped
+    command:
+      - bash
+      - -c
+      - 'docker-entrypoint.sh --appendonly no --requirepass "$${REDIS_PASSWORD}"'
+    env_file:
+      - ./judge0.conf
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - deadlock
+    logging: *default-logging
+
+networks:
+  deadlock:
+    driver: bridge
+
+volumes:
+  caddy-data:
+  caddy-config:
+  redis-data:
+  judge0-db-data:
