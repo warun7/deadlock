@@ -109,6 +109,9 @@ services:
       ADMIN_SECRET: ${ADMIN_SECRET}
 
       MATCH_TIMEOUT_MS: ${MATCH_TIMEOUT_MS:-1800000}
+      # How long a player who drops out of a match has to come back before
+      # the opponent is awarded the win.
+      RECONNECT_GRACE_MS: ${RECONNECT_GRACE_MS:-45000}
       BOT_ENABLED: ${BOT_ENABLED:-true}
       BOT_TRIGGER_DELAY: ${BOT_TRIGGER_DELAY:-60000}
       BOT_DEFAULT_DIFFICULTY: ${BOT_DEFAULT_DIFFICULTY:-medium}

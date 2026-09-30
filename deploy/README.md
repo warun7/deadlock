@@ -288,17 +288,67 @@ TLS certificates live in Docker volumes.
 
 ### Deploying a code change
 
+Push to `main`. `.github/workflows/deploy.yml` builds and type-checks the
+frontend and backend, then releases the commit to the droplet over SSH. The
+release does not use git on the server, so it works whether `/opt/deadlock` is
+a git clone or a plain copy of the code.
+
+On the server, `release.sh` does the work. It downloads the commit, copies
+`frontend/`, `backend/` and `deploy/` over the server's copy, and rebuilds only
+what changed:
+
+- **frontend/** rebuilds and swaps the frontend container.
+- **backend/** rebuilds and swaps the backend. If it fails its health check,
+  the previous image and source are put back.
+- **deploy/Caddyfile** makes edge reload its config. A rejected config
+  leaves the old one running.
+- **deploy/docker-compose.yml** is applied with `docker compose up -d`, which
+  keeps the current number of Judge0 workers.
+
+`deploy/.env`, `deploy/judge0.conf`, the Docker volumes and certificates are
+never touched. If a build fails, nothing live changes. The five most recent
+source backups are kept in `/opt/deadlock/backups`.
+
+By hand, as root on the droplet:
+
 ```bash
-cd /opt/deadlock && git pull && cd deploy && ./deploy.sh
+/opt/deadlock/deploy/release.sh          # latest main
+/opt/deadlock/deploy/release.sh <sha>    # a specific commit, e.g. to roll back
 ```
 
-Or set up the GitHub Action in `.github/workflows/deploy.yml`, which does
-exactly this on every push to `main`. Add three repository secrets first
-(**Settings → Secrets and variables → Actions**): `DEPLOY_HOST` (the droplet
-IP), `DEPLOY_USER` (`root`), and `DEPLOY_SSH_KEY` (a private key whose public
-half is in the droplet's `~/.ssh/authorized_keys`). Generate a dedicated key
-rather than reusing your personal one — the workflow file documents the exact
-commands.
+`./deploy.sh` is still the tool for first-time setup and for pulling newer
+base images. It rebuilds everything, so it is slower.
+
+#### How GitHub reaches the server
+
+`ci-deploy.sh` is the only thing the GitHub Actions key may run. In
+`/root/.ssh/authorized_keys` that key is pinned with
+`restrict,command="/opt/deadlock/deploy/ci-deploy.sh"`, and the script accepts
+a 40-character commit SHA and nothing else. Only one release runs at a time.
+
+To set that up on a new server, as root:
+
+```bash
+# 1. A key just for GitHub, pinned to the release script
+install -m 700 -d /root/.ssh
+ssh-keygen -t ed25519 -N "" -C github-actions-deploy -f /root/.ssh/github_deploy <<<y >/dev/null
+echo "restrict,command=\"/opt/deadlock/deploy/ci-deploy.sh\" $(cat /root/.ssh/github_deploy.pub)" >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+
+# 2. Print the three values GitHub needs
+IP=$(curl -fsS http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address)
+echo "== DEPLOY_HOST =="; echo "$IP"
+echo "== DEPLOY_KNOWN_HOSTS =="; echo "$IP $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"
+echo "== DEPLOY_SSH_KEY =="; cat /root/.ssh/github_deploy
+```
+
+Add each value in GitHub under **Settings → Secrets and variables → Actions**
+(include the `BEGIN`/`END` lines of the key). Then delete the private key from
+the server with `rm /root/.ssh/github_deploy`, since GitHub holds the only copy
+it needs. Test with **Actions → Deploy → Run workflow**.
+
+If the release step times out connecting, a DigitalOcean Cloud Firewall may be
+limiting SSH to certain IPs. GitHub's runners need to reach port 22.
 
 ### Backups
 

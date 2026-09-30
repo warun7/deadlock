@@ -4,3 +4,4 @@
 !.env.example
 judge0.conf
 .frontend-version
+.deployed-version
