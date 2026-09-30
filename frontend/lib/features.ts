@@ -10,7 +10,7 @@ export const features = {
 /**
  * Rank tiers by Elo rating. New players start at 1000 (Bronze); every human
  * match moves the rating by up to 32 points (see backend GameService and
- * migration 011). Bot matches are not rated.
+ * migration 011). Practice matches against the bot are not rated.
  */
 export const RANK_TIERS = [
   { name: "Iron", min: 0, tone: "#6f6f78" },

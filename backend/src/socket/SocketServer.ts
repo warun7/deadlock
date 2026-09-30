@@ -159,6 +159,10 @@ export class DeadlockSocketServer {
         await this.matchmakingService.leaveQueue(authSocket);
       });
 
+      socket.on("join_practice", async () => {
+        await this.matchmakingService.startPractice(authSocket);
+      });
+
       // ============================================
       // Game Events
       // ============================================
@@ -356,6 +360,7 @@ export class DeadlockSocketServer {
               id: opponent.id,
               username: opponent.username,
               elo: opponent.elo,
+              isBot: opponent.socketId === "bot",
             },
             startTime: match.startedAt,
           });
@@ -365,6 +370,7 @@ export class DeadlockSocketServer {
             socket.emit("game_over", {
               winnerId: match.winnerId,
               reason,
+              ...(opponent.socketId === "bot" && { practice: true }),
             });
           }, 500);
           return;
@@ -406,6 +412,7 @@ export class DeadlockSocketServer {
           id: opponent.id,
           username: opponent.username,
           elo: opponent.elo,
+          isBot: opponent.socketId === "bot",
         },
         startTime: match.startedAt,
       });

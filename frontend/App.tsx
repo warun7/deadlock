@@ -59,7 +59,15 @@ const AppContent: React.FC = () => (
           path="/matchmaking"
           element={
             <ProtectedRoute>
-              <RealMatchmakingPage />
+              <RealMatchmakingPage key="ranked" mode="ranked" />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/practice"
+          element={
+            <ProtectedRoute>
+              <RealMatchmakingPage key="practice" mode="practice" />
             </ProtectedRoute>
           }
         />

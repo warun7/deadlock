@@ -67,6 +67,8 @@ export interface MatchFoundPayload {
     id: string;
     username: string;
     elo: number;
+    /** Practice bot rather than a person */
+    isBot?: boolean;
   };
   startTime: number;
 }

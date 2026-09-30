@@ -267,23 +267,9 @@ export class GameService {
     const loserId = match.player1.id === user.id ? match.player2.id : match.player1.id;
 
     if (match.player2.socketId === "bot") {
-      // Human beat the bot. Bot ids are not user ids, so this goes through the
-      // bot recorder (record_match_pair would reject it and nothing would save).
-      const bot = this.matchmakingService?.getBot(matchId);
-      await this.saveBotMatchToDatabase({
-        matchId,
-        humanId: user.id,
-        botId: match.player2.id,
-        botUsername: match.player2.username,
-        winnerId: user.id,
-        problemId: match.problemId,
-        problemTitle: match.problemTitle,
-        duration,
-        botDifficulty: bot?.getDifficulty() || "medium",
-        language: this.getLanguageName(languageId),
-      });
+      // Practice: unrated and not recorded
       this.matchmakingService?.cleanupBot(matchId);
-      socket.emit("game_over", { winnerId: user.id, reason: "You solved it first!" });
+      socket.emit("game_over", { winnerId: user.id, reason: "You solved it first!", practice: true });
       this.scheduleCleanup(matchId);
       return;
     }
@@ -323,28 +309,9 @@ export class GameService {
       const isBotMatch = match.player2.socketId === "bot";
 
       if (isBotMatch) {
-        // Bot match - save using bot match method
-        const bot = this.matchmakingService?.getBot(matchId);
-        const botDifficulty = bot?.getDifficulty() || "medium";
-
-        await this.saveBotMatchToDatabase({
-          matchId,
-          humanId: match.player1.id,
-          botId: match.player2.id,
-          botUsername: match.player2.username, // Get bot username from match state
-          winnerId,
-          problemId: match.problemId,
-          problemTitle: match.problemTitle,
-          duration: Math.floor((Date.now() - match.startedAt) / 1000),
-          botDifficulty,
-        });
-
-        // Clean up bot
-        if (this.matchmakingService) {
-          this.matchmakingService.cleanupBot(matchId);
-        }
-
-        socket.emit("game_over", { winnerId, reason: "You forfeited" });
+        // Practice: unrated and not recorded
+        this.matchmakingService?.cleanupBot(matchId);
+        socket.emit("game_over", { winnerId, reason: "You forfeited", practice: true });
         this.scheduleCleanup(matchId);
         return;
       }
@@ -422,27 +389,14 @@ export class GameService {
         }`
       );
 
-      // Save to database (only for human player)
-      const bot = this.matchmakingService?.getBot(matchId);
-      await this.saveBotMatchToDatabase({
-        matchId,
-        humanId: match.player1.id,
-        botId: result.botId,
-        botUsername: match.player2.username, // Get bot username from match state
-        winnerId,
-        problemId: match.problemId,
-        problemTitle: match.problemTitle,
-        duration: Math.floor((Date.now() - match.startedAt) / 1000),
-        botDifficulty: bot?.getDifficulty() || "medium",
-      });
-
-      // Get human socket
+      // Practice: unrated and not recorded
       const humanSocket = this.io.sockets.sockets.get(match.player1.socketId);
 
       if (humanSocket) {
         humanSocket.emit("game_over", {
           winnerId,
           reason,
+          practice: true,
         });
       }
 
@@ -524,53 +478,7 @@ export class GameService {
     }
   }
 
-  /**
-   * Save bot match to PostgreSQL
-   * Only creates ONE record for the human player
-   */
-  public async saveBotMatchToDatabase(data: {
-    matchId: string;
-    humanId: string;
-    botId: string;
-    botUsername?: string; // Optional bot display name
-    winnerId: string;
-    problemId: string;
-    problemTitle: string;
-    duration: number;
-    botDifficulty: "easy" | "medium" | "hard";
-    language?: string; // Known only when the human's submission ended the match
-  }): Promise<void> {
-    try {
-      const result = data.winnerId === data.humanId ? "won" : "lost";
-
-      // Insert match record for human player
-      const { error } = await supabase.from("matches").insert({
-        player_id: data.humanId,
-        opponent_id: "00000000-0000-0000-0000-000000000000", // Dummy bot profile UUID
-        problem_id: data.problemId,
-        problem_title: data.problemTitle,
-        language: data.language || "unknown",
-        result,
-        rating_change: 0, // No rating change for bot matches
-        duration_seconds: data.duration,
-        is_bot_match: true,
-        bot_difficulty: data.botDifficulty,
-        bot_username: data.botUsername || "Bot Player", // Store actual bot name
-        completed_at: new Date().toISOString(),
-      });
-
-      if (error) {
-        console.error("❌ Error saving bot match record:", error);
-      } else {
-        console.log(`💾 Bot match record saved for human player`);
-        console.log(`📊 Stats will be auto-updated by database trigger`);
-      }
-    } catch (error) {
-      console.error("❌ Error in saveBotMatchToDatabase:", error);
-    }
-  }
-
-  /**
+    /**
    * Calculate ELO change (simplified K=32 formula)
    */
   private calculateEloChange(winnerElo: number, loserElo: number): number {

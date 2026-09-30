@@ -24,7 +24,6 @@ export class MatchmakingService {
   private io: SocketServer<ClientToServerEvents, ServerToClientEvents>;
   private queuedPlayers: Map<string, QueueEntry> = new Map();
   private queueOrder: string[] = [];
-  private botTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private isProcessingQueue = false;
   private shouldProcessQueueAgain = false;
   private activeBots: Map<string, BotPlayer> = new Map(); // Track active bots by matchId
@@ -53,11 +52,6 @@ export class MatchmakingService {
    * Stop matchmaking and clear queue timers
    */
   stop(): void {
-    for (const timeout of this.botTimeouts.values()) {
-      clearTimeout(timeout);
-    }
-
-    this.botTimeouts.clear();
     this.queuedPlayers.clear();
     this.queueOrder = [];
     console.log("🛑 Matchmaking stopped");
@@ -79,33 +73,6 @@ export class MatchmakingService {
     return index === -1 ? -1 : index + 1;
   }
 
-  private clearBotTimeout(userId: string): void {
-    const timeout = this.botTimeouts.get(userId);
-    if (timeout) {
-      clearTimeout(timeout);
-      this.botTimeouts.delete(userId);
-    }
-  }
-
-  private scheduleBotFallback(entry: QueueEntry): void {
-    if (!config.bot.enabled) {
-      return;
-    }
-
-    this.clearBotTimeout(entry.userId);
-
-    const remainingDelay = Math.max(
-      config.bot.triggerDelay - (Date.now() - entry.joinedAt),
-      0
-    );
-
-    const timeout = setTimeout(() => {
-      void this.handleBotTimeout(entry.userId);
-    }, remainingDelay);
-
-    this.botTimeouts.set(entry.userId, timeout);
-  }
-
   private addToQueue(entry: QueueEntry, insertAtFront = false): number {
     const existing = this.queuedPlayers.get(entry.userId);
 
@@ -116,7 +83,6 @@ export class MatchmakingService {
       };
 
       this.queuedPlayers.set(entry.userId, updatedEntry);
-      this.scheduleBotFallback(updatedEntry);
       return this.getQueuePosition(entry.userId);
     }
 
@@ -128,7 +94,6 @@ export class MatchmakingService {
       this.queueOrder.push(entry.userId);
     }
 
-    this.scheduleBotFallback(entry);
     return this.getQueuePosition(entry.userId);
   }
 
@@ -139,7 +104,6 @@ export class MatchmakingService {
     }
 
     this.queuedPlayers.delete(userId);
-    this.clearBotTimeout(userId);
 
     const index = this.queueOrder.indexOf(userId);
     if (index !== -1) {
@@ -250,38 +214,56 @@ export class MatchmakingService {
     return [candidates[0], candidates[1]];
   }
 
-  private async handleBotTimeout(userId: string): Promise<void> {
-    this.botTimeouts.delete(userId);
-
-    const entry = this.removeFromQueue(userId);
-    if (!entry) {
-      return;
-    }
-
-    const waitTime = Date.now() - entry.joinedAt;
-    console.log(
-      `\n🤖 BOT MATCH: Player ${entry.username} waited ${
-        waitTime / 1000
-      }s, creating bot match...`
+  /**
+   * Tell the player and return true when they already have an active match.
+   * A finished or missing match does not count.
+   */
+  private async refuseIfInMatch(socket: AuthenticatedSocket): Promise<boolean> {
+    const existingMatchId = await redisService.getUserMatchId(
+      socket.user.id,
+      "queue_join_get_user_match"
     );
+    if (!existingMatchId) return false;
 
-    const socket = this.io.sockets.sockets.get(entry.socketId);
-    if (!socket) {
-      console.log(`   ❌ Player socket not found, skipping`);
+    const match = await redisService.getMatch(existingMatchId, "queue_join_read_existing_match");
+    if (match && match.status === "active") {
+      console.log(`   ❌ User already in active match: ${existingMatchId}`);
+      socket.emit("error", {
+        message: "You are already in a match",
+        code: "ALREADY_IN_MATCH",
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Start a Practice match against a bot right away.
+   *
+   * Ranked is people only; bots live here, labelled as bots. Practice matches
+   * are unrated and never recorded, so they cannot move a rating, a record or
+   * match history.
+   */
+  async startPractice(socket: AuthenticatedSocket): Promise<void> {
+    const user = socket.user;
+    console.log(`\n🤖 PRACTICE request from ${user.username} (${user.id})`);
+
+    if (!config.bot.enabled) {
+      socket.emit("error", { message: "Practice is not available right now.", code: "PRACTICE_DISABLED" });
       return;
     }
+    if (await this.refuseIfInMatch(socket)) return;
 
-    const created = await this.createBotMatch(socket as AuthenticatedSocket, entry);
+    // Leaving ranked for practice
+    this.removeFromQueue(user.id);
 
-    if (!created) {
-      this.addToQueue(
-        {
-          ...entry,
-          joinedAt: Date.now(),
-        },
-        true
-      );
-    }
+    await this.createBotMatch(socket, {
+      userId: user.id,
+      socketId: socket.id,
+      username: user.username,
+      elo: user.elo,
+      joinedAt: Date.now(),
+    });
   }
 
   /**
@@ -292,30 +274,7 @@ export class MatchmakingService {
 
     console.log(`\n🎮 JOIN_QUEUE request from ${user.username} (${user.id})`);
 
-    // Check if user is already in a match
-    const existingMatchId = await redisService.getUserMatchId(
-      user.id,
-      "queue_join_get_user_match"
-    );
-    if (existingMatchId) {
-      // Check if the match is still active
-      const match = await redisService.getMatch(
-        existingMatchId,
-        "queue_join_read_existing_match"
-      );
-      if (match && match.status === "active") {
-        console.log(`   ❌ User already in active match: ${existingMatchId}`);
-        socket.emit("error", {
-          message: "You are already in a match",
-          code: "ALREADY_IN_MATCH",
-        });
-        return;
-      }
-      // Match is finished or doesn't exist - allow joining queue
-      console.log(
-        `   ✅ Previous match ${existingMatchId} is finished, allowing queue join`
-      );
-    }
+    if (await this.refuseIfInMatch(socket)) return;
 
     // Check if already in queue
     const existingQueueEntry = this.queuedPlayers.get(user.id);
@@ -419,7 +378,7 @@ export class MatchmakingService {
           id: bot.id,
           socketId: "bot", // Bots don't have real socket IDs
           username: bot.username,
-          elo: 1000, // Default bot ELO
+          elo: player.elo, // Practice is unrated; mirrors the player
         },
         problemId: problem.id,
         problemTitle: problem.title,
@@ -756,29 +715,19 @@ export class MatchmakingService {
     console.log(`🏆 ${winnerId} wins by disconnect in match ${matchId}`);
     const duration = Math.floor((Date.now() - match.startedAt) / 1000);
 
+    if (isBotMatch) {
+      // Practice: unrated and not recorded. The player is the one who left.
+      this.cleanupBot(matchId);
+      this.io.to(matchId).emit("game_over", { winnerId, reason: "You disconnected", practice: true });
+      return;
+    }
+
     if (this.gameService) {
-      if (isBotMatch) {
-        // Bot match - save only for human player
-        const bot = this.activeBots.get(matchId);
-        await this.gameService.saveBotMatchToDatabase({
-          matchId,
-          humanId: match.player1.id,
-          botId: match.player2.id,
-          botUsername: match.player2.username,
-          winnerId,
-          problemId: match.problemId,
-          problemTitle: match.problemTitle,
-          duration,
-          botDifficulty: bot?.getDifficulty() || "medium",
-        });
-        this.cleanupBot(matchId);
-      } else {
-        await this.gameService.recordHumanResult(match, winnerId, loserId, duration, "unknown", {
-          winner: "Opponent disconnected",
-          loser: "You disconnected",
-        });
-        return; // recordHumanResult notifies both players with their rating changes
-      }
+      await this.gameService.recordHumanResult(match, winnerId, loserId, duration, "unknown", {
+        winner: "Opponent disconnected",
+        loser: "You disconnected",
+      });
+      return; // recordHumanResult notifies both players with their rating changes
     }
 
     this.io.to(matchId).emit("game_over", {

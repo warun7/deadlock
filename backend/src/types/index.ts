@@ -70,6 +70,8 @@ export interface MatchFoundPayload {
     id: string;
     username: string;
     elo: number;
+    /** Practice bot rather than a person */
+    isBot?: boolean;
   };
   startTime: number;
 }
@@ -191,6 +193,7 @@ export interface Judge0Response {
 // Client -> Server Events
 export interface ClientToServerEvents {
   join_queue: () => void;
+  join_practice: () => void; // Start an unrated match against a bot
   leave_queue: () => void;
   submit_code: (payload: SubmitCodePayload) => void;
   forfeit: () => void;
@@ -217,6 +220,8 @@ export interface ServerToClientEvents {
     /** Rating points gained (+) or lost (-); only for rated, recorded matches */
     ratingChange?: number;
     newRating?: number;
+    /** Practice match against a bot: unrated and not recorded */
+    practice?: boolean;
   }) => void;
   error: (data: { message: string; code?: string }) => void;
   active_match_found: (data: { matchId: string }) => void; // Notify client of active match

@@ -68,8 +68,8 @@ export const config = {
 
   // Bot configuration
   bot: {
-    enabled: process.env.BOT_ENABLED !== "false", // Enabled by default
-    triggerDelay: parseInt(process.env.BOT_TRIGGER_DELAY || "60000", 10), // 60 seconds
+    // Practice mode (bots never join ranked). BOT_ENABLED=false turns it off.
+    enabled: process.env.BOT_ENABLED !== "false",
     defaultDifficulty: (process.env.BOT_DEFAULT_DIFFICULTY || "medium") as
       | "easy"
       | "medium"

@@ -20,6 +20,10 @@ const QUESTIONS = [
     a: "After 30 minutes the match ends in a draw. You can also forfeit at any time, which hands your opponent the win.",
   },
   {
+    q: "What if nobody else is online?",
+    a: "Ranked is always another person, so you wait for the next player. Meanwhile you can practice against a bot. Practice games are unrated and stay off your record.",
+  },
+  {
     q: "Do I need an account?",
     a: "Yes, so your record follows you. Sign up with Google or with an email and password; it takes under a minute.",
   },

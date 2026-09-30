@@ -82,6 +82,14 @@ class GameSocket {
     this.socket.emit('join_queue');
   }
 
+  // Unrated match against a bot, started right away
+  startPractice() {
+    if (!this.socket?.connected) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('join_practice');
+  }
+
   leaveQueue() {
     if (!this.socket?.connected) return;
     console.log('Leaving queue...');

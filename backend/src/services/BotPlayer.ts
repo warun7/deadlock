@@ -22,10 +22,10 @@ export interface BotCompletionResult {
 }
 
 /**
- * BotPlayer - Simulates a human opponent in matches
+ * BotPlayer - the opponent in Practice matches
  *
- * This class creates a realistic bot opponent that:
- * - Has human-like usernames
+ * Practice is the only place bots play, and they are labelled as bots: ranked
+ * matches are always two people. The bot:
  * - Shows progressive solving behavior
  * - Sometimes fails (to let humans win)
  * - Doesn't consume Judge0 resources
@@ -46,7 +46,7 @@ export class BotPlayer {
 
   constructor(config: BotConfig) {
     this.id = `bot_${Math.random().toString(36).slice(2, 11)}`;
-    this.username = this.generateUsername();
+    this.username = "Practice bot";
     this.difficulty = config.difficulty;
     this.io = config.socketServer;
     this.matchId = config.matchId;
@@ -57,40 +57,6 @@ export class BotPlayer {
       config.problemRating,
       config.difficulty
     );
-  }
-
-  /**
-   * Generate a realistic-looking username
-   */
-  private generateUsername(): string {
-    const usernames = [
-      "CodeNinja_47",
-      "AlgoWizard_23",
-      "ByteMaster_89",
-      "DebugKing_51",
-      "LogicLord_77",
-      "SyntaxSage_42",
-      "RuntimeRuler_19",
-      "StackSolver_88",
-      "GitGuru_33",
-      "ArrayAce_56",
-      "LoopLegend_44",
-      "RecursionRex_91",
-      "BinaryBoss_72",
-      "HeapHero_38",
-      "GraphGod_65",
-      "TreeTraverser_29",
-      "DPDynamo_84",
-      "GreedyGenius_53",
-      "SortSorcerer_76",
-      "QueueQueen_41",
-      "HashHacker_97",
-      "LinkedLion_63",
-      "StackSamurai_18",
-      "BitBender_55",
-    ];
-
-    return usernames[Math.floor(Math.random() * usernames.length)];
   }
 
   /**
@@ -242,19 +208,14 @@ export class BotPlayer {
   }
 
   /**
-   * Get bot player info (for match data)
-   * IMPORTANT: Never expose isBot to frontend
+   * Bot player info for match_found. isBot lets the client label it.
    */
   public getPlayerInfo() {
     return {
       id: this.id,
       username: this.username,
-      elo: 1000, // Default bot ELO (not shown in UI anymore)
-      // Optional: Add fake stats to make it look real
-      stats: {
-        totalMatches: Math.floor(Math.random() * 50) + 10,
-        winRate: parseFloat((Math.random() * 30 + 40).toFixed(2)), // 40-70% win rate
-      },
+      elo: 1000, // Practice is unrated; kept for the payload shape
+      isBot: true,
     };
   }
 

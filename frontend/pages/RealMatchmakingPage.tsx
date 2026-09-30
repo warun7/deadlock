@@ -15,6 +15,10 @@ import { useCurrentProfile } from "../lib/useCurrentProfile";
 type Status = "connecting" | "searching" | "found" | "error";
 
 const HANDOFF_MS = 3000;
+// Practice starts at once, so the hand-off is only long enough to read it
+const PRACTICE_HANDOFF_MS = 1500;
+// Ranked is people only; after this long alone, offer Practice instead
+const OFFER_PRACTICE_AFTER_S = 30;
 
 const fade = {
   initial: { opacity: 0, y: 14 },
@@ -23,14 +27,20 @@ const fade = {
   transition: { duration: 0.45, ease: [0.16, 1, 0.3, 1] as const },
 };
 
-const RealMatchmakingPage: React.FC = () => {
+/**
+ * Ranked queue, or the short hand-off into a Practice match against a bot.
+ * Mounted with a different `key` per mode, so switching remounts it.
+ */
+const RealMatchmakingPage: React.FC<{ mode?: "ranked" | "practice" }> = ({ mode = "ranked" }) => {
+  const practice = mode === "practice";
+  const handoffMs = practice ? PRACTICE_HANDOFF_MS : HANDOFF_MS;
   const navigate = useNavigate();
   const { username, avatarUrl } = useCurrentProfile();
   const [status, setStatus] = useState<Status>("connecting");
   const [timer, setTimer] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [matchData, setMatchData] = useState<any>(null);
-  const [countdown, setCountdown] = useState(Math.round(HANDOFF_MS / 1000));
+  const [countdown, setCountdown] = useState(Math.ceil(handoffMs / 1000));
   const queueJoinedRef = useRef(false);
   const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -57,7 +67,8 @@ const RealMatchmakingPage: React.FC = () => {
           if (queueJoinedRef.current) return;
           queueJoinedRef.current = true;
           setStatus("searching");
-          gameSocket.joinQueue();
+          if (practice) gameSocket.startPractice();
+          else gameSocket.joinQueue();
           timerInterval = setInterval(() => setTimer((t) => t + 1), 1000);
         };
 
@@ -89,7 +100,7 @@ const RealMatchmakingPage: React.FC = () => {
           }
           navigationTimeoutRef.current = setTimeout(() => {
             navigate(`/game/${data.matchId}`, { state: { matchData: data } });
-          }, HANDOFF_MS);
+          }, handoffMs);
         };
 
         const handleError = (data: any) => {
@@ -129,27 +140,30 @@ const RealMatchmakingPage: React.FC = () => {
       if (timerInterval) clearInterval(timerInterval);
       if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
       if (queueJoinedRef.current) {
-        gameSocket.leaveQueue();
+        if (!practice) gameSocket.leaveQueue();
         queueJoinedRef.current = false;
       }
     };
-  }, [navigate]);
+  }, [navigate, practice, handoffMs]);
 
   // Countdown shown during the hand-off to the arena
   useEffect(() => {
     if (status !== "found") return;
-    setCountdown(Math.round(HANDOFF_MS / 1000));
+    setCountdown(Math.ceil(handoffMs / 1000));
     const id = setInterval(() => setCountdown((c) => Math.max(1, c - 1)), 1000);
     return () => clearInterval(id);
-  }, [status]);
+  }, [status, handoffMs]);
 
   const handleCancel = () => {
     if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
     queueJoinedRef.current = false;
-    gameSocket.leaveQueue();
+    if (!practice) gameSocket.leaveQueue();
     gameSocket.disconnect();
     navigate("/dashboard");
   };
+
+  // Leaving ranked for practice. The unmount cleanup leaves the queue.
+  const switchToPractice = () => navigate("/practice");
 
   // Esc leaves the queue
   useEffect(() => {
@@ -174,16 +188,16 @@ const RealMatchmakingPage: React.FC = () => {
     };
   }, []);
   useEffect(() => {
-    if (status === "searching") document.title = `${clockText} In queue \u00b7 Deadlock`;
-    else if (status === "found") document.title = "Match found \u00b7 Deadlock";
+    if (status === "searching") document.title = practice ? "Practice \u00b7 Deadlock" : `${clockText} In queue \u00b7 Deadlock`;
+    else if (status === "found") document.title = practice ? "Practice \u00b7 Deadlock" : "Match found \u00b7 Deadlock";
     else if (status === "connecting") document.title = "Connecting \u00b7 Deadlock";
     else document.title = "Queue error \u00b7 Deadlock";
-  }, [status, clockText]);
+  }, [status, clockText, practice]);
 
   // A short double buzz on phones when an opponent is found
   useEffect(() => {
-    if (status === "found") navigator.vibrate?.([24, 60, 24]);
-  }, [status]);
+    if (status === "found" && !practice) navigator.vibrate?.([24, 60, 24]);
+  }, [status, practice]);
 
   const title = "text-[clamp(2.75rem,6vw,5.75rem)] font-medium leading-[0.9] tracking-[-0.06em] text-fg";
   const lead = "mt-5 max-w-[30ch] text-[clamp(1.25rem,1.8vw,1.5rem)] leading-[1.15] tracking-[-0.03em] text-fg-2";
@@ -196,7 +210,7 @@ const RealMatchmakingPage: React.FC = () => {
         </Chip>
         {queued && (
           <button type="button" onClick={handleCancel} className="rounded-[3px]">
-            <Chip k="Esc">Leave queue</Chip>
+            <Chip k="Esc">{practice ? "Cancel" : "Leave queue"}</Chip>
           </button>
         )}
       </header>
@@ -218,30 +232,55 @@ const RealMatchmakingPage: React.FC = () => {
                 </motion.div>
               )}
 
-              {status === "searching" && (
+              {status === "searching" && practice && (
+                <motion.div key="practice" {...fade}>
+                  <p className="label text-fg-3">Practice</p>
+                  <DotLoader pattern="ripple" size={5} cell={10} gap={4} className="mt-5 text-fg" label="Setting up" />
+                  <h1 className={`mt-8 ${title}`}>Setting up practice</h1>
+                  <p className={lead}>A practice bot takes the other seat. Practice is unrated.</p>
+                  <Button variant="outline" size="lg" className="mt-10" onClick={handleCancel}>
+                    Cancel <Kbd>Esc</Kbd>
+                  </Button>
+                </motion.div>
+              )}
+
+              {status === "searching" && !practice && (
                 <motion.div key="searching" {...fade}>
                   <p className="label text-fg-3">In queue</p>
                   <div className="mt-5" role="timer" aria-label={`Searching for ${timer} seconds`}>
                     <PixelText text={clockText} led gap={0.16} decorative className="h-[clamp(3.5rem,8vw,6.5rem)] text-fg" />
                   </div>
                   <h1 className={`mt-8 ${title}`}>Finding an opponent</h1>
-                  <p className={lead}>You will be paired with the next player who joins the queue.</p>
-                  <Button variant="outline" size="lg" className="mt-10" onClick={handleCancel}>
-                    Leave queue <Kbd>Esc</Kbd>
-                  </Button>
+                  <p className={lead}>Ranked is always another person. You will be paired with the next player who joins.</p>
+                  <div className="mt-10 flex flex-wrap gap-2">
+                    <Button variant="outline" size="lg" onClick={handleCancel}>
+                      Leave queue <Kbd>Esc</Kbd>
+                    </Button>
+                  </div>
+                  {timer >= OFFER_PRACTICE_AFTER_S && (
+                    <div className="mt-8 max-w-md animate-[rise-in_0.5s_var(--ease-out-expo)_both] border-t border-rule pt-5 motion-reduce:animate-none">
+                      <p className="text-[15px] leading-snug text-fg-2">
+                        Nobody else is in the queue right now. Warm up against a bot instead; practice games are unrated.
+                      </p>
+                      <Button variant="ghost" size="lg" className="mt-3 -ml-3" onClick={switchToPractice}>
+                        Practice instead
+                      </Button>
+                    </div>
+                  )}
                 </motion.div>
               )}
 
               {status === "found" && (
                 <motion.div key="found" {...fade}>
-                  <p className="label text-fg-3">Match found</p>
+                  <p className="label text-fg-3">{practice ? "Practice" : "Match found"}</p>
                   <h1 className={`mt-4 ${title}`}>
-                    Locked in<span className="text-accent">.</span>
+                    {practice ? "Warm up" : "Locked in"}
+                    <span className="text-accent">.</span>
                   </h1>
                   <ul className="mt-10 border-t border-rule">
                     {[
                       { tag: "You", name: username, src: avatarUrl, dot: "bg-fg" },
-                      { tag: "Opponent", name: opponentName, src: undefined, dot: "bg-accent" },
+                      { tag: practice ? "Bot" : "Opponent", name: opponentName, src: undefined, dot: "bg-accent" },
                     ].map((p, i) => (
                       <motion.li
                         key={p.tag}
@@ -273,7 +312,7 @@ const RealMatchmakingPage: React.FC = () => {
               {status === "error" && (
                 <motion.div key="error" {...fade}>
                   <p className="label text-accent-ink">Error</p>
-                  <h1 className={`mt-4 ${title}`}>Could not join the queue</h1>
+                  <h1 className={`mt-4 ${title}`}>{practice ? "Could not start practice" : "Could not join the queue"}</h1>
                   <p className={lead}>{error}</p>
                   <div className="mt-10 flex flex-wrap gap-2">
                     <Button variant="outline" size="lg" onClick={() => navigate("/dashboard")}>
@@ -290,7 +329,7 @@ const RealMatchmakingPage: React.FC = () => {
 
           <div className="lg:col-span-5 lg:col-start-8">
             <Label aside={status === "found" ? <span className="text-accent-ink">Matched</span> : queued ? "Live" : "Idle"}>
-              Queue
+              {practice ? "Practice" : "Queue"}
             </Label>
             <Figure n="Q" className="mt-4" bodyClassName="flex items-center justify-center px-5 py-10 sm:px-10 sm:py-16">
               <SearchGrid found={status === "found"} className="max-w-[460px]" />
