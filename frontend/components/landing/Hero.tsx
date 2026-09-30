@@ -56,11 +56,6 @@ const Hero: React.FC<HeroProps> = ({ onAnchor }) => {
       ref={sectionRef}
       className="relative isolate flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden px-5 pb-14 pt-24 sm:px-8"
     >
-      <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
-        <div className="absolute left-1/2 top-[34%] h-[520px] w-[1100px] max-w-[160vw] -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-[radial-gradient(closest-side,rgb(229_72_77/0.13),transparent)]" />
-        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-ink to-transparent" />
-      </div>
-
       <div ref={stageRef} className="w-full max-w-[1040px]">
         <DuelStage />
         <p className="sr-only">

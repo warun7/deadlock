@@ -87,13 +87,6 @@ const Panel: React.FC<{ side: "you" | "them"; refs: PanelRefs; children?: React.
         you ? "@2xl:origin-right @2xl:[transform:rotateY(22deg)]" : "@2xl:origin-left @2xl:[transform:rotateY(-22deg)]"
       }`}
     >
-      {/* player light spilling onto the arena floor */}
-      <div
-        aria-hidden="true"
-        className={`pointer-events-none absolute -bottom-10 left-1/2 h-24 w-[90%] -translate-x-1/2 rounded-[50%] blur-2xl ${
-          you ? "bg-white/[0.07]" : "bg-accent/20"
-        }`}
-      />
       <div
         ref={(el) => {
           refs.inner = el;
@@ -436,14 +429,6 @@ const DuelStage = React.forwardRef<HTMLDivElement, DuelStageProps>(({ className 
       aria-hidden="true"
     >
       <div ref={tiltRef} className="relative [transform-style:preserve-3d]">
-        {/* Arena floor */}
-        <div className="pointer-events-none absolute left-1/2 top-[52%] hidden h-[420px] w-[180%] -translate-x-1/2 [transform:rotateX(80deg)] [mask-image:radial-gradient(closest-side,black_30%,transparent)] @2xl:block">
-          <div className="absolute inset-0 [background-image:linear-gradient(to_right,rgb(255_255_255/0.09)_1px,transparent_1px),linear-gradient(to_bottom,rgb(255_255_255/0.09)_1px,transparent_1px)] [background-size:48px_48px]" />
-          <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 bg-[linear-gradient(to_bottom,rgb(229_72_77/0.85),rgb(229_72_77/0.5)_45%,transparent_62%)] shadow-[0_0_24px_6px_rgb(229_72_77/0.35)]" />
-          <div className="absolute inset-y-0 left-0 w-1/2 bg-[radial-gradient(60%_40%_at_60%_50%,rgb(255_255_255/0.07),transparent)]" />
-          <div className="absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(60%_40%_at_40%_50%,rgb(229_72_77/0.14),transparent)]" />
-        </div>
-
         {/* HUD */}
         <div className="relative mb-4 flex flex-col items-center gap-1 @2xl:mb-7">
           <div ref={timerRef} className="tabular font-mono text-2xl font-medium tracking-[-0.02em] text-fg @2xl:text-3xl">
@@ -471,8 +456,7 @@ const DuelStage = React.forwardRef<HTMLDivElement, DuelStageProps>(({ className 
           </Panel>
 
           <div className="relative z-10 flex shrink-0 items-center justify-center @2xl:w-24">
-            <span aria-hidden="true" className="absolute inset-y-[6%] left-1/2 hidden w-px -translate-x-1/2 bg-[linear-gradient(transparent,rgb(229_72_77/0.8),transparent)] @2xl:block" />
-            <span className="relative flex size-9 rotate-45 items-center justify-center rounded-[8px] bg-surface-2 shadow-[inset_0_0_0_1px_rgb(229_72_77/0.5),0_0_50px_-4px_rgb(229_72_77/0.7)] @2xl:size-14">
+            <span className="relative flex size-9 rotate-45 items-center justify-center rounded-[8px] bg-surface-2 shadow-[inset_0_0_0_1px_rgb(229_72_77/0.45),0_0_28px_-6px_rgb(229_72_77/0.4)] @2xl:size-14">
               <span className="-rotate-45 font-mono text-[12px] font-bold italic tracking-tight text-fg @2xl:text-base">VS</span>
             </span>
           </div>

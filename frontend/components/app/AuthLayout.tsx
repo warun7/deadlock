@@ -14,7 +14,6 @@ interface AuthLayoutProps {
 const AuthLayout: React.FC<AuthLayoutProps> = ({ backTo, backLabel, children }) => (
   <div className="grid min-h-[100dvh] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
     <aside className="relative isolate hidden overflow-hidden border-r border-line lg:block" aria-hidden="true">
-      <div className="absolute inset-0 -z-10 bg-[radial-gradient(70%_50%_at_50%_45%,rgb(229_72_77/0.1),transparent)]" />
       <div className="flex h-full flex-col justify-between gap-8 p-10">
         <Wordmark className="text-lg text-fg" />
         <DuelStage interactive={false} className="mx-auto max-w-[520px]" />
