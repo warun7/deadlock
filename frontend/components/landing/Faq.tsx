@@ -9,7 +9,7 @@ const QUESTIONS = [
   },
   {
     q: "What kind of problems are they?",
-    a: "Classic competitive programming problems, rated up to 1200 for now. Each one has sample tests you can see and hidden tests you cannot.",
+    a: "Classic competitive programming problems. Ranked uses problems rated up to 1200 for now; friend duels range from Easy (800) to Expert (2400). Each one has sample tests you can see and hidden tests you cannot.",
   },
   {
     q: "How is the winner decided?",
@@ -25,7 +25,7 @@ const QUESTIONS = [
   },
   {
     q: "Can I play against a friend?",
-    a: "Yes. Open a duel room from the lobby and send the link. Your friend signs in, you both press ready, and the room keeps score across rematches. Friend duels are unrated.",
+    a: "Yes. Open a duel room from the lobby, pick a level, and send the link. Your friend signs in, you both press ready, and the room keeps score across rematches. Friend duels are unrated.",
   },
   {
     q: "Do I need an account?",

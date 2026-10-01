@@ -4,6 +4,9 @@ import path from "path";
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
+// The site's public origin: the first FRONTEND_URL entry
+const siteOrigin = (process.env.FRONTEND_URL || "http://localhost:3000").split(",")[0].trim().replace(/\/+$/, "");
+
 export const config = {
   // Server
   port: parseInt(process.env.PORT || "3001", 10),
@@ -17,6 +20,10 @@ export const config = {
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
+  siteOrigin,
+  // The app's index.html, which invite link pages fill in with a room's link
+  // preview. In Docker this is the frontend container (no trip out and back in).
+  appShellUrl: process.env.APP_SHELL_URL || `${siteOrigin}/index.html`,
 
   // Admin / debug
   adminSecret: process.env.ADMIN_SECRET || "",

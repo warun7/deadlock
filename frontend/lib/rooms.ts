@@ -5,6 +5,21 @@ import { SOCKET_URL } from "./socket";
   (backend/src/types RoomView, RoomPreview, RoomAck).
 */
 
+/** Mirror of backend/src/config/roomDifficulty.ts */
+export const ROOM_DIFFICULTIES = {
+  easy: { label: "Easy", minRating: 800, maxRating: 1000 },
+  medium: { label: "Medium", minRating: 1100, maxRating: 1400 },
+  hard: { label: "Hard", minRating: 1500, maxRating: 1900 },
+  expert: { label: "Expert", minRating: 2000, maxRating: 2400 },
+} as const;
+
+export type RoomDifficulty = keyof typeof ROOM_DIFFICULTIES;
+
+export const DIFFICULTY_ORDER: RoomDifficulty[] = ["easy", "medium", "hard", "expert"];
+
+export const difficultyRange = (d: RoomDifficulty) =>
+  `${ROOM_DIFFICULTIES[d].minRating}\u2013${ROOM_DIFFICULTIES[d].maxRating}`;
+
 export interface RoomSeat {
   id: string;
   username: string;
@@ -21,6 +36,8 @@ export interface RoomView {
   status: "open" | "closed";
   host: RoomSeat;
   guest: RoomSeat | null;
+  /** Problem band for the next match; the host picks it */
+  difficulty: RoomDifficulty;
   /** The match the two are playing right now, if any */
   activeMatchId: string | null;
 }
@@ -31,6 +48,7 @@ export interface RoomPreview {
   status: "open" | "closed";
   host: { username: string; online: boolean };
   guest: { username: string } | null;
+  difficulty: RoomDifficulty;
 }
 
 export interface RoomRefusal {

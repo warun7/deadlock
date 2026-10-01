@@ -6,7 +6,7 @@ import Avatar from "../components/ui/Avatar";
 import Dialog from "../components/ui/Dialog";
 import { Mark } from "../components/ui/Wordmark";
 import { Button, ButtonLink, Kbd } from "../components/ui/Button";
-import { Chip, ChipLink, CrossRow, Figure, Label, Tag } from "../components/ui/Chrome";
+import { Chip, ChipLink, CrossRow, Detail, Figure, Label, Tag } from "../components/ui/Chrome";
 import { Swap } from "../components/ui/micro";
 import PixelText from "../components/ui/pixel/PixelText";
 import DotLoader from "../components/ui/pixel/DotLoader";
@@ -16,14 +16,25 @@ import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import { useCurrentProfile } from "../lib/useCurrentProfile";
 import { useShortcuts } from "../lib/useShortcuts";
-import { fetchRoomPreview, isRoomRefusal, roomUrl, type RoomPreview, type RoomSeat, type RoomView } from "../lib/rooms";
+import {
+  DIFFICULTY_ORDER,
+  ROOM_DIFFICULTIES,
+  difficultyRange,
+  fetchRoomPreview,
+  isRoomRefusal,
+  roomUrl,
+  type RoomDifficulty,
+  type RoomPreview,
+  type RoomSeat,
+  type RoomView,
+} from "../lib/rooms";
 import { clearReturnTo, rememberReturnTo } from "../lib/returnTo";
 import type { MatchFoundPayload } from "../types";
 
 const HANDOFF_MS = 3000;
 
 // Server errors about this room that belong on this page
-const ROOM_NOTICES = new Set(["PLAYER_BUSY", "ROOM_START_FAILED", "ROOM_BUSY", "ROOM_CLOSED", "NOT_IN_ROOM"]);
+const ROOM_NOTICES = new Set(["PLAYER_BUSY", "ROOM_START_FAILED", "ROOM_BUSY", "ROOM_CLOSED", "NOT_IN_ROOM", "NOT_ROOM_HOST"]);
 
 type Phase =
   | { kind: "loading" }
@@ -62,7 +73,7 @@ const RoomPage: React.FC = () => {
   const userId = user?.id;
 
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; tone: "error" | "info" } | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -128,6 +139,7 @@ const RoomPage: React.FC = () => {
             else setPhase({ kind: "error", message: res.message });
           } else {
             clearReturnTo();
+            lastDifficulty = res.room.difficulty;
             setPhase((p) => (p.kind === "starting" ? p : { kind: "room", room: res.room }));
             if (autoReadyRef.current) {
               autoReadyRef.current = false;
@@ -147,8 +159,14 @@ const RoomPage: React.FC = () => {
         void enter();
       };
       const onDisconnect = () => setConnectionLost(true);
+      let lastDifficulty: RoomDifficulty | null = null;
       const onUpdate = (room: RoomView) => {
         if (room.code !== code) return;
+        // The guest hears about a new level, since it also cleared their ready
+        if (lastDifficulty && room.difficulty !== lastDifficulty && room.host.id !== userId) {
+          setNotice({ text: `${room.host.username} switched to ${ROOM_DIFFICULTIES[room.difficulty].label}.`, tone: "info" });
+        }
+        lastDifficulty = room.difficulty;
         setPhase((p) => (p.kind === "starting" ? p : { kind: "room", room }));
       };
       const onClosed = (data: { code: string }) => {
@@ -161,7 +179,7 @@ const RoomPage: React.FC = () => {
         handoff = setTimeout(() => navigate(`/game/${data.matchId}`, { state: { matchData: data } }), HANDOFF_MS);
       };
       const onError = (data: { message: string; code?: string }) => {
-        if (data.code && ROOM_NOTICES.has(data.code)) setNotice(data.message);
+        if (data.code && ROOM_NOTICES.has(data.code)) setNotice({ text: data.message, tone: "error" });
       };
 
       socket.on("connect", onConnect);
@@ -243,6 +261,27 @@ const RoomPage: React.FC = () => {
     if (!code || !me || inMyMatch) return;
     setNotice(null);
     gameSocket.setRoomReady(code, !me.ready);
+  };
+
+  // Host only. Shown at once; the server clears both ready flags and confirms.
+  const chooseDifficulty = (difficulty: RoomDifficulty) => {
+    if (!code || !room || mySeat !== "host" || room.difficulty === difficulty) return;
+    setNotice(null);
+    const unready = (seat: RoomSeat | null) => (seat ? { ...seat, ready: false } : null);
+    setPhase({ kind: "room", room: { ...room, difficulty, host: unready(room.host)!, guest: unready(room.guest) } });
+    gameSocket.setRoomDifficulty(code, difficulty);
+  };
+
+  // Arrow keys move through the levels, like any radio group
+  const onDifficultyKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!room) return;
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const i = DIFFICULTY_ORDER.indexOf(room.difficulty);
+    const next = DIFFICULTY_ORDER[(i + step + DIFFICULTY_ORDER.length) % DIFFICULTY_ORDER.length];
+    chooseDifficulty(next);
+    e.currentTarget.querySelector<HTMLButtonElement>(`[data-difficulty="${next}"]`)?.focus();
   };
 
   const copyLink = async () => {
@@ -398,8 +437,11 @@ const RoomPage: React.FC = () => {
                     A 1v1 coding race: the same problem on the same clock, and the first to pass every test wins. Sign up free to
                     take the seat.
                   </p>
+                  <Detail label="Level" className="mt-8 max-w-xl">
+                    {ROOM_DIFFICULTIES[phase.preview.difficulty].label} &middot; problems rated {difficultyRange(phase.preview.difficulty)}
+                  </Detail>
                   {phase.preview.host.online && (
-                    <p className="label mt-6 flex items-center gap-2 text-pass-ink">
+                    <p className="label mt-4 flex items-center gap-2 text-pass-ink">
                       <span className="size-[7px] bg-pass" aria-hidden="true" />
                       {phase.preview.host.username} is in the room now
                     </p>
@@ -463,6 +505,54 @@ const RoomPage: React.FC = () => {
                     </div>
                   )}
 
+                  {mySeat && !inMyMatch && (
+                    <div className="mt-8 max-w-xl">
+                      <Label aside={mySeat === "host" ? "Next round" : `${room.host.username} picks`}>Difficulty</Label>
+                      {mySeat === "host" ? (
+                        <div
+                          role="radiogroup"
+                          aria-label="Difficulty"
+                          onKeyDown={onDifficultyKey}
+                          className="mt-3 grid grid-cols-2 gap-[3px] sm:grid-cols-4"
+                        >
+                          {DIFFICULTY_ORDER.map((id) => {
+                            const on = room.difficulty === id;
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                role="radio"
+                                aria-checked={on}
+                                tabIndex={on ? 0 : -1}
+                                data-difficulty={id}
+                                onClick={() => chooseDifficulty(id)}
+                                className={`relative flex h-14 flex-col items-start justify-center rounded-[3px] px-3 text-left transition-colors duration-200 ${
+                                  on ? "text-bg" : "bg-bg-2 text-fg hover:bg-bg-3"
+                                }`}
+                              >
+                                {on && (
+                                  <motion.span
+                                    layoutId="difficulty-pill"
+                                    className="absolute inset-0 rounded-[3px] bg-fg"
+                                    transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                                  />
+                                )}
+                                <span className="relative text-[15px] font-medium leading-tight tracking-[-0.01em]">
+                                  {ROOM_DIFFICULTIES[id].label}
+                                </span>
+                                <span className={`label tabular relative mt-1 ${on ? "opacity-70" : "text-fg-3"}`}>{difficultyRange(id)}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <Detail label={ROOM_DIFFICULTIES[room.difficulty].label} className="mt-3">
+                          Problems rated {difficultyRange(room.difficulty)}
+                        </Detail>
+                      )}
+                    </div>
+                  )}
+
                   <ul className="mt-10 border-t border-rule">
                     {seatRow(room.host, "Host", "bg-fg", 0, mySeat === "host")}
                     {seatRow(room.guest, "Guest", "bg-accent", 1, mySeat === "guest")}
@@ -496,7 +586,7 @@ const RoomPage: React.FC = () => {
                   )}
                   <p className="label mt-4 min-h-[1.2em] text-fg-3" role="status">
                     {notice ? (
-                      <span className="text-accent-ink">{notice}</span>
+                      <span className={notice.tone === "error" ? "text-accent-ink" : "text-fg"}>{notice.text}</span>
                     ) : me?.ready && !inMyMatch ? (
                       opponent?.ready ? "Starting" : opponent ? `Waiting for ${opponent.username} to get ready` : "Ready. Waiting for a friend to join."
                     ) : null}

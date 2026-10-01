@@ -1,4 +1,5 @@
 import { Socket } from "socket.io";
+import type { RoomDifficulty } from "../config/roomDifficulty";
 
 // ============================================
 // User & Auth Types
@@ -111,6 +112,10 @@ export interface Room {
   guestWins: number;
   /** Latest match started from this room; it may have finished */
   matchId: string | null;
+  /** Problem band for the next match; the host picks it */
+  difficulty: RoomDifficulty;
+  /** Problems this room played recently, newest first, so rematches do not repeat */
+  recentProblemIds: string[];
   createdAt: number;
 }
 
@@ -128,6 +133,7 @@ export interface RoomView {
   status: "open" | "closed";
   host: RoomSeatView;
   guest: RoomSeatView | null;
+  difficulty: RoomDifficulty;
   /** The match the two are playing right now, if any */
   activeMatchId: string | null;
 }
@@ -138,6 +144,7 @@ export interface RoomPreview {
   status: "open" | "closed";
   host: { username: string; online: boolean };
   guest: { username: string } | null;
+  difficulty: RoomDifficulty;
 }
 
 export type RoomErrorCode =
@@ -278,6 +285,7 @@ export interface ClientToServerEvents {
   create_room: (ack: (res: RoomAck) => void) => void; // Your open room, or a new one
   join_room: (code: string, ack: (res: RoomAck) => void) => void; // Take a seat and watch the room
   room_ready: (payload: { code: string; ready: boolean }) => void; // Both ready starts a match
+  room_settings: (payload: { code: string; difficulty: RoomDifficulty }) => void; // Host only
   leave_room: (code: string) => void; // Guest gives up the seat; host closes the room
   unwatch_room: (code: string) => void; // Left the room page; the seat is kept
 }

@@ -2,6 +2,7 @@ import Redis from "ioredis";
 import { config } from "../config";
 import { MatchMode, MatchState, Room, RoomPlayer } from "../types";
 import { createModuleLogger } from "../utils/logger";
+import { DEFAULT_ROOM_DIFFICULTY, isRoomDifficulty } from "../config/roomDifficulty";
 
 interface RedisMetricBucket {
   calls: number;
@@ -497,7 +498,7 @@ export class RedisService {
         'code', ARGV[1], 'status', 'open', 'createdAt', ARGV[2],
         'host_id', ARGV[3], 'host_username', ARGV[4], 'host_elo', ARGV[5], 'host_ready', '0', 'host_wins', '0',
         'guest_id', '', 'guest_username', '', 'guest_elo', '', 'guest_ready', '0', 'guest_wins', '0',
-        'matchId', '')
+        'matchId', '', 'difficulty', ARGV[7], 'recentProblems', '')
       redis.call('EXPIRE', KEYS[1], ARGV[6])
       return 1
     `;
@@ -511,7 +512,8 @@ export class RedisService {
         host.id,
         host.username,
         host.elo.toString(),
-        config.room.ttlSeconds.toString()
+        config.room.ttlSeconds.toString(),
+        DEFAULT_ROOM_DIFFICULTY
       )
     );
     return created === 1;
@@ -543,8 +545,26 @@ export class RedisService {
       hostWins: parseInt(data.host_wins, 10) || 0,
       guestWins: parseInt(data.guest_wins, 10) || 0,
       matchId: data.matchId || null,
+      // Rooms opened before difficulty existed play at the default
+      difficulty: isRoomDifficulty(data.difficulty) ? data.difficulty : DEFAULT_ROOM_DIFFICULTY,
+      recentProblemIds: data.recentProblems ? data.recentProblems.split(",") : [],
       createdAt: parseInt(data.createdAt, 10) || 0,
     };
+  }
+
+  /** Set fields on an open room; false if the room is gone or closed */
+  async updateRoom(code: string, fields: Record<string, string>, operation = "room_update"): Promise<boolean> {
+    const script = `
+      if redis.call('HGET', KEYS[1], 'status') ~= 'open' then return 0 end
+      for i = 2, #ARGV, 2 do redis.call('HSET', KEYS[1], ARGV[i], ARGV[i + 1]) end
+      redis.call('EXPIRE', KEYS[1], ARGV[1])
+      return 1
+    `;
+    const args = Object.entries(fields).flat();
+    const done = await this.measure(operation, "EVAL", () =>
+      this.client.eval(script, 1, config.redisKeys.room(code), config.room.ttlSeconds.toString(), ...args)
+    );
+    return done === 1;
   }
 
   /**

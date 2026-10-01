@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { supabase } from './supabase';
-import type { RoomAck } from './rooms';
+import type { RoomAck, RoomDifficulty } from './rooms';
 
 // The game server; it also serves the few REST endpoints (room previews)
 export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
@@ -130,6 +130,11 @@ class GameSocket {
 
   setRoomReady(code: string, ready: boolean) {
     this.socket?.emit('room_ready', { code, ready });
+  }
+
+  // Host only. Clears both ready flags.
+  setRoomDifficulty(code: string, difficulty: RoomDifficulty) {
+    this.socket?.emit('room_settings', { code, difficulty });
   }
 
   // Guest: give up the seat. Host: close the room.

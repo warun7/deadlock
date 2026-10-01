@@ -2,6 +2,7 @@ import { randomInt } from "crypto";
 import { Server as SocketServer } from "socket.io";
 import { v4 as uuidv4 } from "uuid";
 import { redisService } from "./RedisService";
+import { isRoomDifficulty, ROOM_DIFFICULTIES } from "../config/roomDifficulty";
 import type { MatchmakingService } from "./MatchmakingService";
 import {
   AuthenticatedSocket,
@@ -35,6 +36,9 @@ function generateRoomCode(): string {
 
 /** Socket.IO room for everyone who has a duel room open */
 const channel = (code: string) => `room:${code}`;
+
+// Enough to keep a session of rematches from repeating a problem
+const RECENT_PROBLEMS_KEPT = 15;
 
 const NOT_FOUND: RoomAck = {
   ok: false,
@@ -156,6 +160,34 @@ export class RoomService {
     await this.broadcast(code);
   }
 
+  /**
+   * The host sets the problem band for the next match. Both ready flags are
+   * cleared, so nobody starts a match at a level they did not agree to.
+   */
+  async setDifficulty(socket: AuthenticatedSocket, rawCode: unknown, difficulty: unknown): Promise<void> {
+    const code = normalizeRoomCode(rawCode);
+    if (!code || socket.data.roomCode !== code) {
+      socket.emit("error", { message: "Open the room first.", code: "NOT_IN_ROOM" });
+      return;
+    }
+    if (!isRoomDifficulty(difficulty)) return;
+
+    const room = await redisService.getRoom(code, "room_settings_read");
+    if (!room || room.status !== "open") {
+      socket.emit("error", { message: "This room is closed.", code: "ROOM_CLOSED" });
+      return;
+    }
+    if (room.host.id !== socket.user.id) {
+      socket.emit("error", { message: "Only the host can change the difficulty.", code: "NOT_ROOM_HOST" });
+      return;
+    }
+    if (room.difficulty === difficulty) return;
+
+    await redisService.updateRoom(code, { difficulty, host_ready: "0", guest_ready: "0" }, "room_set_difficulty");
+    console.log(`🚪 Room ${code} difficulty: ${difficulty}`);
+    await this.broadcast(code);
+  }
+
   /** The guest gives up their seat; the host closes the room */
   async leaveRoom(socket: AuthenticatedSocket, rawCode: unknown): Promise<void> {
     const code = normalizeRoomCode(rawCode);
@@ -222,6 +254,7 @@ export class RoomService {
       status: room.status,
       host: { username: room.host.username, online: this.socketsIn(code, room.host.id).length > 0 },
       guest: room.guest ? { username: room.guest.username } : null,
+      difficulty: room.difficulty,
     };
   }
 
@@ -253,20 +286,26 @@ export class RoomService {
     // Both players can press ready at the same moment; only one start wins
     if (!(await redisService.claimRoomStart(code, room.host.id, room.guest.id, matchId))) return;
 
-    const started = await this.matchmakingService?.startFriendMatch({
+    const problemId = await this.matchmakingService?.startFriendMatch({
       matchId,
       roomCode: code,
       host: room.host,
       hostSockets,
       guest: room.guest,
       guestSockets,
+      difficulty: room.difficulty,
+      excludeProblemIds: room.recentProblemIds,
     });
-    if (!started) {
+    if (!problemId) {
       this.io.to(channel(code)).emit("error", {
-        message: "Could not start the duel. Press ready to try again.",
+        message: `Could not find a ${ROOM_DIFFICULTIES[room.difficulty].label.toLowerCase()} problem. Press ready to try again, or pick another level.`,
         code: "ROOM_START_FAILED",
       });
+      return;
     }
+
+    const recent = [problemId, ...room.recentProblemIds.filter((id) => id !== problemId)].slice(0, RECENT_PROBLEMS_KEPT);
+    await redisService.updateRoom(code, { recentProblems: recent.join(",") }, "room_record_problem");
   }
 
   private async afterPresenceLoss(code: string, userId: string): Promise<void> {
@@ -305,6 +344,7 @@ export class RoomService {
       status: room.status,
       host: seat(room.host, room.hostReady, room.hostWins),
       guest: room.guest ? seat(room.guest, room.guestReady, room.guestWins) : null,
+      difficulty: room.difficulty,
       activeMatchId: await this.activeMatchId(room),
     };
   }

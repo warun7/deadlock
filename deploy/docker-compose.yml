@@ -123,6 +123,8 @@ services:
       BOT_DEFAULT_DIFFICULTY: ${BOT_DEFAULT_DIFFICULTY:-medium}
       # Duel rooms (friend invite links) are forgotten after this long idle
       ROOM_TTL_SECONDS: ${ROOM_TTL_SECONDS:-10800}
+      # The app's HTML, filled in with link previews for invite pages
+      APP_SHELL_URL: http://frontend:80/index.html
 
       # Containers should log to stdout, not to files inside themselves.
       LOG_TO_FILE: "false"
