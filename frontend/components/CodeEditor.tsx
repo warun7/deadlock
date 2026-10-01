@@ -4,6 +4,7 @@ import { python } from '@codemirror/lang-python';
 import { javascript } from '@codemirror/lang-javascript';
 import { cpp } from '@codemirror/lang-cpp';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
+import { fairPlayEditor, type BlockedKind, type FairPlaySession } from './arena/fairPlay';
 
 interface CodeEditorProps {
   language: string;
@@ -11,6 +12,9 @@ interface CodeEditorProps {
   onChange: (value: string) => void;
   /** Mod-Enter (Ctrl/Cmd + Enter) inside the editor */
   onSubmit?: () => void;
+  /** Matches against people: own clipboard, outside pastes refused, input counted */
+  fairPlay?: FairPlaySession | null;
+  onBlocked?: (kind: BlockedKind, chars: number) => void;
 }
 
 // Keep vscodeDark's syntax colours; surfaces follow the app's dark "screen" tokens.
@@ -31,9 +35,11 @@ const surface = EditorView.theme(
   { dark: true }
 );
 
-const CodeEditor: React.FC<CodeEditorProps> = ({ language, code, onChange, onSubmit }) => {
+const CodeEditor: React.FC<CodeEditorProps> = ({ language, code, onChange, onSubmit, fairPlay, onBlocked }) => {
   const submitRef = useRef(onSubmit);
   submitRef.current = onSubmit;
+  const blockedRef = useRef(onBlocked);
+  blockedRef.current = onBlocked;
 
   const extensions = useMemo(() => {
     const lang = language === 'javascript' ? javascript() : language === 'cpp' ? cpp() : python();
@@ -51,8 +57,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ language, code, onChange, onSub
           },
         ])
       ),
+      ...(fairPlay ? [fairPlayEditor(fairPlay, language, (kind, chars) => blockedRef.current?.(kind, chars))] : []),
     ];
-  }, [language]);
+  }, [language, fairPlay]);
 
   return (
     <div className="relative h-full w-full overflow-hidden text-[13.5px]">

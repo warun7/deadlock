@@ -111,6 +111,7 @@ export const config = {
     userSocket: (userId: string) => `user:${userId}:socket`,
     room: (code: string) => `room:${code}`,
     userRoom: (userId: string) => `user:${userId}:room`, // the open room this user hosts
+    integrity: (matchId: string) => `integrity:${matchId}`, // fair play counters per player
   },
 } as const;
 

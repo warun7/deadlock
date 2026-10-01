@@ -312,6 +312,11 @@ const RealMatchmakingPage: React.FC<{ mode?: "ranked" | "practice" }> = ({ mode 
                     <span className="label pb-1 text-fg-2">Starting in</span>
                     <PixelText key={countdown} text={String(countdown)} intro="mount" label={`${countdown} seconds`} className="h-16 text-accent" />
                   </div>
+                  {!practice && (
+                  <p className="label mt-6 max-w-[46ch] text-fg-3">
+                    Fair play: pasting from outside the editor is off, and leaving the tab is shown to your opponent.
+                  </p>
+                  )}
                 </motion.div>
               )}
 

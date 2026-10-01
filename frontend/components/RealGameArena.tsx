@@ -14,6 +14,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import CodeEditor from "./CodeEditor";
+import { FairPlaySession, type BlockedKind } from "./arena/fairPlay";
 import TestPips from "./arena/TestPips";
 import Avatar from "./ui/Avatar";
 import Dialog from "./ui/Dialog";
@@ -24,7 +25,7 @@ import PixelText from "./ui/pixel/PixelText";
 import DotLoader from "./ui/pixel/DotLoader";
 import { PixelBurst } from "./ui/micro";
 import { motion } from "framer-motion";
-import { gameSocket } from "../lib/socket";
+import { gameSocket, type ReportReason } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { invalidateCurrentProfile, useCurrentProfile } from "../lib/useCurrentProfile";
@@ -212,6 +213,30 @@ const RealGameArena: React.FC = () => {
   const [isLoading, setIsLoading] = useState(!matchData);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Fair play applies to live matches against people (not Practice): the
+  // page cannot be copied, the editor only pastes from its own clipboard, and
+  // leaving the tab is shown to the opponent and logged
+  const fairPlayOn = !!currentMatchData && !currentMatchData.opponent?.isBot && !practiceResult && !gameOver;
+  const fairPlaySession = useMemo(() => (matchId ? new FairPlaySession(matchId) : null), [matchId]);
+  const [opponentLeftTab, setOpponentLeftTab] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2800);
+  }, []);
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
+  const [report, setReport] = useState<{ open: boolean; reason: ReportReason | null; note: string; state: "idle" | "sending" | "sent"; error: string | null }>({
+    open: false,
+    reason: null,
+    note: "",
+    state: "idle",
+    error: null,
+  });
+
   // Clock
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -306,6 +331,12 @@ const RealGameArena: React.FC = () => {
         if (m) setOpponentTests({ passed: Number(m[1]), total: Number(m[2]) });
       };
 
+      // The other player left or came back to the match tab
+      const handleOpponentFocus = (data: { playerId: string; away: boolean }) => {
+        if (data.playerId === userIdRef.current) return;
+        setOpponentLeftTab(data.away);
+      };
+
       const handleGameOver = (data: {
         winnerId: string | null;
         reason?: string;
@@ -317,6 +348,7 @@ const RealGameArena: React.FC = () => {
         score?: { you: number; opponent: number };
       }) => {
         setGameOver(true);
+        setOpponentLeftTab(false);
         setPracticeResult(!!data.practice);
         if (data.friendly) setFriendResult({ roomCode: data.roomCode, score: data.score });
         setOpponentDeadline(null);
@@ -359,6 +391,7 @@ const RealGameArena: React.FC = () => {
       socket.on("match_found", handleMatchFound);
       socket.on("submission_result", handleSubmissionResult);
       socket.on("opponent_progress", handleOpponentProgress);
+      socket.on("opponent_focus", handleOpponentFocus);
       socket.on("game_over", handleGameOver);
       socket.on("error", handleError);
 
@@ -371,6 +404,7 @@ const RealGameArena: React.FC = () => {
         socket.off("match_found", handleMatchFound);
         socket.off("submission_result", handleSubmissionResult);
         socket.off("opponent_progress", handleOpponentProgress);
+        socket.off("opponent_focus", handleOpponentFocus);
         socket.off("game_over", handleGameOver);
         socket.off("error", handleError);
         socket.off("connect", handleConnect);
@@ -410,6 +444,7 @@ const RealGameArena: React.FC = () => {
       (Object.keys(LANGUAGE_IDS) as Language[]).forEach((l) => safeRemove(draftKey(matchId, l)));
       safeRemove(langKey(matchId));
     }
+    fairPlaySession?.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameOver]);
 
@@ -454,8 +489,71 @@ const RealGameArena: React.FC = () => {
     setSubmissionResult(null);
     setSocketError(null);
     setResultsCollapsed(false);
-    gameSocket.submitCode(code, LANGUAGE_IDS[language]);
-  }, [code, language, gameOver]);
+    gameSocket.submitCode(
+      code,
+      LANGUAGE_IDS[language],
+      fairPlayOn && fairPlaySession ? fairPlaySession.telemetry(language, STARTER_CODE[language].length) : undefined
+    );
+  }, [code, language, gameOver, fairPlayOn, fairPlaySession]);
+
+  // What the editor refused. The toast explains; the server counts.
+  const handleBlocked = useCallback(
+    (kind: BlockedKind, chars: number) => {
+      showToast(
+        kind === "bulk"
+          ? "That insert was refused. Type your code in the editor."
+          : "Pasting from outside the editor is off in matches. Copy and paste inside the editor still work."
+      );
+      gameSocket.sendFairPlay({ kind: kind === "paste" ? "paste_blocked" : kind === "drop" ? "drop_blocked" : "bulk_blocked", chars });
+    },
+    [showToast]
+  );
+
+  // Copying anything else on the page (the problem, results) is refused.
+  // The editor handles its own copies first and marks them handled.
+  const lastCopyReport = useRef(0);
+  const blockPageCopy = (e: React.ClipboardEvent) => {
+    if (!fairPlayOn || e.nativeEvent.defaultPrevented) return;
+    e.preventDefault();
+    showToast("Copying is off during matches.");
+    if (Date.now() - lastCopyReport.current > 2000) {
+      lastCopyReport.current = Date.now();
+      gameSocket.sendFairPlay({ kind: "copy_blocked" });
+    }
+  };
+
+  // Leaving the tab or window: the opponent sees it and it is logged.
+  // A second to settle, so a notification stealing focus does not count.
+  useEffect(() => {
+    if (!fairPlayOn) return;
+    let away = false;
+    let settle: ReturnType<typeof setTimeout> | null = null;
+    const check = () => {
+      if (settle) clearTimeout(settle);
+      settle = setTimeout(() => {
+        const next = document.hidden || !document.hasFocus();
+        if (next === away) return;
+        away = next;
+        gameSocket.sendFairPlay({ kind: away ? "away" : "back" });
+      }, 1000);
+    };
+    // The server closes an away period when the connection drops; say so again
+    const onReconnect = () => {
+      if (away) gameSocket.sendFairPlay({ kind: "away" });
+    };
+    const socket = gameSocket.getSocket();
+    window.addEventListener("blur", check);
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    socket?.on("connect", onReconnect);
+    return () => {
+      if (settle) clearTimeout(settle);
+      window.removeEventListener("blur", check);
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+      socket?.off("connect", onReconnect);
+    };
+  }, [fairPlayOn]);
 
   // Ctrl/Cmd + Enter submits from anywhere on the page (the editor binds it too)
   useEffect(() => {
@@ -487,7 +585,23 @@ const RealGameArena: React.FC = () => {
   const opponentAway = !!opponentDeadline && !gameOver;
   const opponentLabel = opponentAway
     ? `Disconnected, ${Math.max(0, Math.ceil((opponentDeadline! - now) / 1000))}s to return`
-    : describeOpponent(opponentStatus);
+    : opponentLeftTab && !gameOver
+      ? "Left the tab"
+      : describeOpponent(opponentStatus);
+  const opponentOutOfTab = opponentLeftTab && !gameOver && !opponentAway;
+  const canReport = gameOver && !isPractice && !isFriendly && !!matchId;
+
+  const sendReport = async () => {
+    if (!matchId || !report.reason || report.state !== "idle") return;
+    setReport((r) => ({ ...r, state: "sending", error: null }));
+    try {
+      const res = await gameSocket.reportPlayer(matchId, report.reason, report.note);
+      if (res.ok) setReport((r) => ({ ...r, state: "sent", open: false }));
+      else setReport((r) => ({ ...r, state: "idle", error: (res as { message: string }).message }));
+    } catch {
+      setReport((r) => ({ ...r, state: "idle", error: "Could not reach the server. Try again." }));
+    }
+  };
   const opponentSolved = opponentLabel === "Solved";
 
   const statement = useMemo(
@@ -579,7 +693,7 @@ const RealGameArena: React.FC = () => {
   );
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden">
+    <div className="flex h-[100dvh] flex-col overflow-hidden" onCopy={blockPageCopy} onCut={blockPageCopy}>
       {/* HUD */}
       <header className="relative z-20 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-rule px-3 sm:px-4">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -604,8 +718,8 @@ const RealGameArena: React.FC = () => {
             {isFriendly && <Tag>Friendly</Tag>}
             {opponentTests && <TestPips passed={opponentTests.passed} total={opponentTests.total} tone="opponent" size={7} />}
             <span
-              className={`label truncate ${opponentAway ? "inline text-warn-ink" : "hidden xl:inline"} ${
-                !opponentAway && opponentSolved ? "text-accent-ink" : !opponentAway ? "text-fg-3" : ""
+              className={`label truncate ${opponentAway || opponentOutOfTab ? "inline text-warn-ink" : "hidden xl:inline"} ${
+                !opponentAway && !opponentOutOfTab && opponentSolved ? "text-accent-ink" : !opponentAway && !opponentOutOfTab ? "text-fg-3" : ""
               }`}
             >
               {opponentLabel}
@@ -675,6 +789,8 @@ const RealGameArena: React.FC = () => {
           <span className="max-w-[6rem] truncate normal-case text-fg">{opponentName}</span>
           {opponentAway ? (
             <span className="tabular text-warn-ink">Away {Math.max(0, Math.ceil((opponentDeadline! - now) / 1000))}s</span>
+          ) : opponentOutOfTab ? (
+            <span className="text-warn-ink">Left tab</span>
           ) : opponentTests ? (
             <span className="tabular">
               {opponentTests.passed}/{opponentTests.total}
@@ -701,6 +817,18 @@ const RealGameArena: React.FC = () => {
             {outcome}. {gameOverReason}
           </span>
           <div className="flex gap-2">
+            {canReport && report.state !== "sent" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setReport((r) => ({ ...r, open: true }));
+                  setShowResult(true);
+                }}
+              >
+                Report
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={() => navigate("/dashboard")}>
               Lobby
             </Button>
@@ -715,6 +843,7 @@ const RealGameArena: React.FC = () => {
         {/* Problem */}
         <section
           aria-label="Problem"
+          onDragStart={(e) => fairPlayOn && e.preventDefault()}
           className={`${mobileTab === "problem" ? "flex" : "hidden"} min-h-0 w-full flex-col border-rule md:flex md:w-[42%] md:border-r`}
         >
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 pt-6 sm:px-7">
@@ -782,7 +911,14 @@ const RealGameArena: React.FC = () => {
           </div>
 
           <div className="relative min-h-0 flex-1">
-            <CodeEditor language={language} code={code} onChange={handleCodeChange} onSubmit={handleSubmit} />
+            <CodeEditor
+              language={language}
+              code={code}
+              onChange={handleCodeChange}
+              onSubmit={handleSubmit}
+              fairPlay={fairPlayOn ? fairPlaySession : null}
+              onBlocked={handleBlocked}
+            />
           </div>
 
           {/* Results */}
@@ -900,6 +1036,7 @@ const RealGameArena: React.FC = () => {
                 ) : (
                   <p className="text-[13px] text-screen-fg-2">
                     Submit to run your code against every test. {isMac ? "Cmd" : "Ctrl"} + Enter works from the editor.
+                    {fairPlayOn && " In matches, copy and paste work only inside the editor."}
                   </p>
                 )}
               </div>
@@ -995,7 +1132,61 @@ const RealGameArena: React.FC = () => {
             </span>
           )}
         </div>
+        {canReport && report.open && (
+          <div className="mt-6 border-t border-rule pt-4">
+            <p className="label text-fg">/ Report {opponentName}</p>
+            <div role="radiogroup" aria-label="Reason" className="mt-3 grid gap-[3px]">
+              {(
+                [
+                  { id: "outside_help", label: "Used AI or outside help" },
+                  { id: "other", label: "Something else" },
+                ] as { id: ReportReason; label: string }[]
+              ).map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={report.reason === o.id}
+                  onClick={() => setReport((r) => ({ ...r, reason: o.id, error: null }))}
+                  className={`flex h-10 items-center gap-2.5 rounded-[3px] px-3 text-left text-[15px] transition-colors ${
+                    report.reason === o.id ? "bg-fg text-bg" : "bg-bg-2 text-fg hover:bg-bg-3"
+                  }`}
+                >
+                  <span className={`size-[7px] ${report.reason === o.id ? "bg-accent" : "bg-fg-3"}`} aria-hidden="true" />
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={report.note}
+              onChange={(e) => setReport((r) => ({ ...r, note: e.target.value.slice(0, 500) }))}
+              rows={2}
+              placeholder="What happened? (optional)"
+              aria-label="Details (optional)"
+              className="mt-2 w-full resize-none rounded-[3px] border border-line bg-bg px-3 py-2 text-[14px] text-fg placeholder:text-fg-3 focus:border-fg focus:outline-none"
+            />
+            {report.error && <p className="mt-1 text-[13px] text-accent-ink">{report.error}</p>}
+            <div className="mt-2 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setReport((r) => ({ ...r, open: false, error: null }))}>
+                Cancel
+              </Button>
+              <Button variant="danger" size="sm" disabled={!report.reason} loading={report.state === "sending"} onClick={sendReport}>
+                Send report
+              </Button>
+            </div>
+          </div>
+        )}
+        {report.state === "sent" && (
+          <p role="status" className="label mt-4 text-pass-ink">
+            Report sent. A person reviews every report.
+          </p>
+        )}
         <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          {canReport && !report.open && report.state !== "sent" && (
+            <Button variant="ghost" className="sm:mr-auto" onClick={() => setReport((r) => ({ ...r, open: true }))}>
+              Report
+            </Button>
+          )}
           <Button variant="ghost" onClick={() => setShowResult(false)}>
             Review code
           </Button>
@@ -1007,6 +1198,15 @@ const RealGameArena: React.FC = () => {
           </Button>
         </div>
       </Dialog>
+
+      {/* What fair play refused, said once and briefly */}
+      <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-16 z-[70] flex justify-center px-4">
+        {toast && (
+          <div key={toast} className="label max-w-md animate-[rise-in_0.25s_var(--ease-out-expo)] rounded-[3px] border border-fg bg-bg px-3 py-2.5 text-center normal-case text-fg motion-reduce:animate-none">
+            {toast}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

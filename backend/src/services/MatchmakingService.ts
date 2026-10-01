@@ -6,6 +6,7 @@ import { BotPlayer, BotCompletionResult } from "./BotPlayer";
 import { config } from "../config";
 import { ROOM_DIFFICULTIES, RoomDifficulty } from "../config/roomDifficulty";
 import type { GameService } from "./GameService";
+import type { IntegrityService } from "./IntegrityService";
 import {
   QueueEntry,
   MatchState,
@@ -31,6 +32,7 @@ export class MatchmakingService {
   private activeBots: Map<string, BotPlayer> = new Map(); // Track active bots by matchId
   private disconnectTimers: Map<string, NodeJS.Timeout> = new Map(); // `${matchId}:${userId}` -> forfeit timer
   private gameService: GameService | null = null; // Set by GameService (for saving match results)
+  private integrityService: IntegrityService | null = null; // Fair play signals when a ranked match ends
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
@@ -41,6 +43,10 @@ export class MatchmakingService {
    */
   setGameService(gameService: GameService): void {
     this.gameService = gameService;
+  }
+
+  setIntegrityService(integrityService: IntegrityService): void {
+    this.integrityService = integrityService;
   }
 
   /**
@@ -389,6 +395,7 @@ export class MatchmakingService {
         startedAt: Date.now(),
         finishedAt: null,
         mode: "practice",
+        problemRating: problem.difficulty,
       };
 
       // Store match in Redis
@@ -500,6 +507,7 @@ export class MatchmakingService {
       startedAt: Date.now(),
       finishedAt: null,
       mode: "ranked",
+      problemRating: problem.difficulty,
     };
 
     // Store match in Redis
@@ -616,6 +624,7 @@ export class MatchmakingService {
       finishedAt: null,
       mode: "friend",
       roomCode,
+      problemRating: problem.difficulty,
     };
     await redisService.createMatch(matchState, "friend_match_create");
 
@@ -676,6 +685,7 @@ export class MatchmakingService {
           winnerId: null,
           reason: "Match timed out - no winner",
         });
+        void this.integrityService?.finalize(match, null, "timeout");
 
         console.log(`🏁 Match ${matchId} ended in timeout (draw)`);
       }
@@ -799,6 +809,7 @@ export class MatchmakingService {
         winnerId: null,
         reason: "Both players disconnected",
       });
+      void this.integrityService?.finalize(match, null, "abandoned");
       console.log(`🏁 Match ${matchId} ended: both players disconnected`);
       return;
     }
@@ -817,10 +828,15 @@ export class MatchmakingService {
     }
 
     if (this.gameService) {
-      await this.gameService.recordHumanResult(match, winnerId, loserId, duration, "unknown", {
-        winner: "Opponent disconnected",
-        loser: "You disconnected",
-      });
+      await this.gameService.recordHumanResult(
+        match,
+        winnerId,
+        loserId,
+        duration,
+        "unknown",
+        { winner: "Opponent disconnected", loser: "You disconnected" },
+        "disconnect"
+      );
       return; // recordHumanResult notifies both players with their rating changes
     }
 

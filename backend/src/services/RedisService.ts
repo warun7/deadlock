@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 import { config } from "../config";
-import { MatchMode, MatchState, Room, RoomPlayer } from "../types";
+import { FairPlayEvent, MatchMode, MatchState, Room, RoomPlayer } from "../types";
 import { createModuleLogger } from "../utils/logger";
 import { DEFAULT_ROOM_DIFFICULTY, isRoomDifficulty } from "../config/roomDifficulty";
 
@@ -312,6 +312,7 @@ export class RedisService {
         finishedAt: matchState.finishedAt?.toString() || "",
         mode: matchState.mode,
         roomCode: matchState.roomCode || "",
+        problemRating: matchState.problemRating?.toString() || "",
       })
     );
 
@@ -382,6 +383,7 @@ export class RedisService {
       // Matches created before modes existed: a bot seat means practice
       mode: (data.mode as MatchMode) || (data.player2_socketId === "bot" ? "practice" : "ranked"),
       roomCode: data.roomCode || undefined,
+      problemRating: data.problemRating ? parseInt(data.problemRating, 10) : undefined,
     };
   }
 
@@ -751,6 +753,101 @@ export class RedisService {
     await this.measure(operation, "SET", () =>
       this.client.set(config.redisKeys.userRoom(userId), code, "EX", config.room.ttlSeconds)
     );
+  }
+
+  // ============================================
+  // Fair Play Counters
+  // ============================================
+  //
+  // One hash per match, fields prefixed with the player's id
+  // ("<userId>:away_ms"). It outlives the match by an hour so the result can
+  // be written after the match ends.
+
+  private integrityTtlSeconds(): number {
+    return Math.ceil(config.match.timeoutMs / 1000) + 3600;
+  }
+
+  /**
+   * Count one fair play event. Returns true when it changed something worth
+   * telling the opponent about (a player left or came back), and for every
+   * counted blocked action. Events past the cap are ignored.
+   */
+  async recordFairPlayEvent(
+    matchId: string,
+    userId: string,
+    event: FairPlayEvent,
+    maxEvents: number,
+    operation = "fair_play_event"
+  ): Promise<boolean> {
+    const script = `
+      local p = ARGV[1] .. ':'
+      local n = redis.call('HINCRBY', KEYS[1], p .. 'events', 1)
+      redis.call('EXPIRE', KEYS[1], ARGV[5])
+      if n > tonumber(ARGV[6]) then return 0 end
+      local kind = ARGV[2]
+      if kind == 'away' then
+        if redis.call('HSETNX', KEYS[1], p .. 'away_since', ARGV[4]) == 1 then
+          redis.call('HINCRBY', KEYS[1], p .. 'away_count', 1)
+          return 1
+        end
+        return 0
+      elseif kind == 'back' then
+        local since = redis.call('HGET', KEYS[1], p .. 'away_since')
+        if not since then return 0 end
+        redis.call('HDEL', KEYS[1], p .. 'away_since')
+        redis.call('HINCRBY', KEYS[1], p .. 'away_ms', math.max(0, tonumber(ARGV[4]) - tonumber(since)))
+        return 1
+      end
+      redis.call('HINCRBY', KEYS[1], p .. kind, 1)
+      if kind == 'paste_blocked' then
+        local max = tonumber(redis.call('HGET', KEYS[1], p .. 'paste_max') or '0')
+        if tonumber(ARGV[3]) > max then redis.call('HSET', KEYS[1], p .. 'paste_max', ARGV[3]) end
+      end
+      return 1
+    `;
+    const chars = "chars" in event ? Math.max(0, Math.floor(event.chars)) : 0;
+    const changed = await this.measure(operation, "EVAL", () =>
+      this.client.eval(
+        script,
+        1,
+        config.redisKeys.integrity(matchId),
+        userId,
+        event.kind,
+        chars.toString(),
+        Date.now().toString(),
+        this.integrityTtlSeconds().toString(),
+        maxEvents.toString()
+      )
+    );
+    return changed === 1;
+  }
+
+  /** Store the latest submission's editor counts for a player */
+  async recordFairPlaySubmission(
+    matchId: string,
+    userId: string,
+    fields: Record<string, number>,
+    operation = "fair_play_submission"
+  ): Promise<void> {
+    const key = config.redisKeys.integrity(matchId);
+    const prefixed = Object.fromEntries(
+      Object.entries(fields).map(([k, v]) => [`${userId}:${k}`, String(v)])
+    );
+    await this.measure(operation, "HSET", () => this.client.hset(key, prefixed));
+    await this.measure(operation, "HINCRBY", () => this.client.hincrby(key, `${userId}:submissions`, 1));
+    await this.measure(operation, "EXPIRE", () => this.client.expire(key, this.integrityTtlSeconds()));
+  }
+
+  async getFairPlayCounters(matchId: string, operation = "fair_play_read"): Promise<Record<string, string>> {
+    return this.measure(operation, "HGETALL", () => this.client.hgetall(config.redisKeys.integrity(matchId)));
+  }
+
+  /** Only the first caller writes a match's fair play result */
+  async claimFairPlayFinalize(matchId: string, operation = "fair_play_finalize"): Promise<boolean> {
+    const key = config.redisKeys.integrity(matchId);
+    const claimed = await this.measure(operation, "HSETNX", () => this.client.hsetnx(key, "finalized", "1"));
+    await this.measure(operation, "EXPIRE", () => this.client.expire(key, this.integrityTtlSeconds()));
+    return claimed === 1;
   }
 
   // ============================================

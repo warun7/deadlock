@@ -64,6 +64,8 @@ export interface MatchState {
   mode: MatchMode;
   /** Duel room the match was started from (friend matches only) */
   roomCode?: string;
+  /** The problem's Codeforces rating (fair play: fast solves far above a player's rating) */
+  problemRating?: number;
 }
 
 export interface MatchFoundPayload {
@@ -194,7 +196,41 @@ export interface Problem {
 export interface SubmitCodePayload {
   code: string;
   languageId: number;
+  /** How this code came to be, counted in the editor (matches against people only) */
+  telemetry?: SubmissionTelemetry;
 }
+
+// ============================================
+// Fair Play Types
+// ============================================
+
+/**
+ * Counted by the editor for the submitted language: characters typed
+ * (keyboard, autocomplete, undo), characters pasted from the editor's own
+ * clipboard, and the starter template's length. Code beyond those three
+ * arrived some other way. Keystroke rhythm covers the whole match.
+ */
+export interface SubmissionTelemetry {
+  typedChars: number;
+  pastedChars: number;
+  baseChars: number;
+  keystrokeIntervals: number;
+  intervalMeanMs: number;
+  intervalStdMs: number;
+}
+
+/** What the arena reports while a match against a person is live */
+export type FairPlayEvent =
+  | { kind: "away" }
+  | { kind: "back" }
+  | { kind: "paste_blocked"; chars: number }
+  | { kind: "drop_blocked"; chars: number }
+  | { kind: "bulk_blocked"; chars: number }
+  | { kind: "copy_blocked" };
+
+export type ReportReason = "outside_help" | "other";
+
+export type ReportAck = { ok: true } | { ok: false; message: string };
 
 export interface SubmissionResult {
   status:
@@ -288,6 +324,13 @@ export interface ClientToServerEvents {
   room_settings: (payload: { code: string; difficulty: RoomDifficulty }) => void; // Host only
   leave_room: (code: string) => void; // Guest gives up the seat; host closes the room
   unwatch_room: (code: string) => void; // Left the room page; the seat is kept
+
+  // Fair play
+  fair_play: (event: FairPlayEvent) => void;
+  report_player: (
+    payload: { matchId: string; reason: ReportReason; note?: string },
+    ack: (res: ReportAck) => void
+  ) => void; // After a ranked match
 }
 
 // Server -> Client Events
@@ -321,6 +364,8 @@ export interface ServerToClientEvents {
   active_match_found: (data: { matchId: string }) => void; // Notify client of active match
   room_update: (room: RoomView) => void;
   room_closed: (data: { code: string }) => void;
+  /** The other player left or came back to the match tab */
+  opponent_focus: (data: { playerId: string; away: boolean }) => void;
 }
 
 // Inter-Server Events (for Redis adapter)
