@@ -28,6 +28,10 @@ const QUESTIONS = [
     a: "Yes. Open a duel room from the lobby, pick a level, and send the link. Your friend signs in, you both press ready, and the room keeps score across rematches. Friend duels are unrated.",
   },
   {
+    q: "What about AI and cheating?",
+    a: "Solutions have to come from you, not an AI or anyone else. In matches against people the problem cannot be copied, the editor only pastes what you copied inside it, and your opponent sees when you leave the tab. Ranked matches also log how the code was entered, and you can report an opponent from the result screen. A person reviews flagged matches and reports.",
+  },
+  {
     q: "Do I need an account?",
     a: "Yes, so your record follows you. Sign up with Google or with an email and password; it takes under a minute.",
   },

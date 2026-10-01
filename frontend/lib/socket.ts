@@ -1,6 +1,18 @@
 import { io, Socket } from 'socket.io-client';
 import { supabase } from './supabase';
 import type { RoomAck, RoomDifficulty } from './rooms';
+import type { SubmissionTelemetry } from '../components/arena/fairPlay';
+
+export type FairPlayEvent =
+  | { kind: 'away' }
+  | { kind: 'back' }
+  | { kind: 'paste_blocked'; chars: number }
+  | { kind: 'drop_blocked'; chars: number }
+  | { kind: 'bulk_blocked'; chars: number }
+  | { kind: 'copy_blocked' };
+
+export type ReportReason = 'outside_help' | 'other';
+export type ReportAck = { ok: true } | { ok: false; message: string };
 
 // The game server; it also serves the few REST endpoints (room previews)
 export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
@@ -99,11 +111,24 @@ class GameSocket {
   }
 
   // Game methods
-  submitCode(code: string, languageId: number) {
+  submitCode(code: string, languageId: number, telemetry?: SubmissionTelemetry) {
     if (!this.socket?.connected) {
       throw new Error('Socket not connected');
     }
-    this.socket.emit('submit_code', { code, languageId });
+    this.socket.emit('submit_code', telemetry ? { code, languageId, telemetry } : { code, languageId });
+  }
+
+  // Fair play: what the arena blocked, and leaving or returning to the tab
+  sendFairPlay(event: FairPlayEvent) {
+    this.socket?.emit('fair_play', event);
+  }
+
+  // After a ranked match
+  reportPlayer(matchId: string, reason: ReportReason, note: string): Promise<ReportAck> {
+    if (!this.socket?.connected) {
+      return Promise.reject(new Error('Socket not connected'));
+    }
+    return this.socket.timeout(8000).emitWithAck('report_player', { matchId, reason, note });
   }
 
   forfeit() {

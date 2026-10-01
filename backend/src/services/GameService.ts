@@ -7,6 +7,7 @@ import { BotCompletionResult } from "./BotPlayer";
 import { config } from "../config";
 import type { MatchmakingService } from "./MatchmakingService";
 import type { RoomService } from "./RoomService";
+import type { IntegrityService, MatchEndReason } from "./IntegrityService";
 import {
   AuthenticatedSocket,
   SubmitCodePayload,
@@ -40,6 +41,7 @@ export class GameService {
   private static readonly SUBMISSION_COOLDOWN_MS = 3000;
   private matchmakingService: MatchmakingService | null = null;
   private roomService: RoomService | null = null;
+  private integrityService: IntegrityService | null = null;
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
@@ -55,6 +57,11 @@ export class GameService {
   /** Set RoomService reference (friend matches keep score in their room) */
   setRoomService(roomService: RoomService): void {
     this.roomService = roomService;
+  }
+
+  /** Set IntegrityService reference (fair play signals for ranked matches) */
+  setIntegrityService(integrityService: IntegrityService): void {
+    this.integrityService = integrityService;
   }
 
   /**
@@ -144,6 +151,11 @@ export class GameService {
     }
 
     console.log(`📝 ${user.username} submitted code in match ${matchId}`);
+
+    // How the code was entered (ranked only); never holds up judging
+    await this.integrityService
+      ?.recordSubmission(match, user.id, payload.code, payload.telemetry)
+      .catch((error) => console.error("⚠️ Could not record submission telemetry:", error));
 
     // Stop bot if this is a bot match
     if (this.matchmakingService) {
@@ -281,10 +293,15 @@ export class GameService {
       return;
     }
 
-    await this.recordHumanResult(match, user.id, loserId, duration, this.getLanguageName(languageId), {
-      winner: "You solved it first!",
-      loser: "Opponent solved first",
-    });
+    await this.recordHumanResult(
+      match,
+      user.id,
+      loserId,
+      duration,
+      this.getLanguageName(languageId),
+      { winner: "You solved it first!", loser: "Opponent solved first" },
+      "solved"
+    );
   }
 
   /**
@@ -329,7 +346,8 @@ export class GameService {
         user.id,
         Math.floor((Date.now() - match.startedAt) / 1000),
         "unknown",
-        { winner: "Opponent forfeited", loser: "You forfeited" }
+        { winner: "Opponent forfeited", loser: "You forfeited" },
+        "forfeit"
       );
     }
   }
@@ -510,7 +528,8 @@ export class GameService {
     loserId: string,
     duration: number,
     language: string,
-    reasons: { winner: string; loser: string }
+    reasons: { winner: string; loser: string },
+    endReason: MatchEndReason
   ): Promise<void> {
     if (match.mode === "friend") {
       await this.finishFriendMatch(match, winnerId, loserId, reasons);
@@ -546,6 +565,9 @@ export class GameService {
       reason: reasons.loser,
       ...(saved ? { ratingChange: -change, newRating: Math.max(0, loserRating - change) } : {}),
     });
+
+    // Fair play signals for both players; runs after the result is out
+    void this.integrityService?.finalize(match, winnerId, endReason);
 
     this.scheduleCleanup(match.id);
   }

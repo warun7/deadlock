@@ -7,6 +7,7 @@ import { problemService } from "../services/ProblemService";
 import { MatchmakingService } from "../services/MatchmakingService";
 import { GameService } from "../services/GameService";
 import { RoomService } from "../services/RoomService";
+import { IntegrityService } from "../services/IntegrityService";
 import {
   authMiddleware,
   devAuthMiddleware,
@@ -42,6 +43,7 @@ export class DeadlockSocketServer {
   private matchmakingService: MatchmakingService;
   private gameService: GameService;
   private roomService: RoomService;
+  private integrityService: IntegrityService;
 
   constructor(httpServer: HttpServer) {
     // Initialize Socket.IO
@@ -61,12 +63,15 @@ export class DeadlockSocketServer {
     this.matchmakingService = new MatchmakingService(this.io);
     this.gameService = new GameService(this.io);
     this.roomService = new RoomService(this.io);
+    this.integrityService = new IntegrityService(this.io);
 
-    // Wire up service references (bot system, duel rooms)
+    // Wire up service references (bot system, duel rooms, fair play)
     this.matchmakingService.setGameService(this.gameService);
     this.gameService.setMatchmakingService(this.matchmakingService);
     this.gameService.setRoomService(this.roomService);
     this.roomService.setMatchmakingService(this.matchmakingService);
+    this.gameService.setIntegrityService(this.integrityService);
+    this.matchmakingService.setIntegrityService(this.integrityService);
   }
 
   /**
@@ -227,6 +232,26 @@ export class DeadlockSocketServer {
         await this.gameService.handleSubmission(authSocket, payload);
       });
 
+      // ============================================
+      // Fair Play
+      // ============================================
+
+      socket.on("fair_play", async (event) => {
+        await this.integrityService
+          .handleEvent(authSocket, event)
+          .catch((error) => console.error("❌ Error in fair_play:", error));
+      });
+
+      socket.on("report_player", async (payload, ack) => {
+        if (typeof ack !== "function") return;
+        try {
+          ack(await this.integrityService.report(authSocket, payload));
+        } catch (error) {
+          console.error("❌ Error in report_player:", error);
+          ack({ ok: false, message: "Could not send the report. Try again." });
+        }
+      });
+
       socket.on("forfeit", async () => {
         console.log(`🏳️ ${user.username} forfeiting`);
         await this.gameService.handleForfeit(authSocket);
@@ -261,6 +286,9 @@ export class DeadlockSocketServer {
         await this.roomService
           .handleDisconnect(authSocket)
           .catch((error) => console.error("❌ Error updating room on disconnect:", error));
+        await this.integrityService
+          .handleDisconnect(authSocket)
+          .catch((error) => console.error("❌ Error closing away time on disconnect:", error));
         await this.matchmakingService.handleDisconnect(authSocket);
       });
 
