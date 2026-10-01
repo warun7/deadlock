@@ -1,5 +1,6 @@
 import { Server as SocketServer } from "socket.io";
 import { createClient } from "@supabase/supabase-js";
+import { validate as isUuid } from "uuid";
 import { redisService } from "./RedisService";
 import { judgeService, sanitizeSubmissionResult } from "./JudgeService";
 import { problemService } from "./ProblemService";
@@ -12,6 +13,8 @@ import {
   AuthenticatedSocket,
   SubmitCodePayload,
   SubmissionResult,
+  RunCodePayload,
+  OpponentCodeAck,
   MatchState,
   ServerToClientEvents,
   ClientToServerEvents,
@@ -39,6 +42,8 @@ export class GameService {
   private submissionsInFlight = new Set<string>();
   private lastSubmissionAt = new Map<string, number>();
   private static readonly SUBMISSION_COOLDOWN_MS = 3000;
+  private lastRunAt = new Map<string, number>();
+  private static readonly RUN_COOLDOWN_MS = 2000;
   private matchmakingService: MatchmakingService | null = null;
   private roomService: RoomService | null = null;
   private integrityService: IntegrityService | null = null;
@@ -83,7 +88,7 @@ export class GameService {
 
     if (this.submissionsInFlight.has(userId)) {
       socket.emit("error", {
-        message: "Your last submission is still being judged.",
+        message: "Your last run or submission is still being judged.",
         code: "SUBMISSION_IN_PROGRESS",
       });
       return;
@@ -113,6 +118,118 @@ export class GameService {
     } finally {
       this.submissionsInFlight.delete(userId);
     }
+  }
+
+  /**
+   * A practice run during a match: the visible samples, or the player's own
+   * input. Private to the player (the opponent hears nothing), not a
+   * submission, and it never ends the match. It shares the one-at-a-time lock
+   * with submissions and has its own short cooldown.
+   */
+  async handleRun(socket: AuthenticatedSocket, payload: RunCodePayload): Promise<void> {
+    const userId = socket.user.id;
+    if (this.submissionsInFlight.has(userId)) {
+      socket.emit("error", {
+        message: "Your last run or submission is still being judged.",
+        code: "SUBMISSION_IN_PROGRESS",
+      });
+      return;
+    }
+    const now = Date.now();
+    const sinceLast = now - (this.lastRunAt.get(userId) ?? 0);
+    if (sinceLast < GameService.RUN_COOLDOWN_MS) {
+      socket.emit("error", {
+        message: `Wait ${Math.ceil((GameService.RUN_COOLDOWN_MS - sinceLast) / 1000)}s before running again.`,
+        code: "RUN_TOO_FAST",
+      });
+      return;
+    }
+
+    this.submissionsInFlight.add(userId);
+    this.lastRunAt.set(userId, now);
+    if (this.lastRunAt.size > 5000) {
+      for (const [id, at] of this.lastRunAt) {
+        if (now - at > GameService.RUN_COOLDOWN_MS) this.lastRunAt.delete(id);
+      }
+    }
+
+    try {
+      await this.executeRun(socket, payload);
+    } finally {
+      this.submissionsInFlight.delete(userId);
+    }
+  }
+
+  private async executeRun(socket: AuthenticatedSocket, payload: RunCodePayload): Promise<void> {
+    const matchId = socket.data.currentMatchId;
+    if (!matchId) {
+      socket.emit("error", { message: "You are not in a match", code: "NOT_IN_MATCH" });
+      return;
+    }
+    const match = await redisService.getMatch(matchId, "run_read_match");
+    if (!match || match.status !== "active") {
+      socket.emit("error", { message: "Match is not active", code: "MATCH_NOT_ACTIVE" });
+      return;
+    }
+    const problem = await problemService.getProblemById(match.problemId);
+    if (!problem) {
+      socket.emit("error", { message: "Problem not found", code: "PROBLEM_NOT_FOUND" });
+      return;
+    }
+
+    if (typeof payload.input === "string") {
+      const result = await judgeService.runCustomInput(payload.code, payload.languageId, payload.input);
+      socket.emit("run_result", { kind: "custom", input: payload.input, result });
+      return;
+    }
+
+    // Samples are public, so their full results (input, expected, output) go back
+    const samples = problem.testCases.filter((tc) => !tc.isHidden).map((tc) => ({ ...tc, isHidden: false }));
+    if (samples.length === 0) {
+      socket.emit("error", {
+        message: "This problem has no sample tests. Run it on your own input instead.",
+        code: "NO_SAMPLES",
+      });
+      return;
+    }
+    try {
+      const result = await judgeService.executeCode(
+        payload.code,
+        payload.languageId,
+        samples,
+        problem.checkerType || "exact",
+        problem.checkerCode
+      );
+      socket.emit("run_result", { kind: "samples", result: sanitizeSubmissionResult(result) });
+    } catch (error: any) {
+      socket.emit("run_result", {
+        kind: "samples",
+        result: { status: "runtime_error", passed: 0, total: samples.length, stderr: error.message },
+      });
+    }
+  }
+
+  /**
+   * After a match against a person, a player can read the other's last
+   * submission. Only the two players, and only once the match is over.
+   */
+  async getOpponentCode(socket: AuthenticatedSocket, rawMatchId: unknown): Promise<OpponentCodeAck> {
+    if (typeof rawMatchId !== "string" || !isUuid(rawMatchId)) {
+      return { ok: false, message: "That match could not be found." };
+    }
+    const [stored, match] = await Promise.all([
+      redisService.getLastSubmissions(rawMatchId),
+      redisService.getMatch(rawMatchId, "opponent_code_read_match"),
+    ]);
+    const players = stored?.players ?? (match ? [match.player1.id, match.player2.id] : null);
+    if (!players || !players.includes(socket.user.id)) {
+      return { ok: false, message: "Solutions from this match are not available any more." };
+    }
+    if (match?.status === "active") {
+      return { ok: false, message: "You can compare solutions once the match is over." };
+    }
+    const opponentId = players.find((id) => id !== socket.user.id);
+    return { ok: true, submission: (opponentId && stored?.byPlayer.get(opponentId)) || null };
   }
 
   private async runSubmission(
@@ -194,6 +311,20 @@ export class GameService {
         problem.checkerType || "exact", // Default to exact match
         problem.checkerCode
       );
+
+      // Kept so both players can compare solutions once the match is over
+      if (match.mode !== "practice") {
+        await redisService
+          .storeLastSubmission(match.id, [match.player1.id, match.player2.id], user.id, {
+            code: payload.code,
+            languageId: payload.languageId,
+            status: result.status,
+            passed: result.passed,
+            total: result.total,
+            submittedAt: Date.now(),
+          })
+          .catch((error) => console.error("⚠️ Could not keep the submission for comparing:", error));
+      }
 
       // Broadcast progress (e.g., "3/10 tests passed")
       this.io.to(matchId).emit("opponent_progress", {

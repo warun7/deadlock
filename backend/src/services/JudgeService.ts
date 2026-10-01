@@ -8,6 +8,7 @@ import {
   TestResult,
   Problem,
   CheckerType,
+  CustomRunResult,
 } from '../types';
 import { checkerService } from './CheckerService';
 import { createZipBase64 } from '../utils/zip';
@@ -615,6 +616,37 @@ export class JudgeService {
     throw new Error('Submission timed out');
   }
   
+  /**
+   * Run a player's code on their own input, with nothing to compare against.
+   * Queued behind the same run slots as judging, so a practice run never
+   * shares the CPU with someone's submission and pushes it into a false TLE.
+   */
+  async runCustomInput(sourceCode: string, languageId: number, stdin: string): Promise<CustomRunResult> {
+    return this.withRunSlot(async () => {
+      try {
+        const r = await this.runSingleTest(sourceCode, languageId, stdin);
+        const id = r.status.id;
+        // 3 Accepted / 4 Wrong Answer both mean it ran to the end (no expected output was given)
+        const status: CustomRunResult['status'] =
+          id === 3 || id === 4 ? 'finished'
+          : id === 5 ? 'time_limit'
+          : id === 6 ? 'compile_error'
+          : id >= 7 && id <= 12 ? 'runtime_error'
+          : 'error';
+        const errorText = id === 6 ? r.compile_output : r.stderr || (status === 'finished' ? null : r.message);
+        return {
+          status,
+          stdout: (r.stdout ?? '').slice(0, 64_000),
+          ...(errorText ? { stderr: errorText.slice(0, 8_000) } : {}),
+          ...(r.time ? { time: r.time } : {}),
+        };
+      } catch (error: any) {
+        console.error(`❌ Custom run failed: ${this.describeError(error)}`);
+        return { status: 'error', stdout: '', stderr: 'The judge did not answer. Try again in a moment.' };
+      }
+    });
+  }
+
   /**
    * Run code without validation (just execute and return output)
    * Used for "Run Code" feature

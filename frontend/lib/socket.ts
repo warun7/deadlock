@@ -12,6 +12,33 @@ export type FairPlayEvent =
   | { kind: 'copy_blocked' };
 
 export type ReportReason = 'outside_help' | 'other';
+
+// Mirrors backend/src/types (RunResult, StoredSubmission, OpponentCodeAck)
+export interface RunSubmissionResult {
+  status: string;
+  passed: number;
+  total: number;
+  stderr?: string;
+  testResults?: { testIndex: number; passed: boolean; status: string; hidden?: boolean; stdout?: string; expected?: string; message?: string }[];
+}
+export interface CustomRunResult {
+  status: 'finished' | 'compile_error' | 'runtime_error' | 'time_limit' | 'error';
+  stdout: string;
+  stderr?: string;
+  time?: string;
+}
+export type RunResult =
+  | { kind: 'samples'; result: RunSubmissionResult }
+  | { kind: 'custom'; input: string; result: CustomRunResult };
+export interface StoredSubmission {
+  code: string;
+  languageId: number;
+  status: string;
+  passed: number;
+  total: number;
+  submittedAt: number;
+}
+export type OpponentCodeAck = { ok: true; submission: StoredSubmission | null } | { ok: false; message: string };
 export type ReportAck = { ok: true } | { ok: false; message: string };
 
 // The game server; it also serves the few REST endpoints (room previews)
@@ -116,6 +143,22 @@ class GameSocket {
       throw new Error('Socket not connected');
     }
     this.socket.emit('submit_code', telemetry ? { code, languageId, telemetry } : { code, languageId });
+  }
+
+  // A private run: the samples, or the given stdin. Not a submission.
+  runCode(code: string, languageId: number, input?: string) {
+    if (!this.socket?.connected) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('run_code', input === undefined ? { code, languageId } : { code, languageId, input });
+  }
+
+  // The opponent's last submission, once the match is over
+  getOpponentCode(matchId: string): Promise<OpponentCodeAck> {
+    if (!this.socket?.connected) {
+      return Promise.reject(new Error('Socket not connected'));
+    }
+    return this.socket.timeout(8000).emitWithAck('opponent_code', matchId);
   }
 
   // Fair play: what the arena blocked, and leaving or returning to the tab

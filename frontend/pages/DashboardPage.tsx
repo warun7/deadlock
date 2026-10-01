@@ -142,8 +142,8 @@ const DashboardPage: React.FC = () => {
                 </p>
               ) : (
                 <p className="text-[clamp(1.5rem,2.4vw,2rem)] leading-[1.08] tracking-[-0.035em] text-fg-2">
-                  <strong className="font-medium text-fg">Ranked 1v1.</strong> Another player, a random problem rated up
-                  to 1200. The first submission to pass every test wins.
+                  <strong className="font-medium text-fg">Ranked 1v1.</strong> Another player, a problem matched to your
+                  rating. The first submission to pass every test wins.
                 </p>
               )}
               <Detail label={inMatch ? "Status" : "Languages"} className="mt-6">

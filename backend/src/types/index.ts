@@ -232,6 +232,41 @@ export type ReportReason = "outside_help" | "other";
 
 export type ReportAck = { ok: true } | { ok: false; message: string };
 
+/** A practice run: against the visible samples, or the player's own input */
+export interface RunCodePayload {
+  code: string;
+  languageId: number;
+  /** Run on this stdin instead of the samples */
+  input?: string;
+}
+
+/** What a run on the player's own input produced. There is no answer to compare with, so no verdict. */
+export interface CustomRunResult {
+  status: "finished" | "compile_error" | "runtime_error" | "time_limit" | "error";
+  stdout: string;
+  /** Runtime errors, or the compiler's output */
+  stderr?: string;
+  time?: string;
+}
+
+export type RunResult =
+  | { kind: "samples"; result: SubmissionResult }
+  | { kind: "custom"; input: string; result: CustomRunResult };
+
+/** A player's last submission in a match, kept so both can compare afterwards */
+export interface StoredSubmission {
+  code: string;
+  languageId: number;
+  status: SubmissionResult["status"];
+  passed: number;
+  total: number;
+  submittedAt: number;
+}
+
+export type OpponentCodeAck =
+  | { ok: true; submission: StoredSubmission | null }
+  | { ok: false; message: string };
+
 export interface SubmissionResult {
   status:
     | "accepted"
@@ -313,6 +348,8 @@ export interface ClientToServerEvents {
   join_practice: () => void; // Start an unrated match against a bot
   leave_queue: () => void;
   submit_code: (payload: SubmitCodePayload) => void;
+  run_code: (payload: RunCodePayload) => void; // Samples or custom input; private, not a submission
+  opponent_code: (matchId: string, ack: (res: OpponentCodeAck) => void) => void; // After the match
   forfeit: () => void;
   rejoin_match: (matchId: string) => void; // Request to rejoin an active match
   check_active_match: () => void; // Check if user has an active match
@@ -339,6 +376,7 @@ export interface ServerToClientEvents {
   queue_left: () => void;
   match_found: (data: MatchFoundPayload) => void;
   submission_result: (data: SubmissionResult) => void;
+  run_result: (data: RunResult) => void;
   opponent_progress: (data: {
     playerId: string;
     status: string;

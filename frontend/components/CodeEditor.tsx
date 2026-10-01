@@ -12,6 +12,10 @@ interface CodeEditorProps {
   onChange: (value: string) => void;
   /** Mod-Enter (Ctrl/Cmd + Enter) inside the editor */
   onSubmit?: () => void;
+  /** Mod-' (Ctrl/Cmd + ') inside the editor: run on the samples */
+  onRun?: () => void;
+  /** Someone else's code, shown after a match */
+  readOnly?: boolean;
   /** Matches against people: own clipboard, outside pastes refused, input counted */
   fairPlay?: FairPlaySession | null;
   onBlocked?: (kind: BlockedKind, chars: number) => void;
@@ -35,9 +39,11 @@ const surface = EditorView.theme(
   { dark: true }
 );
 
-const CodeEditor: React.FC<CodeEditorProps> = ({ language, code, onChange, onSubmit, fairPlay, onBlocked }) => {
+const CodeEditor: React.FC<CodeEditorProps> = ({ language, code, onChange, onSubmit, onRun, readOnly, fairPlay, onBlocked }) => {
   const submitRef = useRef(onSubmit);
   submitRef.current = onSubmit;
+  const runRef = useRef(onRun);
+  runRef.current = onRun;
   const blockedRef = useRef(onBlocked);
   blockedRef.current = onBlocked;
 
@@ -55,6 +61,13 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ language, code, onChange, onSub
               return true;
             },
           },
+          {
+            key: "Mod-'",
+            run: () => {
+              runRef.current?.();
+              return true;
+            },
+          },
         ])
       ),
       ...(fairPlay ? [fairPlayEditor(fairPlay, language, (kind, chars) => blockedRef.current?.(kind, chars))] : []),
@@ -69,7 +82,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ language, code, onChange, onSub
         theme={vscodeDark}
         extensions={extensions}
         onChange={onChange}
-        aria-label="Code editor"
+        editable={!readOnly}
+        readOnly={readOnly}
+        aria-label={readOnly ? "Opponent's code" : "Code editor"}
         basicSetup={{
           lineNumbers: true,
           foldGutter: false,

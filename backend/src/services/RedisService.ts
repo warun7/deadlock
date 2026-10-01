@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 import { config } from "../config";
-import { FairPlayEvent, MatchMode, MatchState, Room, RoomPlayer } from "../types";
+import { FairPlayEvent, MatchMode, MatchState, Room, RoomPlayer, StoredSubmission } from "../types";
 import { createModuleLogger } from "../utils/logger";
 import { DEFAULT_ROOM_DIFFICULTY, isRoomDifficulty } from "../config/roomDifficulty";
 
@@ -848,6 +848,48 @@ export class RedisService {
     const claimed = await this.measure(operation, "HSETNX", () => this.client.hsetnx(key, "finalized", "1"));
     await this.measure(operation, "EXPIRE", () => this.client.expire(key, this.integrityTtlSeconds()));
     return claimed === 1;
+  }
+
+  // ============================================
+  // Last Submissions (compare solutions after a match)
+  // ============================================
+
+  private static readonly SUBMISSIONS_TTL_SECONDS = 6 * 3600;
+
+  /** Keep a player's latest submission; the hash also names both players */
+  async storeLastSubmission(
+    matchId: string,
+    playerIds: [string, string],
+    userId: string,
+    submission: StoredSubmission,
+    operation = "store_last_submission"
+  ): Promise<void> {
+    const key = config.redisKeys.submissions(matchId);
+    await this.measure(operation, "HSET", () =>
+      this.client.hset(key, { players: playerIds.join(","), [userId]: JSON.stringify(submission) })
+    );
+    await this.measure(operation, "EXPIRE", () => this.client.expire(key, RedisService.SUBMISSIONS_TTL_SECONDS));
+  }
+
+  /** Both players and whatever each last submitted, or null if nobody submitted */
+  async getLastSubmissions(
+    matchId: string,
+    operation = "get_last_submissions"
+  ): Promise<{ players: string[]; byPlayer: Map<string, StoredSubmission> } | null> {
+    const data = await this.measure(operation, "HGETALL", () =>
+      this.client.hgetall(config.redisKeys.submissions(matchId))
+    );
+    if (!data?.players) return null;
+    const byPlayer = new Map<string, StoredSubmission>();
+    for (const [field, value] of Object.entries(data)) {
+      if (field === "players") continue;
+      try {
+        byPlayer.set(field, JSON.parse(value) as StoredSubmission);
+      } catch {
+        /* skip a corrupt entry */
+      }
+    }
+    return { players: data.players.split(","), byPlayer };
   }
 
   // ============================================

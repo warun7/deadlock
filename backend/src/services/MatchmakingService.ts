@@ -474,8 +474,10 @@ export class MatchmakingService {
     // Generate match ID
     const matchId = uuidv4();
 
-    // Get a random problem for the match
-    const problem = await problemService.getRandomProblem();
+    // A problem near both players' rating; the old pool if that band is empty
+    const band = this.rankedBand(player1.elo, player2.elo);
+    const problem =
+      (await problemService.getRandomProblem(band)) ?? (await problemService.getRandomProblem());
 
     if (!problem) {
       console.error("❌ Failed to get problem for match");
@@ -659,6 +661,18 @@ export class MatchmakingService {
 
     this.setMatchTimeout(matchId, matchState);
     return problem.id;
+  }
+
+  /**
+   * The problem band for a ranked match: up to 100 above the two players'
+   * average rating and 300 below it, inside what the problem bank holds
+   * (800-2400). New players (1000) get 800-1100, close to the old pool.
+   */
+  rankedBand(rating1: number, rating2: number): { minRating: number; maxRating: number } {
+    const average = ((Number.isFinite(rating1) ? rating1 : 1000) + (Number.isFinite(rating2) ? rating2 : 1000)) / 2;
+    const center = Math.round(average / 100) * 100;
+    const maxRating = Math.min(2400, Math.max(1000, center + 100));
+    return { minRating: Math.max(800, maxRating - 300), maxRating };
   }
 
   /**
