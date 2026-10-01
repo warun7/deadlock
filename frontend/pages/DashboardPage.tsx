@@ -107,6 +107,9 @@ const DashboardPage: React.FC = () => {
     p: () => {
       if (!inMatch) navigate("/practice");
     },
+    f: () => {
+      if (!inMatch) navigate("/duel");
+    },
   });
 
   return (
@@ -163,6 +166,13 @@ const DashboardPage: React.FC = () => {
                         <ArrowRight weight="bold" className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
                       </span>
                       <Kbd>M</Kbd>
+                    </ButtonLink>
+                    <ButtonLink to="/duel" variant="outline" size="lg" className="group mt-2 w-full justify-between">
+                      <span className="inline-flex items-center gap-2">
+                        <RollText>Challenge a friend</RollText>
+                        <span className="label text-fg-3">Link</span>
+                      </span>
+                      <Kbd>F</Kbd>
                     </ButtonLink>
                     <ButtonLink to="/practice" variant="outline" size="lg" className="group mt-2 w-full justify-between">
                       <span className="inline-flex items-center gap-2">

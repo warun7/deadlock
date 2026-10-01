@@ -6,6 +6,7 @@ import { problemService } from "./ProblemService";
 import { BotCompletionResult } from "./BotPlayer";
 import { config } from "../config";
 import type { MatchmakingService } from "./MatchmakingService";
+import type { RoomService } from "./RoomService";
 import {
   AuthenticatedSocket,
   SubmitCodePayload,
@@ -38,6 +39,7 @@ export class GameService {
   private lastSubmissionAt = new Map<string, number>();
   private static readonly SUBMISSION_COOLDOWN_MS = 3000;
   private matchmakingService: MatchmakingService | null = null;
+  private roomService: RoomService | null = null;
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
@@ -48,6 +50,11 @@ export class GameService {
    */
   setMatchmakingService(matchmakingService: MatchmakingService): void {
     this.matchmakingService = matchmakingService;
+  }
+
+  /** Set RoomService reference (friend matches keep score in their room) */
+  setRoomService(roomService: RoomService): void {
+    this.roomService = roomService;
   }
 
   /**
@@ -493,6 +500,9 @@ export class GameService {
    * ratings (read fresh, since a socket can outlive several matches), write
    * both history rows (a database trigger applies the rating change), tell
    * each player their own result, and schedule cleanup.
+   *
+   * Friend matches stop short of the database: they are unrated and stay off
+   * the record, and their room keeps the score instead.
    */
   public async recordHumanResult(
     match: MatchState,
@@ -502,6 +512,11 @@ export class GameService {
     language: string,
     reasons: { winner: string; loser: string }
   ): Promise<void> {
+    if (match.mode === "friend") {
+      await this.finishFriendMatch(match, winnerId, loserId, reasons);
+      return;
+    }
+
     const ratings = await this.fetchRatings([winnerId, loserId]);
     const winnerRating = ratings.get(winnerId) ?? this.ratingFromMatch(match, winnerId);
     const loserRating = ratings.get(loserId) ?? this.ratingFromMatch(match, loserId);
@@ -531,6 +546,31 @@ export class GameService {
       reason: reasons.loser,
       ...(saved ? { ratingChange: -change, newRating: Math.max(0, loserRating - change) } : {}),
     });
+
+    this.scheduleCleanup(match.id);
+  }
+
+  private async finishFriendMatch(
+    match: MatchState,
+    winnerId: string,
+    loserId: string,
+    reasons: { winner: string; loser: string }
+  ): Promise<void> {
+    let wins: Map<string, number> | null = null;
+    if (match.roomCode && this.roomService) {
+      try {
+        wins = await this.roomService.recordWin(match.roomCode, match.id, winnerId);
+      } catch (error) {
+        console.error(`⚠️ Could not update the score in room ${match.roomCode}:`, error);
+      }
+    }
+    const scoreFor = (you: string, opponent: string) =>
+      wins ? { score: { you: wins.get(you) ?? 0, opponent: wins.get(opponent) ?? 0 } } : {};
+    const common = { winnerId, friendly: true, roomCode: match.roomCode };
+
+    this.emitToUser(winnerId, "game_over", { ...common, reason: reasons.winner, ...scoreFor(winnerId, loserId) });
+    this.emitToUser(loserId, "game_over", { ...common, reason: reasons.loser, ...scoreFor(loserId, winnerId) });
+    console.log(`🤝 Friend match ${match.id} won by ${winnerId} (unrated, not recorded)`);
 
     this.scheduleCleanup(match.id);
   }
@@ -607,11 +647,12 @@ export class GameService {
       this.cleanupTimers.delete(matchId);
     }
 
-    // Remove sockets from room
+    // Remove sockets from room. A player who went straight into a rematch
+    // (or a new queue pop) is in that match now; leave their pointer alone.
     const sockets = await this.io.in(matchId).fetchSockets();
     for (const socket of sockets) {
       socket.leave(matchId);
-      socket.data.currentMatchId = undefined;
+      if (socket.data.currentMatchId === matchId) socket.data.currentMatchId = undefined;
     }
 
     // Delete from Redis

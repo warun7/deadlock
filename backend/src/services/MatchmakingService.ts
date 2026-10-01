@@ -10,6 +10,7 @@ import {
   MatchState,
   MatchFoundPayload,
   AuthenticatedSocket,
+  RoomPlayer,
   ServerToClientEvents,
   ClientToServerEvents,
 } from "../types";
@@ -386,6 +387,7 @@ export class MatchmakingService {
         winnerId: null,
         startedAt: Date.now(),
         finishedAt: null,
+        mode: "practice",
       };
 
       // Store match in Redis
@@ -407,6 +409,7 @@ export class MatchmakingService {
         },
         opponent: bot.getPlayerInfo(),
         startTime: Date.now(),
+        mode: "practice",
       };
 
       // Emit match_found to player
@@ -495,10 +498,11 @@ export class MatchmakingService {
       winnerId: null,
       startedAt: Date.now(),
       finishedAt: null,
+      mode: "ranked",
     };
 
     // Store match in Redis
-      await redisService.createMatch(matchState, "match_create");
+    await redisService.createMatch(matchState, "match_create");
 
     // Join both sockets to the match room
     socket1.join(matchId);
@@ -524,6 +528,7 @@ export class MatchmakingService {
         elo: player2.elo,
       },
       startTime: matchState.startedAt,
+      mode: "ranked",
     };
 
     const payload2: MatchFoundPayload = {
@@ -541,6 +546,7 @@ export class MatchmakingService {
         elo: player1.elo,
       },
       startTime: matchState.startedAt,
+      mode: "ranked",
     };
 
     // Emit match found to each player
@@ -554,6 +560,83 @@ export class MatchmakingService {
     console.log(`   Problem: ${problem.title}`);
 
     // Set match timeout to prevent infinite matches
+    this.setMatchTimeout(matchId, matchState);
+    return true;
+  }
+
+  /**
+   * Start a friend match between the two players of a duel room. Called by
+   * RoomService once both are ready. Unrated and not recorded (see
+   * GameService.recordHumanResult); otherwise it plays exactly like ranked,
+   * reconnect window and match timeout included.
+   *
+   * Every socket a player has in the room gets the match, so a second tab
+   * on the room page follows along.
+   */
+  async startFriendMatch(args: {
+    matchId: string;
+    roomCode: string;
+    host: RoomPlayer;
+    hostSockets: AuthenticatedSocket[];
+    guest: RoomPlayer;
+    guestSockets: AuthenticatedSocket[];
+  }): Promise<boolean> {
+    const { matchId, roomCode, host, guest, hostSockets, guestSockets } = args;
+
+    const problem = await problemService.getRandomProblem();
+    if (!problem) {
+      console.error(`❌ Failed to get problem for friend match in room ${roomCode}`);
+      return false;
+    }
+
+    // Neither is waiting for a ranked opponent any more
+    this.removeFromQueue(host.id);
+    this.removeFromQueue(guest.id);
+
+    const matchState: MatchState = {
+      id: matchId,
+      player1: { ...host, socketId: hostSockets[0].id },
+      player2: { ...guest, socketId: guestSockets[0].id },
+      problemId: problem.id,
+      problemTitle: problem.title,
+      status: "active",
+      winnerId: null,
+      startedAt: Date.now(),
+      finishedAt: null,
+      mode: "friend",
+      roomCode,
+    };
+    await redisService.createMatch(matchState, "friend_match_create");
+
+    const problemPayload = {
+      id: problem.id,
+      title: problem.title,
+      description: problem.description,
+      difficulty: problem.difficulty,
+      testCases: problem.testCases.filter((tc) => !tc.isHidden),
+    };
+    const seats: Array<[AuthenticatedSocket[], RoomPlayer]> = [
+      [hostSockets, guest],
+      [guestSockets, host],
+    ];
+    for (const [sockets, opponent] of seats) {
+      for (const socket of sockets) {
+        socket.join(matchId);
+        socket.data.currentMatchId = matchId;
+        socket.emit("match_found", {
+          matchId,
+          problem: problemPayload,
+          opponent: { id: opponent.id, username: opponent.username, elo: opponent.elo },
+          startTime: matchState.startedAt,
+          mode: "friend",
+          roomCode,
+        });
+      }
+    }
+
+    console.log(`🤝 Friend match ${matchId} in room ${roomCode}: ${host.username} vs ${guest.username}`);
+    console.log(`   Problem: ${problem.title}`);
+
     this.setMatchTimeout(matchId, matchState);
     return true;
   }

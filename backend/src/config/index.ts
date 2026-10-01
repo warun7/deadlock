@@ -21,6 +21,14 @@ export const config = {
   // Admin / debug
   adminSecret: process.env.ADMIN_SECRET || "",
 
+  // Proxy hops in front of Express. In production the edge Caddy is the one
+  // hop, so req.ip (and with it the rate limiter) sees the player's address
+  // instead of Caddy's. 0 when the server is reached directly.
+  trustProxy: parseInt(
+    process.env.TRUST_PROXY ?? (process.env.NODE_ENV === "production" ? "1" : "0"),
+    10
+  ) || 0,
+
   // Redis
   redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
 
@@ -66,6 +74,12 @@ export const config = {
     reconnectGraceMs: parseInt(process.env.RECONNECT_GRACE_MS || "45000", 10),
   },
 
+  // Duel rooms (invite a friend with a link)
+  room: {
+    // A room is forgotten after this long without activity
+    ttlSeconds: parseInt(process.env.ROOM_TTL_SECONDS || "10800", 10), // 3 hours
+  },
+
   // Bot configuration
   bot: {
     // Practice mode (bots never join ranked). BOT_ENABLED=false turns it off.
@@ -88,6 +102,8 @@ export const config = {
     match: (matchId: string) => `match:${matchId}`,
     userMatch: (userId: string) => `user:${userId}:match`,
     userSocket: (userId: string) => `user:${userId}:socket`,
+    room: (code: string) => `room:${code}`,
+    userRoom: (userId: string) => `user:${userId}:room`, // the open room this user hosts
   },
 } as const;
 

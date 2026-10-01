@@ -33,6 +33,13 @@ export interface QueueEntry {
 
 export type MatchStatus = "pending" | "active" | "finished" | "abandoned";
 
+/**
+ * ranked: two people from the queue, rated and recorded.
+ * practice: a person against a bot, unrated and not recorded.
+ * friend: two people from a duel room, unrated and not recorded; the room keeps score.
+ */
+export type MatchMode = "ranked" | "practice" | "friend";
+
 export interface MatchState {
   id: string;
   player1: {
@@ -53,6 +60,9 @@ export interface MatchState {
   winnerId: string | null;
   startedAt: number;
   finishedAt: number | null;
+  mode: MatchMode;
+  /** Duel room the match was started from (friend matches only) */
+  roomCode?: string;
 }
 
 export interface MatchFoundPayload {
@@ -74,7 +84,71 @@ export interface MatchFoundPayload {
     isBot?: boolean;
   };
   startTime: number;
+  mode?: MatchMode;
+  /** Duel room to return to for a rematch (friend matches only) */
+  roomCode?: string;
 }
+
+// ============================================
+// Duel Room Types
+// ============================================
+
+export interface RoomPlayer {
+  id: string;
+  username: string;
+  elo: number;
+}
+
+/** A duel room as stored in Redis */
+export interface Room {
+  code: string;
+  status: "open" | "closed";
+  host: RoomPlayer;
+  guest: RoomPlayer | null;
+  hostReady: boolean;
+  guestReady: boolean;
+  hostWins: number;
+  guestWins: number;
+  /** Latest match started from this room; it may have finished */
+  matchId: string | null;
+  createdAt: number;
+}
+
+export interface RoomSeatView extends RoomPlayer {
+  /** Has the room open right now */
+  online: boolean;
+  ready: boolean;
+  /** Rounds won against the current guest */
+  wins: number;
+}
+
+/** A room as its two players see it */
+export interface RoomView {
+  code: string;
+  status: "open" | "closed";
+  host: RoomSeatView;
+  guest: RoomSeatView | null;
+  /** The match the two are playing right now, if any */
+  activeMatchId: string | null;
+}
+
+/** What an invite link shows before anyone joins or signs in */
+export interface RoomPreview {
+  code: string;
+  status: "open" | "closed";
+  host: { username: string; online: boolean };
+  guest: { username: string } | null;
+}
+
+export type RoomErrorCode =
+  | "ROOM_NOT_FOUND"
+  | "ROOM_CLOSED"
+  | "ROOM_FULL"
+  | "ROOM_ERROR";
+
+export type RoomAck =
+  | { ok: true; room: RoomView }
+  | { ok: false; code: RoomErrorCode; message: string; preview?: RoomPreview };
 
 // ============================================
 // Problem & Test Case Types
@@ -199,6 +273,13 @@ export interface ClientToServerEvents {
   forfeit: () => void;
   rejoin_match: (matchId: string) => void; // Request to rejoin an active match
   check_active_match: () => void; // Check if user has an active match
+
+  // Duel rooms: invite a friend with a link
+  create_room: (ack: (res: RoomAck) => void) => void; // Your open room, or a new one
+  join_room: (code: string, ack: (res: RoomAck) => void) => void; // Take a seat and watch the room
+  room_ready: (payload: { code: string; ready: boolean }) => void; // Both ready starts a match
+  leave_room: (code: string) => void; // Guest gives up the seat; host closes the room
+  unwatch_room: (code: string) => void; // Left the room page; the seat is kept
 }
 
 // Server -> Client Events
@@ -222,9 +303,16 @@ export interface ServerToClientEvents {
     newRating?: number;
     /** Practice match against a bot: unrated and not recorded */
     practice?: boolean;
+    /** Friend match from a duel room: unrated and not recorded */
+    friendly?: boolean;
+    roomCode?: string;
+    /** Rounds won in the room so far, this one included */
+    score?: { you: number; opponent: number };
   }) => void;
   error: (data: { message: string; code?: string }) => void;
   active_match_found: (data: { matchId: string }) => void; // Notify client of active match
+  room_update: (room: RoomView) => void;
+  room_closed: (data: { code: string }) => void;
 }
 
 // Inter-Server Events (for Redis adapter)
@@ -236,6 +324,8 @@ export interface InterServerEvents {
 export interface SocketData {
   user: AuthUser;
   currentMatchId?: string;
+  /** Duel room this socket has open */
+  roomCode?: string;
 }
 
 // ============================================

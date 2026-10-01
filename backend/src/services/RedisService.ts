@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 import { config } from "../config";
-import { MatchState } from "../types";
+import { MatchMode, MatchState, Room, RoomPlayer } from "../types";
 import { createModuleLogger } from "../utils/logger";
 
 interface RedisMetricBucket {
@@ -309,6 +309,8 @@ export class RedisService {
         winnerId: matchState.winnerId || "",
         startedAt: matchState.startedAt.toString(),
         finishedAt: matchState.finishedAt?.toString() || "",
+        mode: matchState.mode,
+        roomCode: matchState.roomCode || "",
       })
     );
 
@@ -376,6 +378,9 @@ export class RedisService {
       winnerId: data.winnerId || null,
       startedAt: parseInt(data.startedAt, 10),
       finishedAt: data.finishedAt ? parseInt(data.finishedAt, 10) : null,
+      // Matches created before modes existed: a bot seat means practice
+      mode: (data.mode as MatchMode) || (data.player2_socketId === "bot" ? "practice" : "ranked"),
+      roomCode: data.roomCode || undefined,
     };
   }
 
@@ -456,17 +461,276 @@ export class RedisService {
   async deleteMatch(matchId: string, operation = "delete_match"): Promise<void> {
     const match = await this.getMatch(matchId, `${operation}_read_match`);
     if (match) {
-      await this.measure(operation, "DEL", () =>
-        this.client.del(config.redisKeys.userMatch(match.player1.id))
-      );
-      await this.measure(operation, "DEL", () =>
-        this.client.del(config.redisKeys.userMatch(match.player2.id))
-      );
+      // A player who started another match since (a rematch, a new queue
+      // pop) now maps to that one; only forget mappings still pointing here
+      for (const playerId of [match.player1.id, match.player2.id]) {
+        await this.measure(operation, "EVAL", () =>
+          this.client.eval(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+            1,
+            config.redisKeys.userMatch(playerId),
+            matchId
+          )
+        );
+      }
     }
     await this.measure(operation, "DEL", () =>
       this.client.del(config.redisKeys.match(matchId))
     );
     console.log(`🗑️  Deleted match ${matchId}`);
+  }
+
+  // ============================================
+  // Duel Rooms
+  // ============================================
+  //
+  // One hash per room: the two seats, each seat's ready flag and wins, and
+  // the latest match started from it. Every write is a script that refuses to
+  // touch a room that no longer exists, so an expired room is never
+  // recreated as a partial hash without a TTL.
+
+  /** Create a room; false when the code is already taken */
+  async createRoom(code: string, host: RoomPlayer, operation = "room_create"): Promise<boolean> {
+    const script = `
+      if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
+      redis.call('HSET', KEYS[1],
+        'code', ARGV[1], 'status', 'open', 'createdAt', ARGV[2],
+        'host_id', ARGV[3], 'host_username', ARGV[4], 'host_elo', ARGV[5], 'host_ready', '0', 'host_wins', '0',
+        'guest_id', '', 'guest_username', '', 'guest_elo', '', 'guest_ready', '0', 'guest_wins', '0',
+        'matchId', '')
+      redis.call('EXPIRE', KEYS[1], ARGV[6])
+      return 1
+    `;
+    const created = await this.measure(operation, "EVAL", () =>
+      this.client.eval(
+        script,
+        1,
+        config.redisKeys.room(code),
+        code,
+        Date.now().toString(),
+        host.id,
+        host.username,
+        host.elo.toString(),
+        config.room.ttlSeconds.toString()
+      )
+    );
+    return created === 1;
+  }
+
+  async getRoom(code: string, operation = "room_get"): Promise<Room | null> {
+    const data = await this.measure(operation, "HGETALL", () =>
+      this.client.hgetall(config.redisKeys.room(code))
+    );
+    if (!data || !data.code) return null;
+
+    return {
+      code: data.code,
+      status: data.status === "open" ? "open" : "closed",
+      host: {
+        id: data.host_id,
+        username: data.host_username,
+        elo: parseInt(data.host_elo, 10) || 0,
+      },
+      guest: data.guest_id
+        ? {
+            id: data.guest_id,
+            username: data.guest_username,
+            elo: parseInt(data.guest_elo, 10) || 0,
+          }
+        : null,
+      hostReady: data.host_ready === "1",
+      guestReady: data.guest_ready === "1",
+      hostWins: parseInt(data.host_wins, 10) || 0,
+      guestWins: parseInt(data.guest_wins, 10) || 0,
+      matchId: data.matchId || null,
+      createdAt: parseInt(data.createdAt, 10) || 0,
+    };
+  }
+
+  /**
+   * Seat a player: the host gets their seat back, anyone else takes the empty
+   * guest seat or their own. A new guest starts the score from 0-0. Joining
+   * always starts out not ready.
+   */
+  async claimRoomSeat(
+    code: string,
+    player: RoomPlayer,
+    operation = "room_claim_seat"
+  ): Promise<"host" | "guest" | "full" | "closed" | "missing"> {
+    const script = `
+      local status = redis.call('HGET', KEYS[1], 'status')
+      if not status then return 'missing' end
+      if status ~= 'open' then return 'closed' end
+      if redis.call('HGET', KEYS[1], 'host_id') == ARGV[1] then
+        redis.call('HSET', KEYS[1], 'host_username', ARGV[2], 'host_elo', ARGV[3], 'host_ready', '0')
+        redis.call('EXPIRE', KEYS[1], ARGV[4])
+        return 'host'
+      end
+      local guest = redis.call('HGET', KEYS[1], 'guest_id')
+      if guest == ARGV[1] then
+        redis.call('HSET', KEYS[1], 'guest_username', ARGV[2], 'guest_elo', ARGV[3], 'guest_ready', '0')
+        redis.call('EXPIRE', KEYS[1], ARGV[4])
+        return 'guest'
+      end
+      if guest and guest ~= '' then return 'full' end
+      redis.call('HSET', KEYS[1],
+        'guest_id', ARGV[1], 'guest_username', ARGV[2], 'guest_elo', ARGV[3], 'guest_ready', '0',
+        'host_wins', '0', 'guest_wins', '0')
+      redis.call('EXPIRE', KEYS[1], ARGV[4])
+      return 'guest'
+    `;
+    const seat = await this.measure(operation, "EVAL", () =>
+      this.client.eval(
+        script,
+        1,
+        config.redisKeys.room(code),
+        player.id,
+        player.username,
+        player.elo.toString(),
+        config.room.ttlSeconds.toString()
+      )
+    );
+    return seat as "host" | "guest" | "full" | "closed" | "missing";
+  }
+
+  /** Set a seat's ready flag in an open room; false if the room is gone or closed */
+  async setRoomReady(
+    code: string,
+    seat: "host" | "guest",
+    ready: boolean,
+    operation = "room_set_ready"
+  ): Promise<boolean> {
+    const script = `
+      if redis.call('HGET', KEYS[1], 'status') ~= 'open' then return 0 end
+      redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+      redis.call('EXPIRE', KEYS[1], ARGV[3])
+      return 1
+    `;
+    const done = await this.measure(operation, "EVAL", () =>
+      this.client.eval(
+        script,
+        1,
+        config.redisKeys.room(code),
+        `${seat}_ready`,
+        ready ? "1" : "0",
+        config.room.ttlSeconds.toString()
+      )
+    );
+    return done === 1;
+  }
+
+  /**
+   * Claim the start of a match: only one caller wins, and only while the same
+   * two players are seated and both are ready. Clears both ready flags.
+   */
+  async claimRoomStart(
+    code: string,
+    hostId: string,
+    guestId: string,
+    matchId: string,
+    operation = "room_claim_start"
+  ): Promise<boolean> {
+    const script = `
+      if redis.call('HGET', KEYS[1], 'status') ~= 'open' then return 0 end
+      if redis.call('HGET', KEYS[1], 'host_id') ~= ARGV[1] then return 0 end
+      if redis.call('HGET', KEYS[1], 'guest_id') ~= ARGV[2] then return 0 end
+      if redis.call('HGET', KEYS[1], 'host_ready') ~= '1' then return 0 end
+      if redis.call('HGET', KEYS[1], 'guest_ready') ~= '1' then return 0 end
+      redis.call('HSET', KEYS[1], 'host_ready', '0', 'guest_ready', '0', 'matchId', ARGV[3])
+      redis.call('EXPIRE', KEYS[1], ARGV[4])
+      return 1
+    `;
+    const claimed = await this.measure(operation, "EVAL", () =>
+      this.client.eval(
+        script,
+        1,
+        config.redisKeys.room(code),
+        hostId,
+        guestId,
+        matchId,
+        config.room.ttlSeconds.toString()
+      )
+    );
+    return claimed === 1;
+  }
+
+  /**
+   * Count a win for the room's latest match. Returns [hostWins, guestWins], or
+   * null when the match is not this room's latest or the winner is no longer seated.
+   */
+  async recordRoomWin(
+    code: string,
+    matchId: string,
+    winnerId: string,
+    operation = "room_record_win"
+  ): Promise<[number, number] | null> {
+    const script = `
+      if redis.call('HGET', KEYS[1], 'matchId') ~= ARGV[1] then return nil end
+      local field
+      if redis.call('HGET', KEYS[1], 'host_id') == ARGV[2] then field = 'host_wins'
+      elseif redis.call('HGET', KEYS[1], 'guest_id') == ARGV[2] then field = 'guest_wins'
+      else return nil end
+      redis.call('HINCRBY', KEYS[1], field, 1)
+      redis.call('EXPIRE', KEYS[1], ARGV[3])
+      return {redis.call('HGET', KEYS[1], 'host_wins'), redis.call('HGET', KEYS[1], 'guest_wins')}
+    `;
+    const result = (await this.measure(operation, "EVAL", () =>
+      this.client.eval(
+        script,
+        1,
+        config.redisKeys.room(code),
+        matchId,
+        winnerId,
+        config.room.ttlSeconds.toString()
+      )
+    )) as [string, string] | null;
+    if (!result) return null;
+    return [parseInt(result[0], 10) || 0, parseInt(result[1], 10) || 0];
+  }
+
+  /** Free the guest seat if this player holds it; the score resets with it */
+  async clearRoomGuest(code: string, guestId: string, operation = "room_clear_guest"): Promise<boolean> {
+    const script = `
+      if redis.call('HGET', KEYS[1], 'guest_id') ~= ARGV[1] then return 0 end
+      redis.call('HSET', KEYS[1],
+        'guest_id', '', 'guest_username', '', 'guest_elo', '', 'guest_ready', '0',
+        'host_wins', '0', 'guest_wins', '0')
+      redis.call('EXPIRE', KEYS[1], ARGV[2])
+      return 1
+    `;
+    const cleared = await this.measure(operation, "EVAL", () =>
+      this.client.eval(script, 1, config.redisKeys.room(code), guestId, config.room.ttlSeconds.toString())
+    );
+    return cleared === 1;
+  }
+
+  /**
+   * Close a room (host only). It lingers for a few minutes so a late visitor
+   * is told it was closed rather than that it never existed.
+   */
+  async closeRoom(code: string, hostId: string, operation = "room_close"): Promise<boolean> {
+    const script = `
+      if redis.call('HGET', KEYS[1], 'host_id') ~= ARGV[1] then return 0 end
+      redis.call('HSET', KEYS[1], 'status', 'closed', 'host_ready', '0', 'guest_ready', '0')
+      redis.call('EXPIRE', KEYS[1], 600)
+      if redis.call('GET', KEYS[2]) == ARGV[2] then redis.call('DEL', KEYS[2]) end
+      return 1
+    `;
+    const closed = await this.measure(operation, "EVAL", () =>
+      this.client.eval(script, 2, config.redisKeys.room(code), config.redisKeys.userRoom(hostId), hostId, code)
+    );
+    return closed === 1;
+  }
+
+  /** The open room this user hosts, if they have one */
+  async getUserRoomCode(userId: string, operation = "room_get_user_room"): Promise<string | null> {
+    return this.measure(operation, "GET", () => this.client.get(config.redisKeys.userRoom(userId)));
+  }
+
+  async setUserRoomCode(userId: string, code: string, operation = "room_set_user_room"): Promise<void> {
+    await this.measure(operation, "SET", () =>
+      this.client.set(config.redisKeys.userRoom(userId), code, "EX", config.room.ttlSeconds)
+    );
   }
 
   // ============================================

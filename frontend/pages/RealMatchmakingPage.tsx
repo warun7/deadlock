@@ -162,8 +162,9 @@ const RealMatchmakingPage: React.FC<{ mode?: "ranked" | "practice" }> = ({ mode 
     navigate("/dashboard");
   };
 
-  // Leaving ranked for practice. The unmount cleanup leaves the queue.
+  // Leaving ranked for practice or a friend duel. The unmount cleanup leaves the queue.
   const switchToPractice = () => navigate("/practice");
+  const switchToFriend = () => navigate("/duel");
 
   // Esc leaves the queue
   useEffect(() => {
@@ -260,11 +261,16 @@ const RealMatchmakingPage: React.FC<{ mode?: "ranked" | "practice" }> = ({ mode 
                   {timer >= OFFER_PRACTICE_AFTER_S && (
                     <div className="mt-8 max-w-md animate-[rise-in_0.5s_var(--ease-out-expo)_both] border-t border-rule pt-5 motion-reduce:animate-none">
                       <p className="text-[15px] leading-snug text-fg-2">
-                        Nobody else is in the queue right now. Warm up against a bot instead; practice games are unrated.
+                        Nobody else is in the queue right now. Send a friend a duel link, or warm up against a bot. Both are unrated.
                       </p>
-                      <Button variant="ghost" size="lg" className="mt-3 -ml-3" onClick={switchToPractice}>
-                        Practice instead
-                      </Button>
+                      <div className="mt-3 -ml-3 flex flex-wrap gap-1">
+                        <Button variant="ghost" size="lg" onClick={switchToFriend}>
+                          Challenge a friend
+                        </Button>
+                        <Button variant="ghost" size="lg" onClick={switchToPractice}>
+                          Practice instead
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </motion.div>

@@ -6,6 +6,7 @@ import { redisService } from "../services/RedisService";
 import { problemService } from "../services/ProblemService";
 import { MatchmakingService } from "../services/MatchmakingService";
 import { GameService } from "../services/GameService";
+import { RoomService } from "../services/RoomService";
 import {
   authMiddleware,
   devAuthMiddleware,
@@ -17,6 +18,8 @@ import {
   ServerToClientEvents,
   InterServerEvents,
   QueueEntry,
+  RoomAck,
+  RoomPreview,
   SubmitCodePayload,
   SocketData,
 } from "../types";
@@ -38,6 +41,7 @@ export class DeadlockSocketServer {
   >;
   private matchmakingService: MatchmakingService;
   private gameService: GameService;
+  private roomService: RoomService;
 
   constructor(httpServer: HttpServer) {
     // Initialize Socket.IO
@@ -56,10 +60,13 @@ export class DeadlockSocketServer {
     // Initialize services
     this.matchmakingService = new MatchmakingService(this.io);
     this.gameService = new GameService(this.io);
+    this.roomService = new RoomService(this.io);
 
-    // Wire up service references (for bot system)
+    // Wire up service references (bot system, duel rooms)
     this.matchmakingService.setGameService(this.gameService);
     this.gameService.setMatchmakingService(this.matchmakingService);
+    this.gameService.setRoomService(this.roomService);
+    this.roomService.setMatchmakingService(this.matchmakingService);
   }
 
   /**
@@ -164,6 +171,39 @@ export class DeadlockSocketServer {
       });
 
       // ============================================
+      // Duel Room Events
+      // ============================================
+
+      socket.on("create_room", async (ack) => {
+        if (typeof ack !== "function") return;
+        ack(await this.runRoomRequest(() => this.roomService.createRoom(authSocket)));
+      });
+
+      socket.on("join_room", async (code, ack) => {
+        if (typeof ack !== "function") return;
+        ack(await this.runRoomRequest(() => this.roomService.joinRoom(authSocket, code)));
+      });
+
+      socket.on("room_ready", async (payload) => {
+        if (!payload || typeof payload !== "object" || typeof payload.ready !== "boolean") return;
+        await this.roomService
+          .setReady(authSocket, payload.code, payload.ready)
+          .catch((error) => console.error("❌ Error in room_ready:", error));
+      });
+
+      socket.on("leave_room", async (code) => {
+        await this.roomService
+          .leaveRoom(authSocket, code)
+          .catch((error) => console.error("❌ Error in leave_room:", error));
+      });
+
+      socket.on("unwatch_room", async (code) => {
+        await this.roomService
+          .unwatchRoom(authSocket, code)
+          .catch((error) => console.error("❌ Error in unwatch_room:", error));
+      });
+
+      // ============================================
       // Game Events
       // ============================================
 
@@ -211,6 +251,9 @@ export class DeadlockSocketServer {
 
       socket.on("disconnect", async (reason) => {
         console.log(`🔌 Disconnected: ${user.username} (${reason})`);
+        await this.roomService
+          .handleDisconnect(authSocket)
+          .catch((error) => console.error("❌ Error updating room on disconnect:", error));
         await this.matchmakingService.handleDisconnect(authSocket);
       });
 
@@ -228,6 +271,16 @@ export class DeadlockSocketServer {
       // Check for existing match (reconnection)
       await this.handleReconnection(authSocket);
     });
+  }
+
+  /** Run a room request that answers through an ack; a failure still answers */
+  private async runRoomRequest(run: () => Promise<RoomAck>): Promise<RoomAck> {
+    try {
+      return await run();
+    } catch (error) {
+      console.error("❌ Room request failed:", error);
+      return { ok: false, code: "ROOM_ERROR", message: "Something went wrong. Try again." };
+    }
   }
 
   private isValidSubmitPayload(payload: unknown): payload is SubmitCodePayload {
@@ -363,6 +416,8 @@ export class DeadlockSocketServer {
               isBot: opponent.socketId === "bot",
             },
             startTime: match.startedAt,
+            mode: match.mode,
+            roomCode: match.roomCode,
           });
 
           // Allow UI to settle
@@ -371,6 +426,7 @@ export class DeadlockSocketServer {
               winnerId: match.winnerId,
               reason,
               ...(opponent.socketId === "bot" && { practice: true }),
+              ...(match.mode === "friend" && { friendly: true, roomCode: match.roomCode }),
             });
           }, 500);
           return;
@@ -415,6 +471,8 @@ export class DeadlockSocketServer {
           isBot: opponent.socketId === "bot",
         },
         startTime: match.startedAt,
+        mode: match.mode,
+        roomCode: match.roomCode,
       });
 
       console.log(`✅ ${user.username} rejoined match ${matchId}`);
@@ -497,5 +555,9 @@ export class DeadlockSocketServer {
 
   getQueue(): QueueEntry[] {
     return this.matchmakingService.getQueue();
+  }
+
+  getRoomPreview(code: string): Promise<RoomPreview | null> {
+    return this.roomService.getPreview(code);
   }
 }

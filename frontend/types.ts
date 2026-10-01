@@ -71,4 +71,7 @@ export interface MatchFoundPayload {
     isBot?: boolean;
   };
   startTime: number;
+  mode?: "ranked" | "practice" | "friend";
+  /** Duel room to go back to for a rematch (friend duels only) */
+  roomCode?: string;
 }

@@ -121,6 +121,8 @@ services:
       # Practice mode against a bot (ranked is always two people)
       BOT_ENABLED: ${BOT_ENABLED:-true}
       BOT_DEFAULT_DIFFICULTY: ${BOT_DEFAULT_DIFFICULTY:-medium}
+      # Duel rooms (friend invite links) are forgotten after this long idle
+      ROOM_TTL_SECONDS: ${ROOM_TTL_SECONDS:-10800}
 
       # Containers should log to stdout, not to files inside themselves.
       LOG_TO_FILE: "false"

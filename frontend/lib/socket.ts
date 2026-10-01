@@ -1,7 +1,9 @@
 import { io, Socket } from 'socket.io-client';
 import { supabase } from './supabase';
+import type { RoomAck } from './rooms';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+// The game server; it also serves the few REST endpoints (room previews)
+export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 
 class GameSocket {
   private socket: Socket | null = null;
@@ -115,6 +117,37 @@ class GameSocket {
     }
     console.log('Requesting rejoin for match:', matchId);
     this.socket.emit('rejoin_match', matchId);
+  }
+
+  // Duel rooms. Opening and joining answer through an acknowledgement.
+  createRoom(): Promise<RoomAck> {
+    return this.request('create_room');
+  }
+
+  joinRoom(code: string): Promise<RoomAck> {
+    return this.request('join_room', code);
+  }
+
+  setRoomReady(code: string, ready: boolean) {
+    this.socket?.emit('room_ready', { code, ready });
+  }
+
+  // Guest: give up the seat. Host: close the room.
+  leaveRoom(code: string) {
+    this.socket?.emit('leave_room', code);
+  }
+
+  // Left the room page; the seat is kept
+  unwatchRoom(code: string) {
+    if (!this.socket?.connected) return;
+    this.socket.emit('unwatch_room', code);
+  }
+
+  private request(event: string, ...args: unknown[]): Promise<RoomAck> {
+    if (!this.socket?.connected) {
+      return Promise.reject(new Error('Socket not connected'));
+    }
+    return this.socket.timeout(8000).emitWithAck(event, ...args);
   }
 
   // Event listeners
