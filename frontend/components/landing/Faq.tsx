@@ -20,6 +20,14 @@ const QUESTIONS = [
     a: "After 30 minutes the match ends in a draw. You can also forfeit at any time, which hands your opponent the win.",
   },
   {
+    q: "What if nobody else is online?",
+    a: "Ranked is always another person, so you wait for the next player. Meanwhile you can send a friend a duel link or practice against a bot. Both are unrated and stay off your record.",
+  },
+  {
+    q: "Can I play against a friend?",
+    a: "Yes. Open a duel room from the lobby and send the link. Your friend signs in, you both press ready, and the room keeps score across rematches. Friend duels are unrated.",
+  },
+  {
     q: "Do I need an account?",
     a: "Yes, so your record follows you. Sign up with Google or with an email and password; it takes under a minute.",
   },

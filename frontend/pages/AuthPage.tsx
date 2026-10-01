@@ -7,6 +7,7 @@ import AuthLayout from "../components/app/AuthLayout";
 import Field from "../components/ui/Field";
 import { Button } from "../components/ui/Button";
 import { isSupabaseConfigured } from "../lib/supabase";
+import { returnToPath } from "../lib/returnTo";
 
 const swap = {
   initial: { opacity: 0, y: 8 },
@@ -69,7 +70,8 @@ const AuthPage: React.FC = () => {
       hasRedirected.current = true;
       setTimeout(() => {
         if (isMounted.current && window.location.pathname === "/auth") {
-          navigate("/dashboard", { replace: true });
+          // Back to the invite that sent them here, if any (the room clears it on arrival)
+          navigate(returnToPath() ?? "/dashboard", { replace: true });
         }
       }, 50);
     }
@@ -117,10 +119,11 @@ const AuthPage: React.FC = () => {
         setError(authError.message);
         setLoading(false);
       } else if (!isLogin) {
-        setSuccess("Account created. Taking you to the lobby.");
-        setTimeout(() => navigate("/dashboard"), 1200);
+        const next = returnToPath();
+        setSuccess(next?.startsWith("/duel/") ? "Account created. Taking you to the duel." : "Account created. Taking you to the lobby.");
+        setTimeout(() => navigate(next ?? "/dashboard"), 1200);
       } else {
-        navigate("/dashboard");
+        navigate(returnToPath() ?? "/dashboard");
       }
     } catch (err: any) {
       setError(err.message || "Something went wrong. Please try again.");
@@ -158,7 +161,7 @@ const AuthPage: React.FC = () => {
       setLoading(false);
     } else if (!isSupabaseConfigured()) {
       setSuccess("Demo login successful. Redirecting.");
-      setTimeout(() => navigate("/dashboard"), 800);
+      setTimeout(() => navigate(returnToPath() ?? "/dashboard"), 800);
     }
     // For real OAuth, Supabase redirects the browser.
   };

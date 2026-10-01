@@ -200,6 +200,8 @@ const RealGameArena: React.FC = () => {
   const [finalSeconds, setFinalSeconds] = useState<number | null>(null);
   const [showForfeitModal, setShowForfeitModal] = useState(false);
   const [ratingResult, setRatingResult] = useState<{ change: number; rating: number } | null>(null);
+  const [practiceResult, setPracticeResult] = useState(false);
+  const [friendResult, setFriendResult] = useState<{ roomCode?: string; score?: { you: number; opponent: number } } | null>(null);
   const [opponentDeadline, setOpponentDeadline] = useState<number | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const [socketError, setSocketError] = useState<string | null>(null);
@@ -309,8 +311,14 @@ const RealGameArena: React.FC = () => {
         reason?: string;
         ratingChange?: number;
         newRating?: number;
+        practice?: boolean;
+        friendly?: boolean;
+        roomCode?: string;
+        score?: { you: number; opponent: number };
       }) => {
         setGameOver(true);
+        setPracticeResult(!!data.practice);
+        if (data.friendly) setFriendResult({ roomCode: data.roomCode, score: data.score });
         setOpponentDeadline(null);
         if (typeof data.ratingChange === "number" && typeof data.newRating === "number") {
           setRatingResult({ change: data.ratingChange, rating: data.newRating });
@@ -467,6 +475,14 @@ const RealGameArena: React.FC = () => {
   // The server ends a timed-out match with no winner
   const isDraw = gameOver && winner === null;
   const opponentName = currentMatchData?.opponent?.username || "Opponent";
+  // Practice: an unrated match against a bot, labelled as one
+  const isPractice = !!currentMatchData?.opponent?.isBot || practiceResult;
+  // Friend duel from a room: unrated; "Rematch" goes back to the room, ready
+  const isFriendly = currentMatchData?.mode === "friend" || !!friendResult;
+  const roomCode = currentMatchData?.roomCode ?? friendResult?.roomCode;
+  const playAgainPath = isFriendly && roomCode ? `/duel/${roomCode}` : isPractice ? "/practice" : "/matchmaking";
+  const playAgain = () => navigate(playAgainPath, isFriendly ? { state: { autoReady: true } } : undefined);
+  const playAgainLabel = isFriendly ? "Rematch" : isPractice ? "Practice again" : "Play again";
   const visibleTests = currentMatchData?.problem?.testCases ?? [];
   const opponentAway = !!opponentDeadline && !gameOver;
   const opponentLabel = opponentAway
@@ -584,6 +600,8 @@ const RealGameArena: React.FC = () => {
               )}
             </span>
             <span className="label max-w-[8rem] truncate normal-case text-fg">{opponentName}</span>
+            {isPractice && <Tag>Unrated</Tag>}
+            {isFriendly && <Tag>Friendly</Tag>}
             {opponentTests && <TestPips passed={opponentTests.passed} total={opponentTests.total} tone="opponent" size={7} />}
             <span
               className={`label truncate ${opponentAway ? "inline text-warn-ink" : "hidden xl:inline"} ${
@@ -686,8 +704,8 @@ const RealGameArena: React.FC = () => {
             <Button size="sm" variant="outline" onClick={() => navigate("/dashboard")}>
               Lobby
             </Button>
-            <Button size="sm" variant="accent" onClick={() => navigate("/matchmaking")}>
-              Play again
+            <Button size="sm" variant="accent" onClick={playAgain}>
+              {playAgainLabel}
             </Button>
           </div>
         </div>
@@ -893,7 +911,11 @@ const RealGameArena: React.FC = () => {
       {/* Forfeit */}
       <Dialog open={showForfeitModal} onClose={() => setShowForfeitModal(false)} eyebrow="Forfeit" title="Give up this match?">
         <p className="mt-4 text-[16px] leading-snug text-fg-2">
-          {opponentName} wins immediately and the loss goes on your record.
+          {isPractice
+            ? "The practice bot wins. Practice is unrated, so nothing goes on your record."
+            : isFriendly
+              ? `${opponentName} takes this round. Friend duels are unrated, so nothing goes on your record.`
+              : `${opponentName} wins immediately and the loss goes on your record.`}
         </p>
         <div className="mt-8 flex justify-end gap-2">
           <Button variant="outline" onClick={() => setShowForfeitModal(false)}>
@@ -934,7 +956,7 @@ const RealGameArena: React.FC = () => {
         <ul className="mt-6 border-t border-rule">
           {[
             { tag: "You", name: username, src: avatarUrl, win: didWin },
-            { tag: "Rival", name: opponentName, src: undefined, win: !didWin && !isDraw },
+            { tag: isPractice ? "Bot" : isFriendly ? "Friend" : "Rival", name: opponentName, src: undefined, win: !didWin && !isDraw },
           ].map((p) => (
             <li key={p.tag} className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-line py-2.5">
               <span className="label flex items-center gap-2 text-fg">
@@ -953,6 +975,16 @@ const RealGameArena: React.FC = () => {
           <span>
             Match time <span className="tabular text-fg">{clockText}</span>
           </span>
+          {isPractice && <span>Practice &middot; unrated</span>}
+          {isFriendly && !friendResult?.score && <span>Friend duel &middot; unrated</span>}
+          {friendResult?.score && (
+            <span>
+              Room score{" "}
+              <span className="tabular text-fg">
+                {friendResult.score.you}:{friendResult.score.opponent}
+              </span>
+            </span>
+          )}
           {ratingResult && (
             <span>
               Rating <span className="tabular text-fg">{ratingResult.rating}</span>{" "}
@@ -970,8 +1002,8 @@ const RealGameArena: React.FC = () => {
           <Button variant="outline" onClick={() => navigate("/dashboard")}>
             Lobby
           </Button>
-          <Button ref={playAgainRef} variant="accent" onClick={() => navigate("/matchmaking")}>
-            Play again
+          <Button ref={playAgainRef} variant="accent" onClick={playAgain}>
+            {playAgainLabel}
           </Button>
         </div>
       </Dialog>

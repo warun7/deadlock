@@ -102,7 +102,15 @@ const DashboardPage: React.FC = () => {
   }, [user]);
 
   const inMatch = !!activeMatchId;
-  useShortcuts({ m: () => navigate(inMatch ? `/game/${activeMatchId}` : "/matchmaking") });
+  useShortcuts({
+    m: () => navigate(inMatch ? `/game/${activeMatchId}` : "/matchmaking"),
+    p: () => {
+      if (!inMatch) navigate("/practice");
+    },
+    f: () => {
+      if (!inMatch) navigate("/duel");
+    },
+  });
 
   return (
     <AppShell>
@@ -134,8 +142,8 @@ const DashboardPage: React.FC = () => {
                 </p>
               ) : (
                 <p className="text-[clamp(1.5rem,2.4vw,2rem)] leading-[1.08] tracking-[-0.035em] text-fg-2">
-                  <strong className="font-medium text-fg">1v1 duel.</strong> A random problem rated up to 1200. The
-                  first submission to pass every test wins.
+                  <strong className="font-medium text-fg">Ranked 1v1.</strong> Another player, a random problem rated up
+                  to 1200. The first submission to pass every test wins.
                 </p>
               )}
               <Detail label={inMatch ? "Status" : "Languages"} className="mt-6">
@@ -151,13 +159,29 @@ const DashboardPage: React.FC = () => {
                     <Kbd>M</Kbd>
                   </Button>
                 ) : (
-                  <ButtonLink to="/matchmaking" variant="accent" size="lg" autoFocus className="group w-full justify-between">
-                    <span className="inline-flex items-center gap-2">
-                      <RollText>Find match</RollText>
-                      <ArrowRight weight="bold" className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
-                    </span>
-                    <Kbd>M</Kbd>
-                  </ButtonLink>
+                  <>
+                    <ButtonLink to="/matchmaking" variant="accent" size="lg" autoFocus className="group w-full justify-between">
+                      <span className="inline-flex items-center gap-2">
+                        <RollText>Find match</RollText>
+                        <ArrowRight weight="bold" className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
+                      </span>
+                      <Kbd>M</Kbd>
+                    </ButtonLink>
+                    <ButtonLink to="/duel" variant="outline" size="lg" className="group mt-2 w-full justify-between">
+                      <span className="inline-flex items-center gap-2">
+                        <RollText>Challenge a friend</RollText>
+                        <span className="label text-fg-3">Link</span>
+                      </span>
+                      <Kbd>F</Kbd>
+                    </ButtonLink>
+                    <ButtonLink to="/practice" variant="outline" size="lg" className="group mt-2 w-full justify-between">
+                      <span className="inline-flex items-center gap-2">
+                        <RollText>Practice vs bot</RollText>
+                        <span className="label text-fg-3">Unrated</span>
+                      </span>
+                      <Kbd>P</Kbd>
+                    </ButtonLink>
+                  </>
                 )}
               </div>
             </div>

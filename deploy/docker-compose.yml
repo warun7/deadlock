@@ -118,9 +118,11 @@ services:
       # Parallel runs: keep at 1 per vCPU, since test time limits are wall-clock.
       JUDGE0_BATCH: ${JUDGE0_BATCH:-true}
       JUDGE0_MAX_PARALLEL_RUNS: ${JUDGE0_MAX_PARALLEL_RUNS:-1}
+      # Practice mode against a bot (ranked is always two people)
       BOT_ENABLED: ${BOT_ENABLED:-true}
-      BOT_TRIGGER_DELAY: ${BOT_TRIGGER_DELAY:-60000}
       BOT_DEFAULT_DIFFICULTY: ${BOT_DEFAULT_DIFFICULTY:-medium}
+      # Duel rooms (friend invite links) are forgotten after this long idle
+      ROOM_TTL_SECONDS: ${ROOM_TTL_SECONDS:-10800}
 
       # Containers should log to stdout, not to files inside themselves.
       LOG_TO_FILE: "false"

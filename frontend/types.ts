@@ -67,6 +67,11 @@ export interface MatchFoundPayload {
     id: string;
     username: string;
     elo: number;
+    /** Practice bot rather than a person */
+    isBot?: boolean;
   };
   startTime: number;
+  mode?: "ranked" | "practice" | "friend";
+  /** Duel room to go back to for a rematch (friend duels only) */
+  roomCode?: string;
 }

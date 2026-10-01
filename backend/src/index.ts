@@ -67,6 +67,10 @@ async function main(): Promise<void> {
   // Create Express app
   const app = express();
   let socketServer: DeadlockSocketServer | null = null;
+
+  // Behind the edge proxy, req.ip must be the player's address, or every
+  // player shares one rate-limit bucket (see config.trustProxy)
+  app.set('trust proxy', config.trustProxy);
   
   // Security middleware
   app.use(securityHeaders);
@@ -142,6 +146,22 @@ async function main(): Promise<void> {
     }
   });
   
+  // Duel room invite preview. The invite page shows it before the visitor
+  // signs in, so it is public: who is inviting, and whether the room is open.
+  app.get('/rooms/:code', async (req, res) => {
+    try {
+      const preview = await socketServer?.getRoomPreview(req.params.code);
+      res.set('Cache-Control', 'no-store');
+      if (!preview) {
+        res.status(404).json({ status: 'error', message: 'Room not found' });
+        return;
+      }
+      res.json(preview);
+    } catch (error: any) {
+      res.status(500).json({ status: 'error', message: 'Could not load the room' });
+    }
+  });
+
   // Debug endpoints - with stricter rate limiting
   app.use('/debug/', debugLimiter);
   app.use('/debug/', (req, res, next) => {
