@@ -112,6 +112,7 @@ export const config = {
     room: (code: string) => `room:${code}`,
     userRoom: (userId: string) => `user:${userId}:room`, // the open room this user hosts
     integrity: (matchId: string) => `integrity:${matchId}`, // fair play counters per player
+    submissions: (matchId: string) => `submissions:${matchId}`, // each player's last submission, for comparing after
   },
 } as const;
 

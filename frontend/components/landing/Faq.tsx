@@ -9,11 +9,15 @@ const QUESTIONS = [
   },
   {
     q: "What kind of problems are they?",
-    a: "Classic competitive programming problems. Ranked uses problems rated up to 1200 for now; friend duels range from Easy (800) to Expert (2400). Each one has sample tests you can see and hidden tests you cannot.",
+    a: "Classic competitive programming problems rated 800 to 2400. Ranked picks one near both players' ratings; in friend duels the host picks the level. Each one has sample tests you can see and hidden tests you cannot.",
   },
   {
     q: "How is the winner decided?",
     a: "The first submission that passes every test wins on the spot. Wrong submissions cost nothing but time, so submit whenever you think you have it.",
+  },
+  {
+    q: "Can I test my code before submitting?",
+    a: "Yes. Run checks your code against the sample tests, or input you type, and your opponent is not told. Only a submission can win. After a match against a person you can compare solutions: each player sees the other's last submission.",
   },
   {
     q: "What if nobody solves it?",

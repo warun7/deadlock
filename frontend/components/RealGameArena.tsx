@@ -25,7 +25,7 @@ import PixelText from "./ui/pixel/PixelText";
 import DotLoader from "./ui/pixel/DotLoader";
 import { PixelBurst } from "./ui/micro";
 import { motion } from "framer-motion";
-import { gameSocket, type ReportReason } from "../lib/socket";
+import { gameSocket, type ReportReason, type RunResult, type StoredSubmission } from "../lib/socket";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { invalidateCurrentProfile, useCurrentProfile } from "../lib/useCurrentProfile";
@@ -95,6 +95,16 @@ type SubmissionResult = {
   total: number;
   stderr?: string;
   testResults?: TestResult[];
+};
+
+const LANGUAGE_BY_ID: Record<number, Language> = { 71: "python", 63: "javascript", 54: "cpp" };
+
+const RUN_LABEL: Record<string, string> = {
+  finished: "Finished",
+  compile_error: "Compilation error",
+  runtime_error: "Runtime error",
+  time_limit: "Time limit exceeded",
+  error: "Could not run",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -219,6 +229,21 @@ const RealGameArena: React.FC = () => {
   const fairPlayOn = !!currentMatchData && !currentMatchData.opponent?.isBot && !practiceResult && !gameOver;
   const fairPlaySession = useMemo(() => (matchId ? new FairPlaySession(matchId) : null), [matchId]);
   const [opponentLeftTab, setOpponentLeftTab] = useState(false);
+
+  // Run: a private check on the samples or on input the player types
+  const [isRunning, setIsRunning] = useState(false);
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [lastAction, setLastAction] = useState<"run" | "submit" | null>(null);
+  const [inputMode, setInputMode] = useState<"samples" | "custom">("samples");
+  const [customInput, setCustomInput] = useState("");
+
+  // After a match against a person: compare with the opponent's last submission
+  const [editorView, setEditorView] = useState<"mine" | "theirs">("mine");
+  const [theirCode, setTheirCode] = useState<{
+    state: "idle" | "loading" | "loaded" | "error";
+    submission?: StoredSubmission | null;
+    error?: string;
+  }>({ state: "idle" });
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((message: string) => {
@@ -310,6 +335,13 @@ const RealGameArena: React.FC = () => {
         setSocketError(null);
       };
 
+      const handleRunResult = (result: RunResult) => {
+        setRunResult(result);
+        setIsRunning(false);
+        setSocketError(null);
+        setResultsCollapsed(false);
+      };
+
       const handleSubmissionResult = (result: SubmissionResult) => {
         setSubmissionResult(result);
         setIsSubmitting(false);
@@ -349,6 +381,7 @@ const RealGameArena: React.FC = () => {
       }) => {
         setGameOver(true);
         setOpponentLeftTab(false);
+        setIsRunning(false);
         setPracticeResult(!!data.practice);
         if (data.friendly) setFriendResult({ roomCode: data.roomCode, score: data.score });
         setOpponentDeadline(null);
@@ -369,6 +402,7 @@ const RealGameArena: React.FC = () => {
       const handleError = (data: { message: string; code?: string }) => {
         console.error("Socket error:", data);
         setIsSubmitting(false);
+        setIsRunning(false);
         if (data.code === "MATCH_NOT_FOUND" || data.code === "MATCH_ENDED") {
           setLoadError(data.message);
           setIsLoading(false);
@@ -390,6 +424,7 @@ const RealGameArena: React.FC = () => {
 
       socket.on("match_found", handleMatchFound);
       socket.on("submission_result", handleSubmissionResult);
+      socket.on("run_result", handleRunResult);
       socket.on("opponent_progress", handleOpponentProgress);
       socket.on("opponent_focus", handleOpponentFocus);
       socket.on("game_over", handleGameOver);
@@ -403,6 +438,7 @@ const RealGameArena: React.FC = () => {
         socket.off("connect", handleReconnect);
         socket.off("match_found", handleMatchFound);
         socket.off("submission_result", handleSubmissionResult);
+        socket.off("run_result", handleRunResult);
         socket.off("opponent_progress", handleOpponentProgress);
         socket.off("opponent_focus", handleOpponentFocus);
         socket.off("game_over", handleGameOver);
@@ -477,8 +513,11 @@ const RealGameArena: React.FC = () => {
   const submittingRef = useRef(false);
   submittingRef.current = isSubmitting;
 
+  const runningRef = useRef(false);
+  runningRef.current = isRunning;
+
   const handleSubmit = useCallback(() => {
-    if (gameOver || submittingRef.current) return;
+    if (gameOver || submittingRef.current || runningRef.current) return;
     if (!gameSocket.isConnected()) {
       setSocketError("Not connected to the match server. Reconnecting.");
       return;
@@ -486,6 +525,7 @@ const RealGameArena: React.FC = () => {
     submittingRef.current = true;
     setFlash(null);
     setIsSubmitting(true);
+    setLastAction("submit");
     setSubmissionResult(null);
     setSocketError(null);
     setResultsCollapsed(false);
@@ -495,6 +535,21 @@ const RealGameArena: React.FC = () => {
       fairPlayOn && fairPlaySession ? fairPlaySession.telemetry(language, STARTER_CODE[language].length) : undefined
     );
   }, [code, language, gameOver, fairPlayOn, fairPlaySession]);
+
+  // Run on the samples (or the custom input). Private; never ends the match.
+  const handleRun = useCallback(() => {
+    if (gameOver || submittingRef.current || runningRef.current) return;
+    if (!gameSocket.isConnected()) {
+      setSocketError("Not connected to the match server. Reconnecting.");
+      return;
+    }
+    runningRef.current = true;
+    setIsRunning(true);
+    setLastAction("run");
+    setSocketError(null);
+    setResultsCollapsed(false);
+    gameSocket.runCode(code, LANGUAGE_IDS[language], inputMode === "custom" ? customInput : undefined);
+  }, [code, language, gameOver, inputMode, customInput]);
 
   // What the editor refused. The toast explains; the server counts.
   const handleBlocked = useCallback(
@@ -563,11 +618,14 @@ const RealGameArena: React.FC = () => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         handleSubmit();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "'") {
+        e.preventDefault();
+        handleRun();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleSubmit]);
+  }, [handleSubmit, handleRun]);
 
   const didWin = winner !== null && winner === user?.id;
   // The server ends a timed-out match with no winner
@@ -590,6 +648,28 @@ const RealGameArena: React.FC = () => {
       : describeOpponent(opponentStatus);
   const opponentOutOfTab = opponentLeftTab && !gameOver && !opponentAway;
   const canReport = gameOver && !isPractice && !isFriendly && !!matchId;
+  const canCompare = gameOver && !isPractice && !!matchId;
+
+  const loadTheirCode = async () => {
+    if (!matchId || theirCode.state === "loading" || theirCode.state === "loaded") return;
+    setTheirCode({ state: "loading" });
+    try {
+      const res = await gameSocket.getOpponentCode(matchId);
+      if (res.ok) setTheirCode({ state: "loaded", submission: (res as { submission: StoredSubmission | null }).submission });
+      else setTheirCode({ state: "error", error: (res as { message: string }).message });
+    } catch {
+      setTheirCode({ state: "error", error: "Could not reach the server. Try again." });
+    }
+  };
+  const showTheirs = () => {
+    setEditorView("theirs");
+    setShowResult(false);
+    setMobileTab("code");
+    void loadTheirCode();
+  };
+  const viewingTheirs = canCompare && editorView === "theirs";
+  const theirSubmission = theirCode.state === "loaded" ? theirCode.submission : undefined;
+  const theirLanguage = theirSubmission ? LANGUAGE_BY_ID[theirSubmission.languageId] ?? "python" : "python";
 
   const sendReport = async () => {
     if (!matchId || !report.reason || report.state !== "idle") return;
@@ -695,7 +775,7 @@ const RealGameArena: React.FC = () => {
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden" onCopy={blockPageCopy} onCut={blockPageCopy}>
       {/* HUD */}
-      <header className="relative z-20 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-rule px-3 sm:px-4">
+      <header className="relative z-20 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-rule px-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-4">
         <div className="flex min-w-0 items-center gap-2.5">
           <Mark className="hidden size-3.5 sm:block" />
           <span className="truncate text-[15px] tracking-[-0.01em] text-fg">{currentMatchData?.problem?.title}</span>
@@ -738,11 +818,26 @@ const RealGameArena: React.FC = () => {
             </Chip>
           </button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRun}
+            loading={isRunning}
+            disabled={gameOver || isSubmitting}
+            aria-label={inputMode === "custom" ? "Run on your input" : "Run on the samples"}
+            className="px-3 sm:pl-3"
+          >
+            {!isRunning && <Play className="size-3" />}
+            <span className="hidden sm:inline">Run</span>
+            <span className="hidden lg:contents">
+              <Kbd>{isMac ? "\u2318'" : "Ctrl'"}</Kbd>
+            </span>
+          </Button>
+          <Button
             variant="accent"
             size="sm"
             onClick={handleSubmit}
             loading={isSubmitting}
-            disabled={gameOver}
+            disabled={gameOver || isRunning}
             aria-live="polite"
             className={`min-w-[6.5rem] pl-3 ${flash === "pass" ? "bg-pass! text-[#04130b]! disabled:opacity-100" : ""} ${
               flash === "fail" ? "animate-[shake_0.4s_ease-in-out] motion-reduce:animate-none" : ""
@@ -870,6 +965,13 @@ const RealGameArena: React.FC = () => {
           className={`${mobileTab === "code" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col bg-screen text-screen-fg md:flex`}
         >
           <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-screen-line px-2 sm:px-3">
+            {viewingTheirs ? (
+              <span className="label truncate px-1 text-screen-fg-2">
+                {theirSubmission
+                  ? `${LANGUAGES.find((l) => l.id === theirLanguage)?.label} \u00b7 ${STATUS_LABEL[theirSubmission.status] ?? theirSubmission.status} ${theirSubmission.passed}/${theirSubmission.total}`
+                  : `${opponentName}'s last submission`}
+              </span>
+            ) : (
             <div className="flex gap-[3px]" role="radiogroup" aria-label="Language">
               {LANGUAGES.map((l) => (
                 <button
@@ -892,11 +994,37 @@ const RealGameArena: React.FC = () => {
                 </button>
               ))}
             </div>
+            )}
             <div className="flex items-center gap-2">
-              <span className="label hidden items-center gap-1.5 text-screen-fg-2 xl:inline-flex">
-                <Info className="size-3.5" aria-hidden="true" />
-                Read stdin, print stdout
-              </span>
+              {canCompare ? (
+                <div className="flex gap-[3px]" role="radiogroup" aria-label="Whose code">
+                  {(
+                    [
+                      { id: "mine", label: "You" },
+                      { id: "theirs", label: opponentName },
+                    ] as const
+                  ).map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={editorView === v.id}
+                      onClick={() => (v.id === "theirs" ? showTheirs() : setEditorView("mine"))}
+                      className={`label h-7 max-w-[9rem] truncate rounded-[3px] px-2 normal-case transition-colors ${
+                        editorView === v.id ? "bg-screen-fg text-screen" : "text-screen-fg-2 hover:bg-white/10 hover:text-screen-fg"
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className="label hidden items-center gap-1.5 text-screen-fg-2 xl:inline-flex">
+                  <Info className="size-3.5" aria-hidden="true" />
+                  Read stdin, print stdout
+                </span>
+              )}
+              {!viewingTheirs && (
               <button
                 type="button"
                 onClick={handleReset}
@@ -907,18 +1035,36 @@ const RealGameArena: React.FC = () => {
                 <ArrowCounterClockwise className="size-3.5" />
                 {confirmReset ? "Confirm reset" : "Reset"}
               </button>
+              )}
             </div>
           </div>
 
           <div className="relative min-h-0 flex-1">
-            <CodeEditor
-              language={language}
-              code={code}
-              onChange={handleCodeChange}
-              onSubmit={handleSubmit}
-              fairPlay={fairPlayOn ? fairPlaySession : null}
-              onBlocked={handleBlocked}
-            />
+            {viewingTheirs ? (
+              theirSubmission ? (
+                <CodeEditor language={theirLanguage} code={theirSubmission.code} onChange={() => {}} readOnly />
+              ) : (
+                <div className="flex h-full items-center justify-center px-6 text-center">
+                  {theirCode.state === "loading" || theirCode.state === "idle" ? (
+                    <DotLoader pattern="scan" className="text-screen-fg-2" label="Loading their code" />
+                  ) : (
+                    <p className="label max-w-[36ch] normal-case text-screen-fg-2">
+                      {theirCode.state === "error" ? theirCode.error : `${opponentName} did not submit any code.`}
+                    </p>
+                  )}
+                </div>
+              )
+            ) : (
+              <CodeEditor
+                language={language}
+                code={code}
+                onChange={handleCodeChange}
+                onSubmit={handleSubmit}
+                onRun={handleRun}
+                fairPlay={fairPlayOn ? fairPlaySession : null}
+                onBlocked={handleBlocked}
+              />
+            )}
           </div>
 
           {/* Results */}
@@ -933,17 +1079,37 @@ const RealGameArena: React.FC = () => {
               onPointerDown={onResizeStart}
               className="absolute inset-x-0 -top-1.5 z-10 h-3 cursor-ns-resize touch-none after:absolute after:inset-x-0 after:top-1.5 after:h-px after:bg-transparent hover:after:bg-screen-fail/70"
             />
+            <div className="flex h-10 shrink-0 items-center gap-2 pr-2 sm:pr-3">
             <button
               type="button"
               onClick={() => setResultsCollapsed((c) => !c)}
               aria-expanded={!resultsCollapsed}
-              className="label flex h-10 shrink-0 items-center gap-3 px-3 text-left sm:px-4"
+              className="label flex h-10 min-w-0 flex-1 items-center gap-3 px-3 text-left sm:px-4"
             >
               <span className="text-screen-fg">/ Results</span>
               {isSubmitting ? (
                 <span className="inline-flex items-center gap-1.5 text-screen-fg-2">
                   <DotLoader pattern="scan" /> Running tests
                 </span>
+              ) : isRunning ? (
+                <span className="inline-flex items-center gap-1.5 text-screen-fg-2">
+                  <DotLoader pattern="scan" /> {inputMode === "custom" ? "Running your input" : "Running samples"}
+                </span>
+              ) : lastAction === "run" && runResult ? (
+                runResult.kind === "samples" ? (
+                  <span className={`inline-flex items-center gap-1.5 ${runResult.result.status === "accepted" ? "text-screen-pass" : "text-screen-fail"}`}>
+                    {runResult.result.status === "accepted" ? <CheckCircle weight="fill" className="size-3.5" /> : <XCircle weight="fill" className="size-3.5" />}
+                    Samples
+                    <span className="tabular text-screen-fg-2">
+                      {runResult.result.passed}/{runResult.result.total}
+                    </span>
+                  </span>
+                ) : (
+                  <span className={`inline-flex items-center gap-1.5 ${runResult.result.status === "finished" ? "text-screen-fg" : "text-screen-fail"}`}>
+                    {RUN_LABEL[runResult.result.status]}
+                    {runResult.result.time && <span className="tabular text-screen-fg-2">{runResult.result.time}s</span>}
+                  </span>
+                )
               ) : submissionResult ? (
                 <span className={`inline-flex items-center gap-1.5 ${verdictTone}`}>
                   {accepted ? <CheckCircle weight="fill" className="size-3.5" /> : <XCircle weight="fill" className="size-3.5" />}
@@ -953,8 +1119,35 @@ const RealGameArena: React.FC = () => {
                   </span>
                 </span>
               ) : null}
-              <CaretUp className={`ml-auto size-3.5 text-screen-fg-2 transition-transform ${resultsCollapsed ? "" : "rotate-180"}`} />
+              <CaretUp className={`ml-auto size-3.5 shrink-0 text-screen-fg-2 transition-transform ${resultsCollapsed ? "" : "rotate-180"}`} />
             </button>
+            {!gameOver && (
+              <div className="flex shrink-0 gap-[3px]" role="radiogroup" aria-label="Run on">
+                {(
+                  [
+                    { id: "samples", label: "Samples" },
+                    { id: "custom", label: "Custom" },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={inputMode === m.id}
+                    onClick={() => {
+                      setInputMode(m.id);
+                      setResultsCollapsed(false);
+                    }}
+                    className={`label h-7 rounded-[3px] px-2 transition-colors ${
+                      inputMode === m.id ? "bg-screen-fg text-screen" : "text-screen-fg-2 hover:bg-white/10 hover:text-screen-fg"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            </div>
 
             {!resultsCollapsed && (
               <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 text-sm sm:px-4" aria-live="polite">
@@ -962,7 +1155,24 @@ const RealGameArena: React.FC = () => {
                   <p className="mb-3 border border-screen-fail/40 px-3 py-2 text-[13px] text-screen-fail">{socketError}</p>
                 )}
 
-                {isSubmitting ? (
+                {inputMode === "custom" && !gameOver && (
+                  <div className="mb-4">
+                    <label htmlFor="custom-input" className="label mb-1.5 block text-screen-fg-2">
+                      / Your input (stdin)
+                    </label>
+                    <textarea
+                      id="custom-input"
+                      value={customInput}
+                      onChange={(e) => setCustomInput(e.target.value.slice(0, 64_000))}
+                      rows={3}
+                      spellCheck={false}
+                      placeholder="Type the input your program reads, then Run"
+                      className="w-full resize-y bg-screen p-2.5 font-mono text-[12px] leading-relaxed text-screen-fg placeholder:text-screen-fg-2 focus:outline-none focus:ring-1 focus:ring-screen-fg-2"
+                    />
+                  </div>
+                )}
+
+                {isSubmitting || isRunning ? (
                   <div className="flex gap-[3px]" aria-hidden="true">
                     {Array.from({ length: submissionResult?.total || 10 }, (_, i) => (
                       <span
@@ -971,6 +1181,58 @@ const RealGameArena: React.FC = () => {
                         style={{ animationDelay: `${i * 70}ms` }}
                       />
                     ))}
+                  </div>
+                ) : lastAction === "run" && runResult?.kind === "custom" ? (
+                  <div className="grid gap-3 font-mono text-[12px]">
+                    <div className="min-w-0">
+                      <div className="label mb-1.5 text-screen-fg-2">/ Output</div>
+                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap bg-screen p-2.5 text-screen-fg">
+                        {runResult.result.stdout || "(no output)"}
+                      </pre>
+                    </div>
+                    {runResult.result.stderr && (
+                      <div className="min-w-0">
+                        <div className="label mb-1.5 text-screen-fail">/ {runResult.result.status === "compile_error" ? "Compiler" : "Errors"}</div>
+                        <pre className="max-h-48 overflow-auto whitespace-pre-wrap bg-screen p-2.5 text-screen-fail">{runResult.result.stderr}</pre>
+                      </div>
+                    )}
+                  </div>
+                ) : lastAction === "run" && runResult?.kind === "samples" ? (
+                  <div className="space-y-4">
+                    {runResult.result.stderr && (
+                      <pre className="overflow-x-auto whitespace-pre-wrap bg-screen p-3 font-mono text-[12px] leading-relaxed text-screen-fail">
+                        {runResult.result.stderr}
+                      </pre>
+                    )}
+                    {(runResult.result.testResults ?? []).map((r, i) => {
+                      const sample = visibleTests[i];
+                      return (
+                        <div key={i} className="min-w-0">
+                          <div className={`label mb-1.5 flex items-center gap-1.5 ${r.passed ? "text-screen-pass" : "text-screen-fail"}`}>
+                            {r.passed ? <CheckCircle weight="fill" className="size-3.5" /> : <XCircle weight="fill" className="size-3.5" />}
+                            Sample {i + 1} {r.passed ? "passed" : STATUS_LABEL[r.status] ? `\u00b7 ${STATUS_LABEL[r.status]}` : `\u00b7 ${r.status}`}
+                          </div>
+                          {!r.passed && sample && (
+                            <div className="grid gap-2 font-mono text-[12px] sm:grid-cols-3">
+                              {[
+                                { label: "Input", value: sample.input },
+                                { label: "Expected", value: r.expected ?? sample.expectedOutput },
+                                { label: "Your output", value: r.stdout || "(no output)" },
+                              ].map((b) => (
+                                <div key={b.label} className="min-w-0">
+                                  <div className="label mb-1.5 text-screen-fg-2">/ {b.label}</div>
+                                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap bg-screen p-2.5 text-screen-fg">{b.value}</pre>
+                                </div>
+                              ))}
+                              {r.message && <p className="font-sans text-[12px] text-screen-fg-2 sm:col-span-3">{r.message}</p>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {runResult.result.status === "accepted" && (
+                      <p className="text-[13px] text-screen-fg-2">Every sample passes. Submit to run the hidden tests too.</p>
+                    )}
                   </div>
                 ) : submissionResult ? (
                   <div className="space-y-4">
@@ -1035,7 +1297,8 @@ const RealGameArena: React.FC = () => {
                   </div>
                 ) : (
                   <p className="text-[13px] text-screen-fg-2">
-                    Submit to run your code against every test. {isMac ? "Cmd" : "Ctrl"} + Enter works from the editor.
+                    Run checks your code on the samples ({isMac ? "Cmd" : "Ctrl"} + &apos;), or on your own input with Custom. Only you
+                    see it. Submit ({isMac ? "Cmd" : "Ctrl"} + Enter) runs every test and can win the match.
                     {fairPlayOn && " In matches, copy and paste work only inside the editor."}
                   </p>
                 )}
@@ -1187,9 +1450,15 @@ const RealGameArena: React.FC = () => {
               Report
             </Button>
           )}
-          <Button variant="ghost" onClick={() => setShowResult(false)}>
-            Review code
-          </Button>
+          {canCompare ? (
+            <Button variant="ghost" onClick={showTheirs}>
+              Compare solutions
+            </Button>
+          ) : (
+            <Button variant="ghost" onClick={() => setShowResult(false)}>
+              Review code
+            </Button>
+          )}
           <Button variant="outline" onClick={() => navigate("/dashboard")}>
             Lobby
           </Button>

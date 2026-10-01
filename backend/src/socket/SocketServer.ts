@@ -21,6 +21,7 @@ import {
   QueueEntry,
   RoomAck,
   RoomPreview,
+  RunCodePayload,
   SubmitCodePayload,
   SocketData,
 } from "../types";
@@ -252,6 +253,26 @@ export class DeadlockSocketServer {
         }
       });
 
+      socket.on("run_code", async (payload) => {
+        if (!this.isValidRunPayload(payload)) {
+          socket.emit("error", { message: "Invalid run payload", code: "BAD_PAYLOAD" });
+          return;
+        }
+        await this.gameService
+          .handleRun(authSocket, payload)
+          .catch((error) => console.error("❌ Error in run_code:", error));
+      });
+
+      socket.on("opponent_code", async (matchId, ack) => {
+        if (typeof ack !== "function") return;
+        try {
+          ack(await this.gameService.getOpponentCode(authSocket, matchId));
+        } catch (error) {
+          console.error("❌ Error in opponent_code:", error);
+          ack({ ok: false, message: "Could not load the solution. Try again." });
+        }
+      });
+
       socket.on("forfeit", async () => {
         console.log(`🏳️ ${user.username} forfeiting`);
         await this.gameService.handleForfeit(authSocket);
@@ -316,6 +337,12 @@ export class DeadlockSocketServer {
       console.error("❌ Room request failed:", error);
       return { ok: false, code: "ROOM_ERROR", message: "Something went wrong. Try again." };
     }
+  }
+
+  private isValidRunPayload(payload: unknown): payload is RunCodePayload {
+    if (!this.isValidSubmitPayload(payload)) return false;
+    const input = (payload as { input?: unknown }).input;
+    return input === undefined || (typeof input === "string" && input.length <= 64_000);
   }
 
   private isValidSubmitPayload(payload: unknown): payload is SubmitCodePayload {
