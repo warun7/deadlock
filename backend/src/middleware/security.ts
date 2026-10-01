@@ -18,6 +18,15 @@ export const apiLimiter = rateLimit({
   },
 });
 
+// Invite link pages. Looser than the API limit: link-preview crawlers
+// (Discordbot and friends) fetch from a few shared addresses.
+export const inviteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Stricter rate limit for debug endpoints
 export const debugLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

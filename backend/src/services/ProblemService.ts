@@ -15,7 +15,8 @@ export class ProblemService {
   
   /**
    * Get a random problem for a match
-   * Capped at 1200 difficulty until ELO system is implemented
+   * Defaults to ratings up to 1200 (the ranked cap until rating-based
+   * matchmaking exists); duel rooms pass their own band (config/roomDifficulty).
    *
    * Only `judge_safe` problems are eligible. That flag means exact-match
    * judging was verified sound for the problem (a known-accepted solution
@@ -31,9 +32,11 @@ export class ProblemService {
     difficulty?: number;
     minRating?: number;
     maxRating?: number;
+    /** Problems to avoid (a duel room's recent ones); ignored if it would empty the pool */
+    excludeIds?: string[];
   }): Promise<Problem | null> {
     try {
-      // Build query - cap at 1200 difficulty for now
+      // Build query - ranked cap of 1200 unless the caller gives a band
       let query = supabase
         .from('problems')
         .select('*')
@@ -54,9 +57,15 @@ export class ProblemService {
       }
       
       if (!problems || problems.length === 0) {
-        console.warn('No judge_safe problems found with rating <= 1200');
+        console.warn(
+          `No judge_safe problems found rated ${options?.minRating ?? 0} to ${options?.maxRating || 1200}`
+        );
         return null;
       }
+
+      const excluded = new Set(options?.excludeIds ?? []);
+      const fresh = problems.filter((p) => !excluded.has(String(p.id)));
+      const pool = fresh.length > 0 ? fresh : problems;
       
       // Pick a random problem, and make sure it can actually be judged.
       //
@@ -64,9 +73,9 @@ export class ProblemService {
       // starts a match nobody can submit to (GameService refuses with
       // PROBLEM_NOT_FOUND, so the player just sits there). Rather than trust the
       // flag blindly, try a few and skip any that turn out to be empty.
-      const maxAttempts = Math.min(5, problems.length);
+      const maxAttempts = Math.min(5, pool.length);
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const problem = problems[Math.floor(Math.random() * problems.length)];
+        const problem = pool[Math.floor(Math.random() * pool.length)];
         const testCases = await this.getTestCases(problem.id);
 
         if (testCases.length === 0) {
@@ -88,7 +97,7 @@ export class ProblemService {
       }
 
       console.error(
-        `No judgeable problem found after ${maxAttempts} attempts (pool size ${problems.length})`
+        `No judgeable problem found after ${maxAttempts} attempts (pool size ${pool.length})`
       );
       return null;
       

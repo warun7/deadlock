@@ -4,6 +4,7 @@ import { redisService } from "./RedisService";
 import { problemService } from "./ProblemService";
 import { BotPlayer, BotCompletionResult } from "./BotPlayer";
 import { config } from "../config";
+import { ROOM_DIFFICULTIES, RoomDifficulty } from "../config/roomDifficulty";
 import type { GameService } from "./GameService";
 import {
   QueueEntry,
@@ -572,6 +573,8 @@ export class MatchmakingService {
    *
    * Every socket a player has in the room gets the match, so a second tab
    * on the room page follows along.
+   *
+   * Returns the problem's id, or null when no problem could be served.
    */
   async startFriendMatch(args: {
     matchId: string;
@@ -580,13 +583,21 @@ export class MatchmakingService {
     hostSockets: AuthenticatedSocket[];
     guest: RoomPlayer;
     guestSockets: AuthenticatedSocket[];
-  }): Promise<boolean> {
+    difficulty: RoomDifficulty;
+    /** The room's recent problems, so a rematch gets a new one */
+    excludeProblemIds: string[];
+  }): Promise<string | null> {
     const { matchId, roomCode, host, guest, hostSockets, guestSockets } = args;
 
-    const problem = await problemService.getRandomProblem();
+    const band = ROOM_DIFFICULTIES[args.difficulty];
+    const problem = await problemService.getRandomProblem({
+      minRating: band.minRating,
+      maxRating: band.maxRating,
+      excludeIds: args.excludeProblemIds,
+    });
     if (!problem) {
-      console.error(`❌ Failed to get problem for friend match in room ${roomCode}`);
-      return false;
+      console.error(`❌ Failed to get a ${args.difficulty} problem for friend match in room ${roomCode}`);
+      return null;
     }
 
     // Neither is waiting for a ranked opponent any more
@@ -635,10 +646,10 @@ export class MatchmakingService {
     }
 
     console.log(`🤝 Friend match ${matchId} in room ${roomCode}: ${host.username} vs ${guest.username}`);
-    console.log(`   Problem: ${problem.title}`);
+    console.log(`   Problem: ${problem.title} (${problem.difficulty}, ${args.difficulty})`);
 
     this.setMatchTimeout(matchId, matchState);
-    return true;
+    return problem.id;
   }
 
   /**

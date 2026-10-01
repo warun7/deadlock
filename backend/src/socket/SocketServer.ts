@@ -191,6 +191,13 @@ export class DeadlockSocketServer {
           .catch((error) => console.error("❌ Error in room_ready:", error));
       });
 
+      socket.on("room_settings", async (payload) => {
+        if (!payload || typeof payload !== "object") return;
+        await this.roomService
+          .setDifficulty(authSocket, payload.code, payload.difficulty)
+          .catch((error) => console.error("❌ Error in room_settings:", error));
+      });
+
       socket.on("leave_room", async (code) => {
         await this.roomService
           .leaveRoom(authSocket, code)

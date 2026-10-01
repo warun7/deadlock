@@ -27,7 +27,35 @@ www.{$DOMAIN} {
 # Frontend: the built SPA.
 {$DOMAIN} {
 	encode gzip zstd
-	reverse_proxy frontend:80
+
+	# Invite links (/duel/CODE) come from the backend. It serves the app's own
+	# index.html with the room's link preview filled in (who is inviting, at
+	# what level), because Discord and other unfurlers read the HTML and never
+	# run the app. If it cannot, the plain app is served, so links still work.
+	@invite path_regexp ^/duel/[A-Za-z0-9]+/?$
+	handle @invite {
+		reverse_proxy backend:3001 {
+			# 404: a backend without invite pages; 5xx: it could not build one
+			@no_invite_page status 404 5xx
+			handle_response @no_invite_page {
+				rewrite * /index.html
+				reverse_proxy frontend:80
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	# Backend unreachable: invite links still open the app
+	handle_errors {
+		@invite_fallback path_regexp ^/duel/
+		handle @invite_fallback {
+			rewrite * /index.html
+			reverse_proxy frontend:80
+		}
+	}
 }
 
 # Backend: REST + Socket.IO.

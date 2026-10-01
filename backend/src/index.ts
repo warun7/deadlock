@@ -10,9 +10,11 @@ import {
   securityHeaders,
   apiLimiter,
   debugLimiter,
+  inviteLimiter,
   requestLogger,
   errorHandler,
 } from './middleware/security';
+import { invitePageHandler } from './http/invitePage';
 import logger from './utils/logger';
 
 // ASCII Art Banner
@@ -71,6 +73,13 @@ async function main(): Promise<void> {
   // Behind the edge proxy, req.ip must be the player's address, or every
   // player shares one rate-limit bucket (see config.trustProxy)
   app.set('trust proxy', config.trustProxy);
+
+  // Invite link pages (/duel/CODE on the site's domain, routed here by the
+  // edge): the app's own HTML with the room's link preview filled in. Ahead of
+  // the API's security headers, whose CSP is for JSON and would block the app.
+  app.get('/duel/:code', inviteLimiter, invitePageHandler(async (code) =>
+    socketServer ? socketServer.getRoomPreview(code) : null
+  ));
   
   // Security middleware
   app.use(securityHeaders);
