@@ -38,8 +38,27 @@ export type MatchStatus = "pending" | "active" | "finished" | "abandoned";
  * ranked: two people from the queue, rated and recorded.
  * practice: a person against a bot, unrated and not recorded.
  * friend: two people from a duel room, unrated and not recorded; the room keeps score.
+ * ghost: a person racing a recording of someone's ranked win; rated for the racer only.
  */
-export type MatchMode = "ranked" | "practice" | "friend";
+export type MatchMode = "ranked" | "practice" | "friend" | "ghost";
+
+/** One submission in a recorded solve: when it landed and how it did */
+export interface TimelineEntry {
+  /** Milliseconds after the match started */
+  t: number;
+  passed: number;
+  total: number;
+  status: string;
+}
+
+/** The recording a ghost duel races (player2's seat is the ghost) */
+export interface GhostInfo {
+  recordingId: string;
+  /** The real player who recorded it; they are never told and never rated */
+  playerId: string;
+  username: string;
+  rating: number;
+}
 
 export interface MatchState {
   id: string;
@@ -66,6 +85,8 @@ export interface MatchState {
   roomCode?: string;
   /** The problem's Codeforces rating (fair play: fast solves far above a player's rating) */
   problemRating?: number;
+  /** Ghost duels only */
+  ghost?: GhostInfo;
 }
 
 export interface MatchFoundPayload {
@@ -85,6 +106,8 @@ export interface MatchFoundPayload {
     elo: number;
     /** Practice bot rather than a person */
     isBot?: boolean;
+    /** A recording of a real player's ranked win */
+    isGhost?: boolean;
   };
   startTime: number;
   mode?: MatchMode;
@@ -342,10 +365,24 @@ export interface Judge0Response {
 // Socket Event Types
 // ============================================
 
+/** Who is around, for the lobby. Counts are signed-in players with the app open. */
+export interface LobbyStats {
+  online: number;
+  inQueue: number;
+  inMatches: number;
+  /** The daily ranked hour: the current one if it is on, else the next */
+  rankedHour: { startsAt: number; endsAt: number; live: boolean } | null;
+  /** Ghost duels are switched on */
+  ghosts: boolean;
+}
+
 // Client -> Server Events
 export interface ClientToServerEvents {
   join_queue: () => void;
   join_practice: () => void; // Start an unrated match against a bot
+  join_ghost: () => void; // Race a recording of someone's ranked win (rated)
+  watch_lobby: (ack: (stats: LobbyStats) => void) => void; // lobby_stats until unwatch_lobby
+  unwatch_lobby: () => void;
   leave_queue: () => void;
   submit_code: (payload: SubmitCodePayload) => void;
   run_code: (payload: RunCodePayload) => void; // Samples or custom input; private, not a submission
@@ -394,6 +431,8 @@ export interface ServerToClientEvents {
     practice?: boolean;
     /** Friend match from a duel room: unrated and not recorded */
     friendly?: boolean;
+    /** Ghost duel: rated for the racer */
+    ghost?: boolean;
     roomCode?: string;
     /** Rounds won in the room so far, this one included */
     score?: { you: number; opponent: number };
@@ -404,6 +443,11 @@ export interface ServerToClientEvents {
   room_closed: (data: { code: string }) => void;
   /** The other player left or came back to the match tab */
   opponent_focus: (data: { playerId: string; away: boolean }) => void;
+  lobby_stats: (stats: LobbyStats) => void;
+  /** Your run or submission is waiting for the judge, this many ahead */
+  judge_queue: (data: { ahead: number }) => void;
+  /** The result was saved: it has a share page at /r/<matchId> */
+  result_saved: (data: { matchId: string }) => void;
 }
 
 // Inter-Server Events (for Redis adapter)

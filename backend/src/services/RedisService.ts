@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 import { config } from "../config";
-import { FairPlayEvent, MatchMode, MatchState, Room, RoomPlayer, StoredSubmission } from "../types";
+import { FairPlayEvent, GhostInfo, MatchMode, MatchState, Room, RoomPlayer, StoredSubmission, TimelineEntry } from "../types";
 import { createModuleLogger } from "../utils/logger";
 import { DEFAULT_ROOM_DIFFICULTY, isRoomDifficulty } from "../config/roomDifficulty";
 
@@ -86,6 +86,16 @@ function buildRedisOptions(redisUrl: string) {
  * Redis is the source of truth for active match state and reconnect support.
  * Matchmaking queue state is event-driven and kept in-process.
  */
+function parseGhost(raw: string | undefined): GhostInfo | undefined {
+  if (!raw) return undefined;
+  try {
+    const g = JSON.parse(raw) as GhostInfo;
+    return g && typeof g.recordingId === "string" ? g : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class RedisService {
   private client: Redis;
   private metricsStartedAt = new Date();
@@ -313,6 +323,7 @@ export class RedisService {
         mode: matchState.mode,
         roomCode: matchState.roomCode || "",
         problemRating: matchState.problemRating?.toString() || "",
+        ghost: matchState.ghost ? JSON.stringify(matchState.ghost) : "",
       })
     );
 
@@ -384,6 +395,7 @@ export class RedisService {
       mode: (data.mode as MatchMode) || (data.player2_socketId === "bot" ? "practice" : "ranked"),
       roomCode: data.roomCode || undefined,
       problemRating: data.problemRating ? parseInt(data.problemRating, 10) : undefined,
+      ghost: parseGhost(data.ghost),
     };
   }
 
@@ -890,6 +902,41 @@ export class RedisService {
       }
     }
     return { players: data.players.split(","), byPlayer };
+  }
+
+  // ============================================
+  // Submission timelines (ghost recordings)
+  // ============================================
+
+  private static readonly TIMELINE_TTL_SECONDS = 3 * 3600;
+
+  /** When a submission landed and how it did; a winning one becomes a ghost */
+  async appendTimeline(matchId: string, userId: string, entry: TimelineEntry, operation = "timeline_append"): Promise<void> {
+    const key = `${config.redisKeys.timeline(matchId)}:${userId}`;
+    await this.measure(operation, "RPUSH", () => this.client.rpush(key, JSON.stringify(entry)));
+    await this.measure(operation, "EXPIRE", () => this.client.expire(key, RedisService.TIMELINE_TTL_SECONDS));
+  }
+
+  async getTimeline(matchId: string, userId: string, operation = "timeline_get"): Promise<TimelineEntry[]> {
+    const key = `${config.redisKeys.timeline(matchId)}:${userId}`;
+    const raw = await this.measure(operation, "LRANGE", () => this.client.lrange(key, 0, 199));
+    const out: TimelineEntry[] = [];
+    for (const item of raw) {
+      try {
+        out.push(JSON.parse(item) as TimelineEntry);
+      } catch {
+        /* skip a corrupt entry */
+      }
+    }
+    return out;
+  }
+
+  /** True for the first caller only, for ttlSeconds: one-time jobs across restarts */
+  async claimOnce(name: string, ttlSeconds: number, operation = "claim_once"): Promise<boolean> {
+    const result = await this.measure(operation, "SET", () =>
+      this.client.set(config.redisKeys.once(name), "1", "EX", ttlSeconds, "NX")
+    );
+    return result === "OK";
   }
 
   // ============================================

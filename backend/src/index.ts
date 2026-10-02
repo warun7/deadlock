@@ -15,6 +15,11 @@ import {
   errorHandler,
 } from './middleware/security';
 import { invitePageHandler } from './http/invitePage';
+import { resultCardHandler, resultPageHandler } from './http/resultPages';
+import { registerEventRoutes, registerRoutes } from './http/routes';
+import { resultsService } from './services/ResultsService';
+import { analyticsService } from './services/AnalyticsService';
+import { judgeService } from './services/JudgeService';
 import logger from './utils/logger';
 
 // ASCII Art Banner
@@ -80,6 +85,9 @@ async function main(): Promise<void> {
   app.get('/duel/:code', inviteLimiter, invitePageHandler(async (code) =>
     socketServer ? socketServer.getRoomPreview(code) : null
   ));
+  // Shared results (/r/<matchId>) work the same way, with the result's card
+  app.get('/r/:id', inviteLimiter, resultPageHandler(resultsService));
+  app.get('/r/:id/card.png', inviteLimiter, resultCardHandler(resultsService));
   
   // Security middleware
   app.use(securityHeaders);
@@ -102,6 +110,9 @@ async function main(): Promise<void> {
   
   // Body parser
   app.use(express.json({ limit: '1mb' })); // Limit payload size
+
+  // Analytics from browsers: batched, with a limiter of its own
+  registerEventRoutes(app);
   
   // Rate limiting on all routes
   app.use(apiLimiter);
@@ -123,6 +134,7 @@ async function main(): Promise<void> {
       },
       judge0: {
         url: config.judge0.url,
+        ...judgeService.getLoad(),
       },
       queue: {
         length: socketServer?.getQueueLength() ?? 0,
@@ -292,6 +304,9 @@ async function main(): Promise<void> {
   console.log('🔄 Initializing Socket server...');
   socketServer = new DeadlockSocketServer(httpServer);
   await socketServer.initialize();
+
+  // Lobby, leaderboard, shared results, alerts and the admin review page
+  registerRoutes(app, { lobby: socketServer.lobby, notify: socketServer.notify });
   
   // Error handling middleware (must be last)
   app.use(errorHandler);
@@ -338,7 +353,8 @@ async function main(): Promise<void> {
     try {
       // Shutdown socket server (gives clients time to disconnect)
       logger.info('Shutting down WebSocket server...');
-      await socketServer.shutdown();
+      await socketServer?.shutdown();
+      await analyticsService.flush();
       console.log('✅ Socket server closed');
       
       // Disconnect from Redis
