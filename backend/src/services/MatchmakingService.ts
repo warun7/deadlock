@@ -36,6 +36,7 @@ export class MatchmakingService {
   private shouldProcessQueueAgain = false;
   private activeBots: Map<string, BotPlayer> = new Map(); // Track active bots by matchId
   private activeGhosts: Map<string, GhostPlayer> = new Map(); // Ghost replays by matchId
+  private startingGhost = new Set<string>(); // players whose ghost duel is being set up
   private disconnectTimers: Map<string, NodeJS.Timeout> = new Map(); // `${matchId}:${userId}` -> forfeit timer
   private gameService: GameService | null = null; // Set by GameService (for saving match results)
   private integrityService: IntegrityService | null = null; // Fair play signals when a ranked match ends
@@ -305,6 +306,18 @@ export class MatchmakingService {
       socket.emit("error", { message: "Ghost duels are switched off right now.", code: "GHOST_DISABLED" });
       return;
     }
+    // A double click must not start two races
+    if (this.startingGhost.has(user.id)) return;
+    this.startingGhost.add(user.id);
+    try {
+      await this.setUpGhost(socket);
+    } finally {
+      this.startingGhost.delete(user.id);
+    }
+  }
+
+  private async setUpGhost(socket: AuthenticatedSocket): Promise<void> {
+    const user = socket.user;
     if (await this.refuseIfInMatch(socket)) return;
     this.removeFromQueue(user.id);
 

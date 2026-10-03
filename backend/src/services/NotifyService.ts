@@ -37,13 +37,34 @@ interface PushMessage {
   tag: string;
 }
 
+/**
+ * The browsers' push services. The server POSTs to a subscription's endpoint,
+ * so anything else (an internal address, someone's own server) is refused.
+ */
+const PUSH_HOSTS = [
+  /^fcm\.googleapis\.com$/, // Chrome, Edge, Opera, Brave, Samsung
+  /^updates\.push\.services\.mozilla\.com$/, // Firefox
+  /^web\.push\.apple\.com$/, // Safari
+  /\.push\.apple\.com$/,
+  /\.notify\.windows\.com$/, // legacy Edge
+];
+
+export function isPushEndpoint(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    return url.protocol === "https:" && !url.port && PUSH_HOSTS.some((h) => h.test(url.hostname));
+  } catch {
+    return false;
+  }
+}
+
 export function isPushSubscription(raw: unknown): raw is PushSubscriptionInput {
   if (!raw || typeof raw !== "object") return false;
   const r = raw as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } };
   return (
     typeof r.endpoint === "string" &&
-    /^https:\/\//.test(r.endpoint) &&
     r.endpoint.length <= 1000 &&
+    isPushEndpoint(r.endpoint) &&
     typeof r.keys?.p256dh === "string" &&
     r.keys.p256dh.length <= 200 &&
     typeof r.keys?.auth === "string" &&
@@ -171,7 +192,7 @@ export class NotifyService {
       if (!(error instanceof NotAvailableError)) console.error("⚠️ Could not list push subscribers:", error?.message ?? error);
       return 0;
     }
-    const targets = subscribers.filter((s) => s.user_id !== exceptUserId && !this.isOnline(s.user_id));
+    const targets = subscribers.filter((s) => s.user_id !== exceptUserId && !this.isOnline(s.user_id) && isPushEndpoint(s.endpoint));
     if (targets.length === 0) return 0;
 
     const sent: string[] = [];

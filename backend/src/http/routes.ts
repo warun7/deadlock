@@ -32,8 +32,18 @@ export const eventsLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, sta
 
 /** Registered before the general API limiter */
 export function registerEventRoutes(app: Express): void {
-  app.post("/events", eventsLimiter, optionalUser, (req: Request, res: Response) => {
-    const body = (req.body && typeof req.body === "object" ? req.body : {}) as { anonId?: unknown; events?: unknown };
+  // Pages being closed send with sendBeacon, as text/plain (a JSON content
+  // type there needs a preflight a closing page never gets to make)
+  app.post("/events", eventsLimiter, express.text({ type: "text/plain", limit: "16kb" }), optionalUser, (req: Request, res: Response) => {
+    let raw: unknown = req.body;
+    if (typeof raw === "string") {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        raw = null;
+      }
+    }
+    const body = (raw && typeof raw === "object" ? raw : {}) as { anonId?: unknown; events?: unknown };
     const anonId = typeof body.anonId === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(body.anonId) ? body.anonId : null;
     const events = Array.isArray(body.events) ? body.events.slice(0, 20) : [];
     let kept = 0;
