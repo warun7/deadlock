@@ -6,7 +6,8 @@
 */
 
 const KEY = "deadlock:return-to";
-const MAX_AGE_MS = 60 * 60 * 1000;
+// As long as a duel room lives, so confirming an email later still lands in it
+const MAX_AGE_MS = 3 * 60 * 60 * 1000;
 
 export function rememberReturnTo(path: string) {
   try {
@@ -14,6 +15,11 @@ export function rememberReturnTo(path: string) {
   } catch {
     /* storage blocked: sign-in falls back to the lobby */
   }
+}
+
+/** An in-app path (starts with one slash), or null */
+export function localPath(path: unknown): string | null {
+  return typeof path === "string" && path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\") ? path : null;
 }
 
 /** The remembered in-app path, or null if there is none, it is stale, or it is not local */

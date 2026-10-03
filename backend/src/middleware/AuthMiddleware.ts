@@ -26,9 +26,90 @@ interface SupabaseJwtPayload {
   aud: string;
 }
 
+/** A failed sign-in check, with the message the socket handshake reports */
+export class AuthFailure extends Error {}
+
+/**
+ * Who an access token belongs to. Projects on the legacy shared JWT secret are
+ * checked locally (fast); projects on Supabase's asymmetric signing keys, or a
+ * secret rotated without updating this server, fall back to asking Supabase
+ * Auth directly. The profile supplies the current username (renames update
+ * it, not the token) and rating. Throws AuthFailure.
+ */
+export async function verifyAccessToken(token: string): Promise<AuthUser> {
+  let decoded: SupabaseJwtPayload | null = null;
+
+  if (config.supabase.jwtSecret) {
+    try {
+      decoded = jwt.verify(token, config.supabase.jwtSecret, { algorithms: ['HS256'] }) as SupabaseJwtPayload;
+    } catch (jwtError: any) {
+      if (jwtError.name === 'TokenExpiredError') throw new AuthFailure('Token expired');
+      // Not signed with this secret: let Supabase decide below
+    }
+  }
+
+  if (!decoded) {
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      console.log('❌ Auth failed: Invalid token -', error?.message ?? 'no user');
+      throw new AuthFailure('Invalid authentication token');
+    }
+    decoded = {
+      sub: data.user.id,
+      email: data.user.email,
+      user_metadata: data.user.user_metadata,
+      iat: 0,
+      exp: 0,
+      aud: data.user.aud,
+    };
+  }
+
+  if (decoded.exp && decoded.exp * 1000 < Date.now()) throw new AuthFailure('Token expired');
+
+  const userId = decoded.sub;
+  if (!userId) throw new AuthFailure('Invalid token: no user ID');
+
+  let username = decoded.user_metadata?.username ||
+                 decoded.user_metadata?.display_name ||
+                 decoded.user_metadata?.full_name ||
+                 decoded.email?.split('@')[0] ||
+                 'Player';
+  let elo = 1000; // Same default as profiles.rating
+
+  try {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('username, rating')
+      .eq('id', userId)
+      .single();
+
+    if (profile) {
+      username = profile.username || username;
+      if (typeof profile.rating === 'number') elo = profile.rating;
+    }
+  } catch (dbError) {
+    // Profile might not exist yet, use defaults
+    console.log(`ℹ️  No profile found for user ${userId}, using defaults`);
+  }
+
+  return { id: userId, email: decoded.email || '', username, elo };
+}
+
+/** Demo tokens (demo_<id>_<name>_<rating>), accepted in development only */
+export function demoUser(token: string | undefined): AuthUser | null {
+  if (config.nodeEnv !== 'development' || !token?.startsWith('demo_')) return null;
+  const parts = token.split('_');
+  return {
+    id: parts[1] || 'demo-user-1',
+    email: `${parts[1] || 'demo'}@demo.com`,
+    username: parts[2] || 'DemoPlayer',
+    elo: parseInt(parts[3] || '1200', 10),
+  };
+}
+
 /**
  * Socket.io Authentication Middleware
- * 
+ *
  * Verifies the Supabase JWT token from the handshake auth payload.
  * Attaches user data to the socket for global access.
  */
@@ -38,100 +119,22 @@ export async function authMiddleware(
 ): Promise<void> {
   try {
     const token = socket.handshake.auth?.token;
-    
+
     if (!token) {
       console.log('❌ Auth failed: No token provided');
       return next(new Error('Authentication required'));
     }
-    
-    // Verify the access token. Projects on the legacy shared JWT secret can be
-    // checked locally (fast). Projects on Supabase's asymmetric signing keys,
-    // or a secret that was rotated without updating this server, fall back to
-    // asking Supabase Auth directly, so logins keep working either way.
-    let decoded: SupabaseJwtPayload | null = null;
 
-    if (config.supabase.jwtSecret) {
-      try {
-        decoded = jwt.verify(token, config.supabase.jwtSecret, { algorithms: ['HS256'] }) as SupabaseJwtPayload;
-      } catch (jwtError: any) {
-        if (jwtError.name === 'TokenExpiredError') {
-          console.log('❌ Auth failed: Token expired');
-          return next(new Error('Token expired'));
-        }
-        // Not signed with this secret: let Supabase decide below
-      }
-    }
-
-    if (!decoded) {
-      const { data, error } = await supabase.auth.getUser(token);
-      if (error || !data?.user) {
-        console.log('❌ Auth failed: Invalid token -', error?.message ?? 'no user');
-        return next(new Error('Invalid authentication token'));
-      }
-      decoded = {
-        sub: data.user.id,
-        email: data.user.email,
-        user_metadata: data.user.user_metadata,
-        iat: 0,
-        exp: 0,
-        aud: data.user.aud,
-      };
-    }
-    
-    // Check expiration
-    if (decoded.exp && decoded.exp * 1000 < Date.now()) {
-      console.log('❌ Auth failed: Token expired');
-      return next(new Error('Token expired'));
-    }
-    
-    // Get user ID from sub claim
-    const userId = decoded.sub;
-    if (!userId) {
-      console.log('❌ Auth failed: No user ID in token');
-      return next(new Error('Invalid token: no user ID'));
-    }
-    
-    // Extract username from token metadata
-    let username = decoded.user_metadata?.username ||
-                   decoded.user_metadata?.display_name ||
-                   decoded.user_metadata?.full_name ||
-                   decoded.email?.split('@')[0] ||
-                   'Player';
-    
-    // The profile holds the current username (renames update it, not the
-    // token) and the player's rating
-    let elo = 1000; // Same default as profiles.rating
-
-    try {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('username, rating')
-        .eq('id', userId)
-        .single();
-
-      if (profile) {
-        username = profile.username || username;
-        if (typeof profile.rating === 'number') elo = profile.rating;
-      }
-    } catch (dbError) {
-      // Profile might not exist yet, use defaults
-      console.log(`ℹ️  No profile found for user ${userId}, using defaults`);
-    }
-    
-    // Attach user to socket
-    const authUser: AuthUser = {
-      id: userId,
-      email: decoded.email || '',
-      username: username,
-      elo: elo,
-    };
-    
+    const authUser = await verifyAccessToken(token);
     (socket as AuthenticatedSocket).user = authUser;
-    
-    console.log(`✅ Authenticated: ${username} (${userId}) ELO: ${elo}`);
+
+    console.log(`✅ Authenticated: ${authUser.username} (${authUser.id}) ELO: ${authUser.elo}`);
     next();
-    
   } catch (error: any) {
+    if (error instanceof AuthFailure) {
+      console.log(`❌ Auth failed: ${error.message}`);
+      return next(new Error(error.message));
+    }
     console.error('❌ Auth middleware error:', error.message);
     next(new Error('Authentication failed'));
   }
@@ -145,25 +148,13 @@ export async function devAuthMiddleware(
   socket: Socket,
   next: (err?: Error) => void
 ): Promise<void> {
-  const token = socket.handshake.auth?.token;
-  
-  // In development, allow demo tokens
-  if (config.nodeEnv === 'development' && token?.startsWith('demo_')) {
-    const parts = token.split('_');
-    const demoUser: AuthUser = {
-      id: parts[1] || 'demo-user-1',
-      email: `${parts[1] || 'demo'}@demo.com`,
-      username: parts[2] || 'DemoPlayer',
-      elo: parseInt(parts[3] || '1200', 10),
-    };
-    
-    (socket as AuthenticatedSocket).user = demoUser;
-    console.log(`🔧 Dev auth: ${demoUser.username} (${demoUser.id})`);
+  const demo = demoUser(socket.handshake.auth?.token);
+  if (demo) {
+    (socket as AuthenticatedSocket).user = demo;
+    console.log(`🔧 Dev auth: ${demo.username} (${demo.id})`);
     return next();
   }
-  
+
   // Otherwise use real auth
   return authMiddleware(socket, next);
 }
-
-

@@ -3,10 +3,14 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowCounterClockwise,
   CaretUp,
+  Check,
   CheckCircle,
+  Copy,
+  DownloadSimple,
   Flag,
   Info,
   Play,
+  ShareNetwork,
   XCircle,
 } from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
@@ -25,11 +29,13 @@ import PixelText from "./ui/pixel/PixelText";
 import DotLoader from "./ui/pixel/DotLoader";
 import { PixelBurst } from "./ui/micro";
 import { motion } from "framer-motion";
-import { gameSocket, type ReportReason, type RunResult, type StoredSubmission } from "../lib/socket";
+import { gameSocket, SOCKET_URL, type ReportReason, type RunResult, type StoredSubmission } from "../lib/socket";
+import { track } from "../lib/analytics";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { invalidateCurrentProfile, useCurrentProfile } from "../lib/useCurrentProfile";
 import type { MatchFoundPayload } from "../types";
+import { preferredLanguage, rememberLanguage } from "../lib/preferences";
 
 // Codeforces uses $$$...$$$ for inline math; KaTeX expects $...$.
 // Section markers like "-----Input-----" become headings.
@@ -181,10 +187,12 @@ const RealGameArena: React.FC = () => {
   const userIdRef = useRef<string | undefined>(user?.id);
   userIdRef.current = user?.id;
 
-  // Editor state, persisted per match + language so a refresh or reconnect keeps your work
+  // Editor state, persisted per match + language so a refresh or reconnect keeps your work.
+  // A new match starts in the language you used last.
   const [language, setLanguage] = useState<Language>(() => {
     const saved = matchId ? (safeGet(langKey(matchId)) as Language | null) : null;
-    return saved && saved in LANGUAGE_IDS ? saved : "python";
+    if (saved && saved in LANGUAGE_IDS) return saved;
+    return preferredLanguage(user?.user_metadata) ?? "python";
   });
   const [drafts, setDrafts] = useState<Record<Language, string>>(() => {
     const out = { ...STARTER_CODE };
@@ -213,6 +221,13 @@ const RealGameArena: React.FC = () => {
   const [ratingResult, setRatingResult] = useState<{ change: number; rating: number } | null>(null);
   const [practiceResult, setPracticeResult] = useState(false);
   const [friendResult, setFriendResult] = useState<{ roomCode?: string; score?: { you: number; opponent: number } } | null>(null);
+  const [ghostResult, setGhostResult] = useState(false);
+  // The result was saved and has a share page (/r/<matchId>)
+  const [shareable, setShareable] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  // Runs ahead of ours at the judge, while we wait
+  const [judgeAhead, setJudgeAhead] = useState<number | null>(null);
   const [opponentDeadline, setOpponentDeadline] = useState<number | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const [socketError, setSocketError] = useState<string | null>(null);
@@ -337,6 +352,7 @@ const RealGameArena: React.FC = () => {
 
       const handleRunResult = (result: RunResult) => {
         setRunResult(result);
+        setJudgeAhead(null);
         setIsRunning(false);
         setSocketError(null);
         setResultsCollapsed(false);
@@ -344,6 +360,7 @@ const RealGameArena: React.FC = () => {
 
       const handleSubmissionResult = (result: SubmissionResult) => {
         setSubmissionResult(result);
+        setJudgeAhead(null);
         setIsSubmitting(false);
         setSocketError(null);
         setResultsCollapsed(false);
@@ -376,10 +393,13 @@ const RealGameArena: React.FC = () => {
         newRating?: number;
         practice?: boolean;
         friendly?: boolean;
+        ghost?: boolean;
         roomCode?: string;
         score?: { you: number; opponent: number };
       }) => {
         setGameOver(true);
+        setJudgeAhead(null);
+        if (data.ghost) setGhostResult(true);
         setOpponentLeftTab(false);
         setIsRunning(false);
         setPracticeResult(!!data.practice);
@@ -403,6 +423,7 @@ const RealGameArena: React.FC = () => {
         console.error("Socket error:", data);
         setIsSubmitting(false);
         setIsRunning(false);
+        setJudgeAhead(null);
         if (data.code === "MATCH_NOT_FOUND" || data.code === "MATCH_ENDED") {
           setLoadError(data.message);
           setIsLoading(false);
@@ -414,6 +435,11 @@ const RealGameArena: React.FC = () => {
       const handleConnect = () => {
         gameSocket.rejoinMatch(matchId);
         socket.off("connect", handleConnect);
+      };
+
+      const handleJudgeQueue = (data: { ahead: number }) => setJudgeAhead(data.ahead);
+      const handleResultSaved = (data: { matchId: string }) => {
+        if (data.matchId === matchId) setShareable(true);
       };
 
       // The server holds the match while we are away; say so instead of looking frozen
@@ -429,6 +455,8 @@ const RealGameArena: React.FC = () => {
       socket.on("opponent_focus", handleOpponentFocus);
       socket.on("game_over", handleGameOver);
       socket.on("error", handleError);
+      socket.on("judge_queue", handleJudgeQueue);
+      socket.on("result_saved", handleResultSaved);
 
       if (socket.connected) gameSocket.rejoinMatch(matchId);
       else socket.on("connect", handleConnect);
@@ -443,6 +471,8 @@ const RealGameArena: React.FC = () => {
         socket.off("opponent_focus", handleOpponentFocus);
         socket.off("game_over", handleGameOver);
         socket.off("error", handleError);
+        socket.off("judge_queue", handleJudgeQueue);
+        socket.off("result_saved", handleResultSaved);
         socket.off("connect", handleConnect);
       };
     };
@@ -497,6 +527,7 @@ const RealGameArena: React.FC = () => {
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
     if (matchId) safeSet(langKey(matchId), lang);
+    rememberLanguage(lang, user?.user_metadata);
   };
 
   const handleReset = () => {
@@ -630,15 +661,45 @@ const RealGameArena: React.FC = () => {
   const didWin = winner !== null && winner === user?.id;
   // The server ends a timed-out match with no winner
   const isDraw = gameOver && winner === null;
-  const opponentName = currentMatchData?.opponent?.username || "Opponent";
+  // Ghost duel: racing a recording of someone's ranked win (unrated, like Practice)
+  const isGhost = !!currentMatchData?.opponent?.isGhost || currentMatchData?.mode === "ghost" || ghostResult;
+  const opponentName = isGhost
+    ? `${currentMatchData?.opponent?.username || "A player"}'s ghost`
+    : currentMatchData?.opponent?.username || "Opponent";
+  // The HUD is narrow: the name alone, with a Ghost tag beside it
+  const headerName = isGhost ? currentMatchData?.opponent?.username || "Ghost" : opponentName;
   // Practice: an unrated match against a bot, labelled as one
   const isPractice = !!currentMatchData?.opponent?.isBot || practiceResult;
   // Friend duel from a room: unrated; "Rematch" goes back to the room, ready
   const isFriendly = currentMatchData?.mode === "friend" || !!friendResult;
   const roomCode = currentMatchData?.roomCode ?? friendResult?.roomCode;
-  const playAgainPath = isFriendly && roomCode ? `/duel/${roomCode}` : isPractice ? "/practice" : "/matchmaking";
+  const playAgainPath = isFriendly && roomCode ? `/duel/${roomCode}` : isPractice ? "/practice" : isGhost ? "/ghost" : "/matchmaking";
   const playAgain = () => navigate(playAgainPath, isFriendly ? { state: { autoReady: true } } : undefined);
-  const playAgainLabel = isFriendly ? "Rematch" : isPractice ? "Practice again" : "Play again";
+  const playAgainLabel = isFriendly ? "Rematch" : isPractice ? "Practice again" : isGhost ? "Race another" : "Play again";
+  const shareUrl = matchId ? `${window.location.origin}/r/${matchId}` : "";
+  const cardUrl = matchId ? `${SOCKET_URL}/results/${matchId}/card.png` : "";
+  const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+  const copyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      track("result_shared", { method: "copy" });
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1600);
+    } catch {
+      /* clipboard unavailable: the link is on screen */
+    }
+  };
+  const nativeShare = async () => {
+    try {
+      await navigator.share({ title: "Deadlock duel", text: didWin ? `I won a coding duel on Deadlock.` : "A coding duel on Deadlock.", url: shareUrl });
+      track("result_shared", { method: "native" });
+    } catch {
+      /* dismissed */
+    }
+  };
+  const postUrl = `https://x.com/intent/post?text=${encodeURIComponent(
+    didWin ? "I won a 1v1 coding duel on Deadlock. Think you're faster?" : "Just played a 1v1 coding duel on Deadlock."
+  )}&url=${encodeURIComponent(shareUrl)}`;
   const visibleTests = currentMatchData?.problem?.testCases ?? [];
   const opponentAway = !!opponentDeadline && !gameOver;
   const opponentLabel = opponentAway
@@ -648,6 +709,7 @@ const RealGameArena: React.FC = () => {
       : describeOpponent(opponentStatus);
   const opponentOutOfTab = opponentLeftTab && !gameOver && !opponentAway;
   const canReport = gameOver && !isPractice && !isFriendly && !!matchId;
+  const canShare = gameOver && shareable && !!matchId;
   const canCompare = gameOver && !isPractice && !!matchId;
 
   const loadTheirCode = async () => {
@@ -793,9 +855,10 @@ const RealGameArena: React.FC = () => {
                 <span key={oppPing} className="absolute -inset-[3px] animate-[ping-once_0.9s_ease-out_forwards] border border-accent motion-reduce:hidden" />
               )}
             </span>
-            <span className="label max-w-[8rem] truncate normal-case text-fg">{opponentName}</span>
+            <span className="label max-w-[8rem] truncate normal-case text-fg">{headerName}</span>
             {isPractice && <Tag>Unrated</Tag>}
             {isFriendly && <Tag>Friendly</Tag>}
+            {isGhost && <Tag>Ghost</Tag>}
             {opponentTests && <TestPips passed={opponentTests.passed} total={opponentTests.total} tone="opponent" size={7} />}
             <span
               className={`label truncate ${opponentAway || opponentOutOfTab ? "inline text-warn-ink" : "hidden xl:inline"} ${
@@ -881,7 +944,8 @@ const RealGameArena: React.FC = () => {
                 <span key={oppPing} className="absolute -inset-[3px] animate-[ping-once_0.9s_ease-out_forwards] border border-accent motion-reduce:hidden" />
               )}
             </span>
-          <span className="max-w-[6rem] truncate normal-case text-fg">{opponentName}</span>
+          <span className="max-w-[6rem] truncate normal-case text-fg">{headerName}</span>
+          {isGhost && <span className="text-fg-3">Ghost</span>}
           {opponentAway ? (
             <span className="tabular text-warn-ink">Away {Math.max(0, Math.ceil((opponentDeadline! - now) / 1000))}s</span>
           ) : opponentOutOfTab ? (
@@ -1087,7 +1151,12 @@ const RealGameArena: React.FC = () => {
               className="label flex h-10 min-w-0 flex-1 items-center gap-3 px-3 text-left sm:px-4"
             >
               <span className="text-screen-fg">/ Results</span>
-              {isSubmitting ? (
+              {(isSubmitting || isRunning) && judgeAhead ? (
+                <span className="inline-flex items-center gap-1.5 text-screen-fg-2">
+                  <DotLoader pattern="scan" /> Waiting for the judge
+                  <span className="tabular">· {judgeAhead} ahead</span>
+                </span>
+              ) : isSubmitting ? (
                 <span className="inline-flex items-center gap-1.5 text-screen-fg-2">
                   <DotLoader pattern="scan" /> Running tests
                 </span>
@@ -1315,7 +1384,9 @@ const RealGameArena: React.FC = () => {
             ? "The practice bot wins. Practice is unrated, so nothing goes on your record."
             : isFriendly
               ? `${opponentName} takes this round. Friend duels are unrated, so nothing goes on your record.`
-              : `${opponentName} wins immediately and the loss goes on your record.`}
+              : isGhost
+                ? `${opponentName} wins. Ghost duels are unrated, so nothing goes on your record.`
+                : `${opponentName} wins immediately and the loss goes on your record.`}
         </p>
         <div className="mt-8 flex justify-end gap-2">
           <Button variant="outline" onClick={() => setShowForfeitModal(false)}>
@@ -1356,7 +1427,7 @@ const RealGameArena: React.FC = () => {
         <ul className="mt-6 border-t border-rule">
           {[
             { tag: "You", name: username, src: avatarUrl, win: didWin },
-            { tag: isPractice ? "Bot" : isFriendly ? "Friend" : "Rival", name: opponentName, src: undefined, win: !didWin && !isDraw },
+            { tag: isPractice ? "Bot" : isFriendly ? "Friend" : isGhost ? "Ghost" : "Rival", name: opponentName, src: undefined, win: !didWin && !isDraw },
           ].map((p) => (
             <li key={p.tag} className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-line py-2.5">
               <span className="label flex items-center gap-2 text-fg">
@@ -1376,6 +1447,7 @@ const RealGameArena: React.FC = () => {
             Match time <span className="tabular text-fg">{clockText}</span>
           </span>
           {isPractice && <span>Practice &middot; unrated</span>}
+          {isGhost && <span>Ghost duel &middot; unrated</span>}
           {isFriendly && !friendResult?.score && <span>Friend duel &middot; unrated</span>}
           {friendResult?.score && (
             <span>
@@ -1395,6 +1467,47 @@ const RealGameArena: React.FC = () => {
             </span>
           )}
         </div>
+        {canShare && shareOpen && (
+          <div className="mt-6 border-t border-rule pt-4">
+            <p className="label text-fg">/ Share this result</p>
+            <a href={shareUrl} target="_blank" rel="noreferrer" className="mt-3 block overflow-hidden border border-line">
+              <img src={cardUrl} alt="The result card" width={1200} height={630} className="block h-auto w-full bg-bg-2" loading="lazy" />
+            </a>
+            <div className="mt-3 flex items-center gap-2 rounded-[3px] border border-line px-3 py-2">
+              <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-2">{shareUrl}</span>
+              <Button size="sm" variant="outline" onClick={() => void copyShareLink()} aria-label="Copy the result link">
+                {linkCopied ? <Check weight="bold" className="size-3.5 text-pass-ink" /> : <Copy className="size-3.5" />}
+                {linkCopied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {canNativeShare && (
+                <Button size="sm" variant="ghost" onClick={() => void nativeShare()}>
+                  <ShareNetwork className="size-3.5" /> Share
+                </Button>
+              )}
+              <a
+                href={postUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => track("result_shared", { method: "x" })}
+                className="inline-flex h-8 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium text-fg-2 transition-colors hover:bg-bg-2 hover:text-fg"
+              >
+                Post on X
+              </a>
+              <a
+                href={cardUrl}
+                target="_blank"
+                rel="noreferrer"
+                download={`deadlock-${matchId}.png`}
+                onClick={() => track("result_shared", { method: "image" })}
+                className="inline-flex h-8 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium text-fg-2 transition-colors hover:bg-bg-2 hover:text-fg"
+              >
+                <DownloadSimple className="size-3.5" /> Image
+              </a>
+            </div>
+          </div>
+        )}
         {canReport && report.open && (
           <div className="mt-6 border-t border-rule pt-4">
             <p className="label text-fg">/ Report {opponentName}</p>
@@ -1444,27 +1557,37 @@ const RealGameArena: React.FC = () => {
             Report sent. A person reviews every report.
           </p>
         )}
-        <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-end">
-          {canReport && !report.open && report.state !== "sent" && (
-            <Button variant="ghost" className="sm:mr-auto" onClick={() => setReport((r) => ({ ...r, open: true }))}>
-              Report
+        {/* Secondary actions on their own row, so up to five buttons never overflow the dialog */}
+        <div className="mt-8 space-y-2">
+          <div className="-ml-3 flex flex-wrap gap-1">
+            {canReport && !report.open && report.state !== "sent" && (
+              <Button variant="ghost" onClick={() => setReport((r) => ({ ...r, open: true }))}>
+                Report
+              </Button>
+            )}
+            {canShare && !shareOpen && (
+              <Button variant="ghost" onClick={() => setShareOpen(true)}>
+                <ShareNetwork className="size-4" /> Share
+              </Button>
+            )}
+            {canCompare ? (
+              <Button variant="ghost" onClick={showTheirs}>
+                Compare solutions
+              </Button>
+            ) : (
+              <Button variant="ghost" onClick={() => setShowResult(false)}>
+                Review code
+              </Button>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={() => navigate("/dashboard")}>
+              Lobby
             </Button>
-          )}
-          {canCompare ? (
-            <Button variant="ghost" onClick={showTheirs}>
-              Compare solutions
+            <Button ref={playAgainRef} variant="accent" onClick={playAgain}>
+              {playAgainLabel}
             </Button>
-          ) : (
-            <Button variant="ghost" onClick={() => setShowResult(false)}>
-              Review code
-            </Button>
-          )}
-          <Button variant="outline" onClick={() => navigate("/dashboard")}>
-            Lobby
-          </Button>
-          <Button ref={playAgainRef} variant="accent" onClick={playAgain}>
-            {playAgainLabel}
-          </Button>
+          </div>
         </div>
       </Dialog>
 

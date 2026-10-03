@@ -8,6 +8,8 @@ import { MatchmakingService } from "../services/MatchmakingService";
 import { GameService } from "../services/GameService";
 import { RoomService } from "../services/RoomService";
 import { IntegrityService } from "../services/IntegrityService";
+import { LobbyService } from "../services/LobbyService";
+import { NotifyService } from "../services/NotifyService";
 import {
   authMiddleware,
   devAuthMiddleware,
@@ -45,6 +47,8 @@ export class DeadlockSocketServer {
   private gameService: GameService;
   private roomService: RoomService;
   private integrityService: IntegrityService;
+  readonly lobby: LobbyService;
+  readonly notify: NotifyService;
 
   constructor(httpServer: HttpServer) {
     // Initialize Socket.IO
@@ -65,14 +69,19 @@ export class DeadlockSocketServer {
     this.gameService = new GameService(this.io);
     this.roomService = new RoomService(this.io);
     this.integrityService = new IntegrityService(this.io);
+    this.lobby = new LobbyService(this.io, () => this.matchmakingService.getQueueLength());
+    this.notify = new NotifyService((userId) => this.lobby.isOnline(userId));
 
-    // Wire up service references (bot system, duel rooms, fair play)
+    // Wire up service references (bot system, duel rooms, fair play, lobby)
     this.matchmakingService.setGameService(this.gameService);
     this.gameService.setMatchmakingService(this.matchmakingService);
     this.gameService.setRoomService(this.roomService);
     this.roomService.setMatchmakingService(this.matchmakingService);
     this.gameService.setIntegrityService(this.integrityService);
     this.matchmakingService.setIntegrityService(this.integrityService);
+    this.matchmakingService.setLobbyService(this.lobby);
+    this.matchmakingService.setNotifyService(this.notify);
+    this.gameService.setLobbyService(this.lobby);
   }
 
   /**
@@ -90,6 +99,9 @@ export class DeadlockSocketServer {
 
     // Start matchmaking
     this.matchmakingService.start();
+
+    // Ranked hour reminders (push and Discord, when configured)
+    this.notify.scheduleRankedHour();
 
     console.log("✅ Socket server initialized");
   }
@@ -174,6 +186,28 @@ export class DeadlockSocketServer {
 
       socket.on("join_practice", async () => {
         await this.matchmakingService.startPractice(authSocket);
+      });
+
+      socket.on("join_ghost", async () => {
+        await this.matchmakingService
+          .startGhost(authSocket)
+          .catch((error) => {
+            console.error("❌ Error in join_ghost:", error);
+            socket.emit("error", { message: "Could not start the ghost duel. Try again.", code: "GHOST_ERROR" });
+          });
+      });
+
+      // ============================================
+      // Lobby
+      // ============================================
+
+      socket.on("watch_lobby", (ack) => {
+        if (typeof ack !== "function") return;
+        ack(this.lobby.watch(authSocket));
+      });
+
+      socket.on("unwatch_lobby", () => {
+        this.lobby.unwatch(authSocket);
       });
 
       // ============================================
@@ -311,6 +345,7 @@ export class DeadlockSocketServer {
           .handleDisconnect(authSocket)
           .catch((error) => console.error("❌ Error closing away time on disconnect:", error));
         await this.matchmakingService.handleDisconnect(authSocket);
+        this.lobby.touch();
       });
 
       // ============================================
@@ -326,6 +361,7 @@ export class DeadlockSocketServer {
 
       // Check for existing match (reconnection)
       await this.handleReconnection(authSocket);
+      this.lobby.touch();
     });
   }
 
@@ -476,6 +512,7 @@ export class DeadlockSocketServer {
               username: opponent.username,
               elo: opponent.elo,
               isBot: opponent.socketId === "bot",
+              ...(opponent.socketId === "ghost" && { isGhost: true }),
             },
             startTime: match.startedAt,
             mode: match.mode,
@@ -489,6 +526,7 @@ export class DeadlockSocketServer {
               reason,
               ...(opponent.socketId === "bot" && { practice: true }),
               ...(match.mode === "friend" && { friendly: true, roomCode: match.roomCode }),
+              ...(match.mode === "ghost" && { ghost: true }),
             });
           }, 500);
           return;
@@ -531,11 +569,16 @@ export class DeadlockSocketServer {
           username: opponent.username,
           elo: opponent.elo,
           isBot: opponent.socketId === "bot",
+          ...(opponent.socketId === "ghost" && { isGhost: true }),
         },
         startTime: match.startedAt,
         mode: match.mode,
         roomCode: match.roomCode,
       });
+
+      // A reload mid-race: show where the ghost is
+      const ghostProgress = this.matchmakingService.getGhost(matchId)?.lastProgress;
+      if (ghostProgress) socket.emit("opponent_progress", { playerId: opponent.id, ...ghostProgress });
 
       console.log(`✅ ${user.username} rejoined match ${matchId}`);
     } catch (error: any) {
@@ -597,6 +640,7 @@ export class DeadlockSocketServer {
 
     // Clear all cleanup timers to prevent memory leaks
     this.gameService.clearAllTimers();
+    this.notify.stop();
 
     // Close all connections
     this.io.close();

@@ -359,22 +359,60 @@ losing it only costs you submission history, not accounts.
 
 ---
 
+## Leaderboard, ghosts, alerts and review
+
+These need a few one-time steps after the release that brought them.
+
+1. **Database.** In Supabase, open the SQL editor and run
+   `backend/database-migrations/013_seasons_ghosts_results_analytics.sql`.
+   Until then the game works as before, and the leaderboard, ghost duels and
+   share pages say they are not available yet.
+2. **Admin page.** Put your account's email in `ADMIN_EMAILS` (or its user id
+   in `ADMIN_USER_IDS`) in `deploy/.env`, then `docker compose up -d backend`.
+   Your account menu gets a **Review** link to `/admin`: flagged matches,
+   reports, the sign-up funnel and seasons.
+3. **Browser alerts** (optional). Generate a key pair once and put both halves
+   in `deploy/.env`, then `docker compose up -d backend`:
+   ```bash
+   docker compose exec backend npx web-push generate-vapid-keys
+   ```
+   The lobby then offers **Alert me**: a push when someone has waited alone in
+   ranked for 20 seconds (at most every 10 minutes, and once an hour per
+   player), and when the ranked hour starts.
+4. **Discord** (optional). Create a webhook in the channel's settings
+   (Integrations → Webhooks) and set `DISCORD_WEBHOOK_URL`. Set
+   `DISCORD_ROLE_ID` to ping a role players opt into. Same triggers as push.
+5. **Ranked hour.** `RANKED_HOUR_UTC` (default `15:00`, 8:30 PM in India) and
+   `RANKED_HOUR_MINUTES` (default 60). `off` hides it.
+6. **Seasons.** Season 1 covers every rated match so far. Start the next one
+   from `/admin` → Seasons: the standings are saved and every rating moves
+   halfway back to 1000.
+
+**Email confirmation.** With "Confirm email" on in Supabase, new players get a
+"check your email" screen and the link brings them back to the invite they
+came from. Supabase's built-in email sender is meant for testing (very low
+limits); before a launch push, set up custom SMTP under Authentication →
+Emails.
+
+---
+
 ## Scaling when you get users
 
-The first thing to run out is code execution, not the web server.
+The first thing to run out is code execution, not the web server. The
+judge's load is in `curl localhost:3001/health` (`judge0.active` and
+`judge0.waiting`); players see "Waiting for the judge, N ahead" when it backs up.
 
-**1. More Judge0 workers.** Each worker handles roughly one submission at a
-time. Increase in `deploy/.env` and redeploy:
+**1. Bigger droplet.** Resize to 4 vCPUs in the DigitalOcean console (power
+off, Resize, CPU and RAM only so you can go back). With
+`JUDGE0_MAX_PARALLEL_RUNS=auto` (the default) the backend judges one
+submission per vCPU by itself; if your `deploy/.env` still says `1`, change
+it to `auto` and run `docker compose up -d backend`. Judge0 sizes its own
+worker pool from the CPU count unless `COUNT` is set in `judge0.conf`. Watch
+`free -h` and `docker stats` for memory.
 
-```
-JUDGE0_WORKERS=2
-```
-
-Watch memory with `free -h` and `docker stats`. If you are swapping heavily, go
-to a 4 GB droplet before adding a third worker.
-
-**2. Bigger droplet.** Resize in the DigitalOcean console (requires a power
-off). Everything else stays the same.
+**2. More Judge0 workers.** Each worker container handles a few submissions at
+a time. If submissions wait while the CPU is idle, raise `JUDGE0_WORKERS` in
+`deploy/.env` and run `./deploy.sh`.
 
 **3. Move Judge0 to its own server.** It is the only component that needs
 `privileged` containers, and the only one that is CPU-hungry. Split it out by

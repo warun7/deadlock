@@ -23,7 +23,7 @@ let lastGoodShell: string | null = null;
  * hashed bundles, so a cached copy goes stale with every frontend release.
  * The last good copy is only a fallback when the frontend cannot be reached.
  */
-async function loadAppShell(): Promise<string | null> {
+export async function loadAppShell(): Promise<string | null> {
   try {
     const res = await axios.get<string>(config.appShellUrl, {
       timeout: 3000,
@@ -44,7 +44,7 @@ async function loadAppShell(): Promise<string | null> {
 const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-interface PreviewText {
+export interface PreviewText {
   title: string;
   description: string;
 }
@@ -68,9 +68,18 @@ export function previewText(preview: RoomPreview | null): PreviewText {
   };
 }
 
-/** Replace the shell's title and preview tags with the room's */
-export function injectPreview(html: string, text: PreviewText, pageUrl: string | null): string {
-  const image = `${config.siteOrigin}/og.png`;
+/**
+ * Replace the shell's title and preview tags with the page's. Pages with an
+ * image of their own (result cards) pass it; others use the site's og.png.
+ */
+export function injectPreview(
+  html: string,
+  text: PreviewText,
+  pageUrl: string | null,
+  card?: { image: string; alt: string }
+): string {
+  const image = card?.image ?? `${config.siteOrigin}/og.png`;
+  const imageAlt = card?.alt ?? "Deadlock: same problem, solve it first.";
   const meta = (attr: "name" | "property", key: string, value: string) =>
     `<meta ${attr}="${key}" content="${escapeHtml(value)}" />`;
   const tags = [
@@ -86,7 +95,7 @@ export function injectPreview(html: string, text: PreviewText, pageUrl: string |
     meta("property", "og:image", image),
     meta("property", "og:image:width", "1200"),
     meta("property", "og:image:height", "630"),
-    meta("property", "og:image:alt", "Deadlock: same problem, solve it first."),
+    meta("property", "og:image:alt", imageAlt),
     meta("name", "twitter:card", "summary_large_image"),
     meta("name", "twitter:title", text.title),
     meta("name", "twitter:description", text.description),

@@ -69,9 +69,11 @@ export interface MatchFoundPayload {
     elo: number;
     /** Practice bot rather than a person */
     isBot?: boolean;
+    /** A recording of a real player's ranked win (ghost duels) */
+    isGhost?: boolean;
   };
   startTime: number;
-  mode?: "ranked" | "practice" | "friend";
+  mode?: "ranked" | "practice" | "friend" | "ghost";
   /** Duel room to go back to for a rematch (friend duels only) */
   roomCode?: string;
 }

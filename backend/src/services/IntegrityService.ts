@@ -200,9 +200,9 @@ export class IntegrityService {
     }
   }
 
-  /** Keep the editor's counts from a ranked submission */
+  /** Keep the editor's counts from a ranked or ghost duel submission */
   async recordSubmission(match: MatchState, userId: string, code: string, telemetry: unknown): Promise<void> {
-    if (match.mode !== "ranked") return;
+    if (match.mode !== "ranked" && match.mode !== "ghost") return;
     const t = parseTelemetry(telemetry);
     await redisService.recordFairPlaySubmission(match.id, userId, {
       code_chars: code.length,
@@ -220,20 +220,29 @@ export class IntegrityService {
   }
 
   /**
-   * A ranked match ended: write one row per player. Runs once per match, and
+   * A ranked match or ghost duel ended: write one row per player (a ghost
+   * duel has one, the racer's, against the ghost's real player). Runs once per match, and
    * never throws; a failure costs the signals, not the match.
    */
   async finalize(match: MatchState, winnerId: string | null, endReason: MatchEndReason): Promise<void> {
-    if (match.mode !== "ranked") return;
+    if (match.mode !== "ranked" && match.mode !== "ghost") return;
     try {
       if (!(await redisService.claimFairPlayFinalize(match.id))) return;
       const counters = await redisService.getFairPlayCounters(match.id);
       const endedAt = match.finishedAt ?? Date.now();
       const durationMs = Math.max(0, endedAt - match.startedAt);
-      const rows = [match.player1, match.player2].map((player) => {
-        const opponent = player.id === match.player1.id ? match.player2 : match.player1;
-        return this.buildRow(match, player.id, opponent.id, player.elo, winnerId, endReason, durationMs, endedAt, counters);
-      });
+      const rows =
+        match.mode === "ghost"
+          ? match.ghost
+            ? [
+                this.buildRow(match, match.player1.id, match.ghost.playerId, match.player1.elo, winnerId, endReason, durationMs, endedAt, counters),
+              ]
+            : []
+          : [match.player1, match.player2].map((player) => {
+              const opponent = player.id === match.player1.id ? match.player2 : match.player1;
+              return this.buildRow(match, player.id, opponent.id, player.elo, winnerId, endReason, durationMs, endedAt, counters);
+            });
+      if (rows.length === 0) return;
       await this.persist(rows);
       const flagged = rows.filter((r) => r.flags.length > 0);
       if (flagged.length > 0) {

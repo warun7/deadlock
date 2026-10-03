@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, CaretDown, Check, Copy, SignOut, UserCircle } from "@phosphor-icons/react";
+import { ArrowRight, CaretDown, Check, Copy, ShieldCheck, SignOut, UserCircle } from "@phosphor-icons/react";
 import Avatar from "../ui/Avatar";
 import { Swap } from "../ui/micro";
 import { Chip, ChipLink } from "../ui/Chrome";
@@ -11,11 +11,31 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useCurrentProfile, invalidateCurrentProfile } from "../../lib/useCurrentProfile";
 import { useTheme } from "../../lib/theme";
 import { useShortcuts } from "../../lib/useShortcuts";
+import { apiGet } from "../../lib/http";
+
+// Whether this account may open /admin; asked once per account per page load
+let adminCheck: { userId: string; promise: Promise<boolean> } | null = null;
+function useIsAdmin(userId: string | undefined): boolean {
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => {
+    if (!userId) return;
+    if (!adminCheck || adminCheck.userId !== userId) {
+      adminCheck = { userId, promise: apiGet("/admin/me").then(() => true, () => false) };
+    }
+    let cancelled = false;
+    adminCheck.promise.then((ok) => !cancelled && setAdmin(ok));
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+  return admin;
+}
 
 const AccountMenu: React.FC = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const { username, avatarUrl } = useCurrentProfile();
+  const admin = useIsAdmin(user?.id);
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -99,6 +119,12 @@ const AccountMenu: React.FC = () => {
               <UserCircle className="size-4" /> Public profile
               <ArrowRight className="ml-auto size-3.5" />
             </Link>
+            {admin && (
+              <Link role="menuitem" to="/admin" className={item} onClick={() => setOpen(false)}>
+                <ShieldCheck className="size-4" /> Review
+                <ArrowRight className="ml-auto size-3.5" />
+              </Link>
+            )}
             <button role="menuitem" type="button" className={item} onClick={copyLink}>
               <Swap on={copied} off={<Copy className="size-4" />} onNode={<Check weight="bold" className="size-4 text-pass-ink" />} />
               <Swap on={copied} off="Copy profile link" onNode="Link copied" align="start" />
@@ -121,8 +147,8 @@ const AppNav: React.FC = () => {
 
   useShortcuts(
     isLoggedIn
-      ? { d: () => navigate("/dashboard"), u: () => navigate("/profile"), t: toggle }
-      : { t: toggle, l: () => navigate("/auth"), p: () => navigate("/auth?mode=signup") }
+      ? { d: () => navigate("/dashboard"), u: () => navigate("/profile"), b: () => navigate("/leaderboard"), t: toggle }
+      : { t: toggle, l: () => navigate("/auth"), p: () => navigate("/auth?mode=signup"), b: () => navigate("/leaderboard") }
   );
 
   return (
@@ -145,6 +171,15 @@ const AppNav: React.FC = () => {
               </ChipLink>
             </>
           )}
+          <ChipLink
+            to="/leaderboard"
+            k="B"
+            active={pathname === "/leaderboard"}
+            aria-current={pathname === "/leaderboard" ? "page" : undefined}
+            className={isLoggedIn ? "hidden min-[420px]:inline-flex" : ""}
+          >
+            Board
+          </ChipLink>
         </div>
 
         <div className="flex items-center gap-[3px]">

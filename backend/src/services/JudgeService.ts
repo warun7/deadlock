@@ -218,7 +218,8 @@ export class JudgeService {
     languageId: number,
     testCases: TestCase[],
     checkerType: CheckerType = 'exact',
-    checkerCode?: string
+    checkerCode?: string,
+    onQueued?: (ahead: number) => void
   ): Promise<SubmissionResult> {
     console.log(`🔬 Executing code (lang: ${languageId}) against ${testCases.length} test cases`);
     console.log(`   Checker type: ${checkerType}`);
@@ -251,7 +252,7 @@ export class JudgeService {
         console.warn('   Falling back to judging test by test');
       }
       return this.executePerTest(sourceCode, languageId, testCases, checkerType, checkerCode);
-    });
+    }, onQueued);
   }
 
   // ------------------------------------------------------------
@@ -260,10 +261,25 @@ export class JudgeService {
   private activeRuns = 0;
   private waitingRuns: Array<() => void> = [];
 
-  private async withRunSlot<T>(fn: () => Promise<T>): Promise<T> {
+  /** How busy the judge is, for /health and capacity planning */
+  getLoad(): { maxParallelRuns: number; active: number; waiting: number } {
+    return { maxParallelRuns: config.judge0.maxParallelRuns, active: this.activeRuns, waiting: this.waitingRuns.length };
+  }
+
+  /**
+   * Run fn once a slot is free. onQueued hears how many runs are ahead when
+   * this one has to wait, so the player can be told instead of left guessing.
+   */
+  private async withRunSlot<T>(fn: () => Promise<T>, onQueued?: (ahead: number) => void): Promise<T> {
     if (this.activeRuns < config.judge0.maxParallelRuns) {
       this.activeRuns++;
     } else {
+      const ahead = this.waitingRuns.length + 1;
+      try {
+        onQueued?.(ahead);
+      } catch {
+        /* a listener's failure never holds up judging */
+      }
       // The slot is handed over directly by release, so activeRuns stays put
       await new Promise<void>((resolve) => this.waitingRuns.push(resolve));
     }
@@ -621,7 +637,12 @@ export class JudgeService {
    * Queued behind the same run slots as judging, so a practice run never
    * shares the CPU with someone's submission and pushes it into a false TLE.
    */
-  async runCustomInput(sourceCode: string, languageId: number, stdin: string): Promise<CustomRunResult> {
+  async runCustomInput(
+    sourceCode: string,
+    languageId: number,
+    stdin: string,
+    onQueued?: (ahead: number) => void
+  ): Promise<CustomRunResult> {
     return this.withRunSlot(async () => {
       try {
         const r = await this.runSingleTest(sourceCode, languageId, stdin);
@@ -644,7 +665,7 @@ export class JudgeService {
         console.error(`❌ Custom run failed: ${this.describeError(error)}`);
         return { status: 'error', stdout: '', stderr: 'The judge did not answer. Try again in a moment.' };
       }
-    });
+    }, onQueued);
   }
 
   /**

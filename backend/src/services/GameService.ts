@@ -9,6 +9,10 @@ import { config } from "../config";
 import type { MatchmakingService } from "./MatchmakingService";
 import type { RoomService } from "./RoomService";
 import type { IntegrityService, MatchEndReason } from "./IntegrityService";
+import type { LobbyService } from "./LobbyService";
+import { analyticsService } from "./AnalyticsService";
+import { resultsService, type MatchResultRow } from "./ResultsService";
+import { cleanTimeline, ghostService } from "./GhostService";
 import {
   AuthenticatedSocket,
   SubmitCodePayload,
@@ -47,6 +51,7 @@ export class GameService {
   private matchmakingService: MatchmakingService | null = null;
   private roomService: RoomService | null = null;
   private integrityService: IntegrityService | null = null;
+  private lobbyService: LobbyService | null = null;
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
@@ -67,6 +72,16 @@ export class GameService {
   /** Set IntegrityService reference (fair play signals for ranked matches) */
   setIntegrityService(integrityService: IntegrityService): void {
     this.integrityService = integrityService;
+  }
+
+  /** Set LobbyService reference (the lobby's live counts) */
+  setLobbyService(lobbyService: LobbyService): void {
+    this.lobbyService = lobbyService;
+  }
+
+  /** Tell the player their run is waiting for the judge, and how many are ahead */
+  private queuedNotice(socket: AuthenticatedSocket) {
+    return (ahead: number) => socket.emit("judge_queue", { ahead });
   }
 
   /**
@@ -178,7 +193,7 @@ export class GameService {
     }
 
     if (typeof payload.input === "string") {
-      const result = await judgeService.runCustomInput(payload.code, payload.languageId, payload.input);
+      const result = await judgeService.runCustomInput(payload.code, payload.languageId, payload.input, this.queuedNotice(socket));
       socket.emit("run_result", { kind: "custom", input: payload.input, result });
       return;
     }
@@ -198,7 +213,8 @@ export class GameService {
         payload.languageId,
         samples,
         problem.checkerType || "exact",
-        problem.checkerCode
+        problem.checkerCode,
+        this.queuedNotice(socket)
       );
       socket.emit("run_result", { kind: "samples", result: sanitizeSubmissionResult(result) });
     } catch (error: any) {
@@ -309,8 +325,21 @@ export class GameService {
         payload.languageId,
         problem.testCases,
         problem.checkerType || "exact", // Default to exact match
-        problem.checkerCode
+        problem.checkerCode,
+        this.queuedNotice(socket)
       );
+
+      // When each ranked submission landed: a winning solve becomes a ghost to race
+      if (match.mode === "ranked") {
+        await redisService
+          .appendTimeline(match.id, user.id, {
+            t: Date.now() - match.startedAt,
+            passed: result.passed,
+            total: result.total,
+            status: result.status,
+          })
+          .catch((error) => console.error("⚠️ Could not keep the submission's timing:", error));
+      }
 
       // Kept so both players can compare solutions once the match is over
       if (match.mode !== "practice") {
@@ -420,7 +449,14 @@ export class GameService {
       // Practice: unrated and not recorded
       this.matchmakingService?.cleanupBot(matchId);
       socket.emit("game_over", { winnerId: user.id, reason: "You solved it first!", practice: true });
+      analyticsService.matchEnded(match, user.id);
       this.scheduleCleanup(matchId);
+      return;
+    }
+
+    if (match.mode === "ghost") {
+      this.matchmakingService?.cleanupGhost(matchId);
+      await this.finishGhostMatch(match, true, duration, "solved");
       return;
     }
 
@@ -467,7 +503,14 @@ export class GameService {
         // Practice: unrated and not recorded
         this.matchmakingService?.cleanupBot(matchId);
         socket.emit("game_over", { winnerId, reason: "You forfeited", practice: true });
+        analyticsService.matchEnded(match, winnerId);
         this.scheduleCleanup(matchId);
+        return;
+      }
+
+      if (match.mode === "ghost") {
+        this.matchmakingService?.cleanupGhost(matchId);
+        await this.finishGhostMatch(match, false, Math.floor((Date.now() - match.startedAt) / 1000), "forfeit");
         return;
       }
 
@@ -561,6 +604,7 @@ export class GameService {
         this.matchmakingService.cleanupBot(matchId);
       }
 
+      analyticsService.matchEnded(match, winnerId);
       this.scheduleCleanup(matchId);
     } catch (error) {
       console.error(`❌ Error in handleBotCompletion:`, error);
@@ -598,7 +642,7 @@ export class GameService {
       // `problem.id.toString()`), so it doubles as the integer FK. The fallback
       // problem has a non-numeric id, hence the NaN guard.
       const problemIdRef = Number.parseInt(data.problemId, 10);
-      const { error } = await supabase.rpc("record_match_pair", {
+      const args = {
         p_winner_id: data.winnerId,
         p_loser_id: data.loserId,
         p_problem_id: data.problemId,
@@ -608,7 +652,14 @@ export class GameService {
         p_duration_seconds: data.duration,
         p_rating_change: ratingChange,
         p_completed_at: new Date().toISOString(),
-      });
+      };
+      // Migration 013 lets the history rows carry this match's id (so a
+      // rating change can be voided later). Before it runs, the function has
+      // no p_game_id, and PostgREST answers PGRST202: record without it.
+      let { error } = await supabase.rpc("record_match_pair", { ...args, p_game_id: data.matchId });
+      if (error?.code === "PGRST202") {
+        ({ error } = await supabase.rpc("record_match_pair", args));
+      }
 
       if (error) {
         // This used to be an easy-to-miss log line, which is exactly how the
@@ -663,7 +714,7 @@ export class GameService {
     endReason: MatchEndReason
   ): Promise<void> {
     if (match.mode === "friend") {
-      await this.finishFriendMatch(match, winnerId, loserId, reasons);
+      await this.finishFriendMatch(match, winnerId, loserId, reasons, endReason);
       return;
     }
 
@@ -697,17 +748,173 @@ export class GameService {
       ...(saved ? { ratingChange: -change, newRating: Math.max(0, loserRating - change) } : {}),
     });
 
+    if (saved) {
+      this.refreshRating(winnerId, winnerRating + change);
+      this.refreshRating(loserId, Math.max(0, loserRating - change));
+    }
+
     // Fair play signals for both players; runs after the result is out
     void this.integrityService?.finalize(match, winnerId, endReason);
+    analyticsService.matchEnded(match, winnerId);
+
+    // The share page, and a ghost of the winning solve
+    void this.saveResult(match, {
+      mode: "ranked",
+      winnerId,
+      loserId,
+      endReason,
+      duration,
+      winnerRatingChange: saved ? change : null,
+      loserRatingChange: saved ? -change : null,
+      winnerRating: saved ? winnerRating + change : null,
+      loserRating: saved ? Math.max(0, loserRating - change) : null,
+    });
+    if (endReason === "solved") void this.saveGhostRecording(match, winnerId, winnerRating);
 
     this.scheduleCleanup(match.id);
+  }
+
+  /**
+   * A ghost duel ended. Unrated, like Practice: no rating moves and nothing
+   * goes in match history. The result can still be shared, and the race
+   * still counts for fair play and the funnel. The ghost's player is never
+   * told.
+   */
+  async finishGhostMatch(match: MatchState, racerWon: boolean, duration: number, endReason: MatchEndReason): Promise<void> {
+    const racer = match.player1;
+    const ghost = match.ghost;
+    const winnerId = racerWon ? racer.id : match.player2.id;
+    if (!ghost) {
+      console.error(`❌ Ghost match ${match.id} has no recording`);
+      this.scheduleCleanup(match.id);
+      return;
+    }
+
+    const reasons: Record<MatchEndReason, string> = {
+      solved: racerWon ? `You solved it before ${ghost.username}'s ghost` : `${ghost.username}'s ghost solved it first`,
+      forfeit: "You forfeited",
+      disconnect: "You disconnected",
+      timeout: "Match timed out - no winner",
+      abandoned: "Match ended",
+    };
+    this.emitToUser(racer.id, "game_over", { winnerId, reason: reasons[endReason], ghost: true });
+
+    void this.integrityService?.finalize(match, winnerId, endReason);
+    analyticsService.matchEnded(match, winnerId);
+
+    // The share page; it also stops this player getting the problem again
+    void this.saveResult(match, {
+      mode: "ghost",
+      winnerId: racerWon ? racer.id : ghost.playerId,
+      loserId: racerWon ? ghost.playerId : racer.id,
+      winnerName: racerWon ? racer.username : ghost.username,
+      loserName: racerWon ? ghost.username : racer.username,
+      ghostSide: racerWon ? "loser" : "winner",
+      endReason,
+      duration,
+      notify: [racer.id],
+    });
+
+    this.scheduleCleanup(match.id);
+  }
+
+  /** The ghost's accepted submission landed before the racer's */
+  async handleGhostSolved(matchId: string): Promise<void> {
+    try {
+      const match = await redisService.getMatch(matchId, "ghost_solved_read_match");
+      if (!match || match.status !== "active" || match.mode !== "ghost") return;
+      const won = await redisService.setMatchWinner(matchId, match.player2.id, "ghost_set_winner");
+      if (!won) return;
+      this.matchmakingService?.cleanupGhost(matchId);
+      await this.finishGhostMatch(match, false, Math.floor((Date.now() - match.startedAt) / 1000), "solved");
+    } catch (error) {
+      console.error(`❌ Error ending ghost match ${matchId}:`, error);
+    }
+  }
+
+  /** Write the share-page row; tells the players once it can be shared */
+  private async saveResult(
+    match: MatchState,
+    r: {
+      mode: MatchResultRow["mode"];
+      winnerId: string;
+      loserId: string;
+      winnerName?: string;
+      loserName?: string;
+      ghostSide?: "winner" | "loser";
+      endReason: MatchEndReason;
+      duration: number;
+      winnerRatingChange?: number | null;
+      loserRatingChange?: number | null;
+      winnerRating?: number | null;
+      loserRating?: number | null;
+      winnerScore?: number | null;
+      loserScore?: number | null;
+      /** Who to tell (default: both players) */
+      notify?: string[];
+    }
+  ): Promise<void> {
+    const nameOf = (id: string) => (id === match.player1.id ? match.player1.username : id === match.player2.id ? match.player2.username : "Player");
+    const isPerson = (id: string) => isUuid(id);
+    const saved = await resultsService.save({
+      match_id: match.id,
+      mode: r.mode,
+      winner_id: isPerson(r.winnerId) ? r.winnerId : null,
+      loser_id: isPerson(r.loserId) ? r.loserId : null,
+      winner_name: r.winnerName ?? nameOf(r.winnerId),
+      loser_name: r.loserName ?? nameOf(r.loserId),
+      ghost_side: r.ghostSide ?? null,
+      problem_id: match.problemId,
+      problem_title: match.problemTitle,
+      problem_rating: match.problemRating ?? null,
+      end_reason: r.endReason,
+      duration_seconds: r.duration,
+      winner_rating_change: r.winnerRatingChange ?? null,
+      loser_rating_change: r.loserRatingChange ?? null,
+      winner_rating: r.winnerRating ?? null,
+      loser_rating: r.loserRating ?? null,
+      winner_score: r.winnerScore ?? null,
+      loser_score: r.loserScore ?? null,
+    });
+    if (!saved) return;
+    for (const id of r.notify ?? [r.winnerId, r.loserId]) this.emitToUser(id, "result_saved", { matchId: match.id });
+  }
+
+  /** A solve worth racing: its timeline (ending in the accepted submission) and code */
+  private async saveGhostRecording(match: MatchState, playerId: string, rating: number): Promise<void> {
+    try {
+      const [timeline, stored] = await Promise.all([
+        redisService.getTimeline(match.id, playerId),
+        redisService.getLastSubmissions(match.id),
+      ]);
+      const clean = cleanTimeline(timeline);
+      const last = stored?.byPlayer.get(playerId);
+      if (!clean || !last || last.status !== "accepted") return;
+      const player = match.player1.id === playerId ? match.player1 : match.player2;
+      await ghostService.saveRecording({
+        match_id: match.id,
+        player_id: playerId,
+        username: player.username,
+        player_rating: rating,
+        problem_id: match.problemId,
+        problem_rating: match.problemRating ?? null,
+        language: this.getLanguageName(last.languageId),
+        language_id: last.languageId,
+        solve_ms: clean[clean.length - 1].t,
+        timeline: clean,
+        code: last.code,
+      });
+    } catch (error) {
+      console.error(`⚠️ Could not record a ghost from match ${match.id}:`, error);
+    }
   }
 
   private async finishFriendMatch(
     match: MatchState,
     winnerId: string,
     loserId: string,
-    reasons: { winner: string; loser: string }
+    reasons: { winner: string; loser: string },
+    endReason: MatchEndReason
   ): Promise<void> {
     let wins: Map<string, number> | null = null;
     if (match.roomCode && this.roomService) {
@@ -723,7 +930,18 @@ export class GameService {
 
     this.emitToUser(winnerId, "game_over", { ...common, reason: reasons.winner, ...scoreFor(winnerId, loserId) });
     this.emitToUser(loserId, "game_over", { ...common, reason: reasons.loser, ...scoreFor(loserId, winnerId) });
-    console.log(`🤝 Friend match ${match.id} won by ${winnerId} (unrated, not recorded)`);
+    console.log(`🤝 Friend match ${match.id} won by ${winnerId} (unrated, not in match history)`);
+    analyticsService.matchEnded(match, winnerId);
+
+    void this.saveResult(match, {
+      mode: "friend",
+      winnerId,
+      loserId,
+      endReason,
+      duration: Math.floor(((match.finishedAt ?? Date.now()) - match.startedAt) / 1000),
+      winnerScore: wins?.get(winnerId) ?? null,
+      loserScore: wins?.get(loserId) ?? null,
+    });
 
     this.scheduleCleanup(match.id);
   }
@@ -745,6 +963,17 @@ export class GameService {
 
   private ratingFromMatch(match: MatchState, userId: string): number {
     return match.player1.id === userId ? match.player1.elo : match.player2.elo;
+  }
+
+  /**
+   * A socket keeps the rating it signed in with; after a rated result its
+   * next queue (problem band, ghost pick) should use the new one
+   */
+  private refreshRating(userId: string, rating: number): void {
+    for (const s of this.io.sockets.sockets.values()) {
+      const u = (s as AuthenticatedSocket).user;
+      if (u?.id === userId) u.elo = rating;
+    }
   }
 
   /** Emit to every live socket of a player (they may have reconnected on a new one) */
@@ -810,6 +1039,7 @@ export class GameService {
 
     // Delete from Redis
     await redisService.deleteMatch(matchId, "cleanup_delete_match");
+    this.lobbyService?.touch();
   }
 
   /**

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowClockwise, ArrowRight } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowRight, Ghost } from "@phosphor-icons/react";
 import { AppShell } from "../components/app/AppNav";
 import StatGrid from "../components/app/StatGrid";
 import NameTitle from "../components/app/NameTitle";
 import RankPanel from "../components/app/RankPanel";
+import RankedHour from "../components/app/RankedHour";
 import MatchList, { EmptyState } from "../components/app/MatchList";
 import { Button, ButtonLink, Kbd } from "../components/ui/Button";
 import { Detail, Figure, Label } from "../components/ui/Chrome";
@@ -17,6 +18,7 @@ import { useShortcuts } from "../lib/useShortcuts";
 import { getRecentMatches } from "../lib/api";
 import { gameSocket } from "../lib/socket";
 import { supabase } from "../lib/supabase";
+import { useLobbyStats } from "../lib/useLobby";
 import type { MatchDetailed } from "../types/database";
 
 const reveal = {
@@ -35,6 +37,8 @@ const DashboardPage: React.FC = () => {
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [recent, setRecent] = useState<MatchDetailed[]>([]);
   const [recentLoading, setRecentLoading] = useState(true);
+  const lobby = useLobbyStats();
+  const ghosts = lobby?.ghosts !== false;
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +114,9 @@ const DashboardPage: React.FC = () => {
     f: () => {
       if (!inMatch) navigate("/duel");
     },
+    g: () => {
+      if (!inMatch && ghosts) navigate("/ghost");
+    },
   });
 
   return (
@@ -129,7 +136,28 @@ const DashboardPage: React.FC = () => {
           aria-labelledby="play-title"
           className="flex flex-col lg:col-span-7"
         >
-          <Label as="h2" id="play-title" aside={inMatch ? <span className="text-pass-ink">Live</span> : "1v1"}>
+          <Label
+            as="h2"
+            id="play-title"
+            aside={
+              inMatch ? (
+                <span className="text-pass-ink">Live</span>
+              ) : lobby ? (
+                <span aria-live="polite">
+                  <span className="tabular text-fg">{lobby.online}</span> online <span aria-hidden="true">·</span>{" "}
+                  <span className="tabular text-fg">{lobby.inQueue}</span> in queue
+                  {lobby.inMatches > 0 && (
+                    <>
+                      {" "}
+                      <span aria-hidden="true">·</span> <span className="tabular text-fg">{lobby.inMatches}</span> playing
+                    </>
+                  )}
+                </span>
+              ) : (
+                "1v1"
+              )
+            }
+          >
             {inMatch ? "Match in progress" : "Play"}
           </Label>
 
@@ -139,6 +167,11 @@ const DashboardPage: React.FC = () => {
                 <p className="text-[clamp(1.5rem,2.4vw,2rem)] leading-[1.08] tracking-[-0.035em] text-fg-2">
                   <strong className="font-medium text-fg">Your match is still running.</strong> The clock kept going
                   while you were away. Jump back in before your opponent finishes.
+                </p>
+              ) : lobby && lobby.online <= 1 && lobby.inQueue === 0 ? (
+                <p className="text-[clamp(1.5rem,2.4vw,2rem)] leading-[1.08] tracking-[-0.035em] text-fg-2">
+                  <strong className="font-medium text-fg">Quiet right now.</strong> Race a ghost of a real player&apos;s win,
+                  or send a friend a duel link. The ranked hour fills the queue.
                 </p>
               ) : (
                 <p className="text-[clamp(1.5rem,2.4vw,2rem)] leading-[1.08] tracking-[-0.035em] text-fg-2">
@@ -174,6 +207,16 @@ const DashboardPage: React.FC = () => {
                       </span>
                       <Kbd>F</Kbd>
                     </ButtonLink>
+                    {ghosts && (
+                      <ButtonLink to="/ghost" variant="outline" size="lg" className="group mt-2 w-full justify-between">
+                        <span className="inline-flex items-center gap-2">
+                          <Ghost className="size-4" />
+                          <RollText>Race a ghost</RollText>
+                          <span className="label text-fg-3">Unrated</span>
+                        </span>
+                        <Kbd>G</Kbd>
+                      </ButtonLink>
+                    )}
                     <ButtonLink to="/practice" variant="outline" size="lg" className="group mt-2 w-full justify-between">
                       <span className="inline-flex items-center gap-2">
                         <RollText>Practice vs bot</RollText>
@@ -201,10 +244,16 @@ const DashboardPage: React.FC = () => {
           className="lg:col-span-4 lg:col-start-9"
         >
           <RankPanel rating={profile?.rating} loading={profileLoading} />
-          <Label as="h2" id="stats-title" rule={false} className="mt-10">
+          <ButtonLink to="/leaderboard" variant="ghost" size="sm" className="group -ml-3.5 mt-3">
+            Leaderboard
+            <ArrowRight weight="bold" className="size-3.5 transition-transform duration-300 group-hover:translate-x-1" />
+            <Kbd>B</Kbd>
+          </ButtonLink>
+          <Label as="h2" id="stats-title" rule={false} className="mt-8">
             Record
           </Label>
           <StatGrid profile={profile} loading={profileLoading} className="mt-0" />
+          <RankedHour stats={lobby} className="mt-10" />
         </motion.section>
       </div>
 

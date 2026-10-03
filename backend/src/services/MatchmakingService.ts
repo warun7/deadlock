@@ -7,6 +7,11 @@ import { config } from "../config";
 import { ROOM_DIFFICULTIES, RoomDifficulty } from "../config/roomDifficulty";
 import type { GameService } from "./GameService";
 import type { IntegrityService } from "./IntegrityService";
+import type { LobbyService } from "./LobbyService";
+import type { NotifyService } from "./NotifyService";
+import { analyticsService } from "./AnalyticsService";
+import { cleanTimeline, GhostPlayer, ghostService } from "./GhostService";
+import { NotAvailableError } from "./db";
 import {
   QueueEntry,
   MatchState,
@@ -30,9 +35,13 @@ export class MatchmakingService {
   private isProcessingQueue = false;
   private shouldProcessQueueAgain = false;
   private activeBots: Map<string, BotPlayer> = new Map(); // Track active bots by matchId
+  private activeGhosts: Map<string, GhostPlayer> = new Map(); // Ghost replays by matchId
+  private startingGhost = new Set<string>(); // players whose ghost duel is being set up
   private disconnectTimers: Map<string, NodeJS.Timeout> = new Map(); // `${matchId}:${userId}` -> forfeit timer
   private gameService: GameService | null = null; // Set by GameService (for saving match results)
   private integrityService: IntegrityService | null = null; // Fair play signals when a ranked match ends
+  private lobbyService: LobbyService | null = null; // Live lobby counts
+  private notifyService: NotifyService | null = null; // "Someone is waiting" alerts
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
@@ -47,6 +56,14 @@ export class MatchmakingService {
 
   setIntegrityService(integrityService: IntegrityService): void {
     this.integrityService = integrityService;
+  }
+
+  setLobbyService(lobbyService: LobbyService): void {
+    this.lobbyService = lobbyService;
+  }
+
+  setNotifyService(notifyService: NotifyService): void {
+    this.notifyService = notifyService;
   }
 
   /**
@@ -102,6 +119,7 @@ export class MatchmakingService {
       this.queueOrder.push(entry.userId);
     }
 
+    this.lobbyService?.touch();
     return this.getQueuePosition(entry.userId);
   }
 
@@ -118,6 +136,8 @@ export class MatchmakingService {
       this.queueOrder.splice(index, 1);
     }
 
+    this.notifyService?.playerStoppedWaiting(userId);
+    this.lobbyService?.touch();
     return entry;
   }
 
@@ -275,6 +295,139 @@ export class MatchmakingService {
   }
 
   /**
+   * Start a ghost duel: race a recording of someone's ranked win, on their
+   * problem and their clock. Unrated, like Practice (see
+   * GameService.finishGhostMatch). The ghost seat's id is the recording's,
+   * never the real player's, so nothing reaches them.
+   */
+  async startGhost(socket: AuthenticatedSocket): Promise<void> {
+    const user = socket.user;
+    if (!config.ghost.enabled) {
+      socket.emit("error", { message: "Ghost duels are switched off right now.", code: "GHOST_DISABLED" });
+      return;
+    }
+    // A double click must not start two races
+    if (this.startingGhost.has(user.id)) return;
+    this.startingGhost.add(user.id);
+    try {
+      await this.setUpGhost(socket);
+    } finally {
+      this.startingGhost.delete(user.id);
+    }
+  }
+
+  private async setUpGhost(socket: AuthenticatedSocket): Promise<void> {
+    const user = socket.user;
+    if (await this.refuseIfInMatch(socket)) return;
+    this.removeFromQueue(user.id);
+
+    let recording;
+    try {
+      recording = await ghostService.pick(user.id, user.elo);
+    } catch (error) {
+      if (error instanceof NotAvailableError) {
+        socket.emit("error", { message: "Ghost duels are not available yet.", code: "GHOST_UNAVAILABLE" });
+      } else {
+        console.error("❌ Could not pick a ghost:", error);
+        socket.emit("error", { message: "Could not find a ghost to race. Try again.", code: "GHOST_ERROR" });
+      }
+      return;
+    }
+    const timeline = recording ? cleanTimeline(recording.timeline ?? []) : null;
+    if (!recording || !timeline) {
+      socket.emit("error", {
+        message: "No ghosts to race yet. Every ranked win records one, so check back after a few ranked matches.",
+        code: "NO_GHOSTS",
+      });
+      return;
+    }
+    const problem = await problemService.getProblemById(recording.problem_id);
+    if (!problem) {
+      socket.emit("error", { message: "Could not load the ghost's problem. Try again.", code: "GHOST_ERROR" });
+      return;
+    }
+
+    const matchId = uuidv4();
+    const seatId = `ghost_${recording.id}`;
+    const startedAt = Date.now();
+    const matchState: MatchState = {
+      id: matchId,
+      player1: { id: user.id, socketId: socket.id, username: user.username, elo: user.elo },
+      player2: { id: seatId, socketId: "ghost", username: recording.username, elo: recording.player_rating },
+      problemId: problem.id,
+      problemTitle: problem.title,
+      status: "active",
+      winnerId: null,
+      startedAt,
+      finishedAt: null,
+      mode: "ghost",
+      problemRating: problem.difficulty,
+      ghost: {
+        recordingId: recording.id,
+        playerId: recording.player_id,
+        username: recording.username,
+        rating: recording.player_rating,
+      },
+    };
+    await redisService.createMatch(matchState, "ghost_match_create");
+
+    // The ghost's winning code, shown under "Compare solutions" afterwards
+    const solved = timeline[timeline.length - 1];
+    await redisService
+      .storeLastSubmission(matchId, [user.id, seatId], seatId, {
+        code: recording.code,
+        languageId: recording.language_id,
+        status: "accepted",
+        passed: solved.passed,
+        total: solved.total,
+        submittedAt: startedAt + solved.t,
+      })
+      .catch((error) => console.error("⚠️ Could not keep the ghost's code for comparing:", error));
+
+    socket.join(matchId);
+    socket.data.currentMatchId = matchId;
+
+    const ghost = new GhostPlayer(this.io, matchId, seatId, timeline, () => {
+      void this.gameService?.handleGhostSolved(matchId);
+    });
+    this.activeGhosts.set(matchId, ghost);
+
+    socket.emit("match_found", {
+      matchId,
+      problem: {
+        id: problem.id,
+        title: problem.title,
+        description: problem.description,
+        difficulty: problem.difficulty,
+        testCases: problem.testCases.filter((tc) => !tc.isHidden),
+      },
+      opponent: { id: seatId, username: recording.username, elo: recording.player_rating, isGhost: true },
+      startTime: startedAt,
+      mode: "ghost",
+    });
+    ghost.start();
+
+    console.log(`👻 Ghost match ${matchId}: ${user.username} (${user.elo}) vs ${recording.username}'s ghost (${recording.player_rating})`);
+    console.log(`   Problem: ${problem.title}; the ghost solves at ${Math.round(recording.solve_ms / 1000)}s`);
+    analyticsService.matchStarted(matchState);
+    this.lobbyService?.touch();
+    this.setMatchTimeout(matchId, matchState);
+  }
+
+  getGhost(matchId: string): GhostPlayer | undefined {
+    return this.activeGhosts.get(matchId);
+  }
+
+  /** Stop a ghost's replay when its match ends */
+  cleanupGhost(matchId: string): void {
+    const ghost = this.activeGhosts.get(matchId);
+    if (ghost) {
+      ghost.stop();
+      this.activeGhosts.delete(matchId);
+    }
+  }
+
+  /**
    * Add player to queue
    */
   async joinQueue(socket: AuthenticatedSocket): Promise<void> {
@@ -312,6 +465,11 @@ export class MatchmakingService {
     socket.emit("queue_joined", { position });
     console.log(`   ✅ Added to queue at position ${position}`);
     console.log(`   📊 Current queue size: ${this.getQueueLength()}`);
+
+    // Alone in the queue: if nobody turns up soon, tell people who asked to hear
+    if (this.getQueueLength() === 1) {
+      this.notifyService?.playerWaiting(entry, () => this.queuedPlayers.has(entry.userId) && this.getQueueLength() === 1);
+    }
 
     this.requestQueueProcessing();
   }
@@ -422,6 +580,8 @@ export class MatchmakingService {
 
       // Emit match_found to player
       socket.emit("match_found", matchFoundPayload);
+      analyticsService.matchStarted(matchState);
+      this.lobbyService?.touch();
 
       console.log(`   ✅ Bot match created: ${matchId}`);
       console.log(`   🤖 Bot: ${bot.username} (${botDifficulty})`);
@@ -563,6 +723,8 @@ export class MatchmakingService {
     // Emit match found to each player
     socket1.emit("match_found", payload1);
     socket2.emit("match_found", payload2);
+    analyticsService.matchStarted(matchState);
+    this.lobbyService?.touch();
 
     console.log(`🎮 Match created: ${matchId}`);
     console.log(
@@ -656,6 +818,8 @@ export class MatchmakingService {
       }
     }
 
+    analyticsService.matchStarted(matchState);
+    this.lobbyService?.touch();
     console.log(`🤝 Friend match ${matchId} in room ${roomCode}: ${host.username} vs ${guest.username}`);
     console.log(`   Problem: ${problem.title} (${problem.difficulty}, ${args.difficulty})`);
 
@@ -695,11 +859,14 @@ export class MatchmakingService {
         );
 
         // Notify both players
+        this.cleanupGhost(matchId);
         this.io.to(matchId).emit("game_over", {
           winnerId: null,
           reason: "Match timed out - no winner",
+          ...(match.mode === "ghost" && { ghost: true }),
         });
         void this.integrityService?.finalize(match, null, "timeout");
+        analyticsService.matchEnded(match, null);
 
         console.log(`🏁 Match ${matchId} ended in timeout (draw)`);
       }
@@ -814,16 +981,18 @@ export class MatchmakingService {
     if (this.isUserInMatchRoom(matchId, userId)) return;
 
     const isBotMatch = match.player2.socketId === "bot";
+    const isGhostMatch = match.mode === "ghost";
     const winnerId = match.player1.id === userId ? match.player2.id : match.player1.id;
     const loserId = userId;
 
-    if (!isBotMatch && !this.isUserInMatchRoom(matchId, winnerId)) {
+    if (!isBotMatch && !isGhostMatch && !this.isUserInMatchRoom(matchId, winnerId)) {
       await redisService.updateMatchStatus(matchId, "finished", "disconnect_both_gone");
       this.io.to(matchId).emit("game_over", {
         winnerId: null,
         reason: "Both players disconnected",
       });
       void this.integrityService?.finalize(match, null, "abandoned");
+      analyticsService.matchEnded(match, null);
       console.log(`🏁 Match ${matchId} ended: both players disconnected`);
       return;
     }
@@ -838,6 +1007,14 @@ export class MatchmakingService {
       // Practice: unrated and not recorded. The player is the one who left.
       this.cleanupBot(matchId);
       this.io.to(matchId).emit("game_over", { winnerId, reason: "You disconnected", practice: true });
+      analyticsService.matchEnded(match, winnerId);
+      return;
+    }
+
+    if (isGhostMatch) {
+      // The racer left and did not come back: the ghost wins (unrated)
+      this.cleanupGhost(matchId);
+      await this.gameService?.finishGhostMatch(match, false, duration, "disconnect");
       return;
     }
 

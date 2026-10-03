@@ -35,6 +35,8 @@ RUN npm ci --omit=dev --no-audit --no-fund \
     && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
+# Fonts for share cards (src/http/resultCard.ts)
+COPY assets ./assets
 
 # The logger creates ./logs on boot when file logging is enabled. Create it up
 # front and hand the whole tree to the unprivileged `node` user, so the process

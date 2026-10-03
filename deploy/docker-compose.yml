@@ -117,7 +117,8 @@ services:
       # in a single Judge0 run (JUDGE0_BATCH=false: one Judge0 run per test).
       # Parallel runs: keep at 1 per vCPU, since test time limits are wall-clock.
       JUDGE0_BATCH: ${JUDGE0_BATCH:-true}
-      JUDGE0_MAX_PARALLEL_RUNS: ${JUDGE0_MAX_PARALLEL_RUNS:-1}
+      # "auto" = one per vCPU, so resizing the droplet raises it by itself
+      JUDGE0_MAX_PARALLEL_RUNS: ${JUDGE0_MAX_PARALLEL_RUNS:-auto}
       # Practice mode against a bot (ranked is always two people)
       BOT_ENABLED: ${BOT_ENABLED:-true}
       BOT_DEFAULT_DIFFICULTY: ${BOT_DEFAULT_DIFFICULTY:-medium}
@@ -125,6 +126,27 @@ services:
       ROOM_TTL_SECONDS: ${ROOM_TTL_SECONDS:-10800}
       # The app's HTML, filled in with link previews for invite pages
       APP_SHELL_URL: http://frontend:80/index.html
+
+      # Who can open /admin (fair-play review, funnel, seasons): Supabase
+      # user ids and/or account emails, comma-separated
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+
+      # Daily ranked hour (UTC, HH:MM; "off" to turn it off) and its length
+      RANKED_HOUR_UTC: ${RANKED_HOUR_UTC:-15:00}
+      RANKED_HOUR_MINUTES: ${RANKED_HOUR_MINUTES:-60}
+
+      # "Someone is waiting" and ranked hour alerts. Browser push needs a
+      # VAPID key pair (npx web-push generate-vapid-keys); Discord needs a
+      # channel webhook, plus a role id to ping. Each stays off until set.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:${ACME_EMAIL}}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      DISCORD_ROLE_ID: ${DISCORD_ROLE_ID:-}
+
+      # Ghost duels (race a recorded ranked win; unrated)
+      GHOST_ENABLED: ${GHOST_ENABLED:-true}
 
       # Containers should log to stdout, not to files inside themselves.
       LOG_TO_FILE: "false"

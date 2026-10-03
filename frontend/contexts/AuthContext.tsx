@@ -7,6 +7,20 @@ import React, {
 } from "react";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import { User, AuthError } from "@supabase/supabase-js";
+import { identify } from "../lib/analytics";
+
+/** What a sign-up led to. With email confirmation on, there is no session until the link is opened. */
+export interface SignUpResult {
+  error: AuthError | null;
+  /** Account made; the confirmation email is on its way */
+  needsConfirmation: boolean;
+  /** That email already has an account (Supabase answers this way to avoid revealing it outright) */
+  alreadyRegistered: boolean;
+}
+
+/** Where the confirmation link should land: back on /auth, then on to `next` */
+export const confirmRedirect = (next: string | null) =>
+  `${window.location.origin}/auth${next ? `?next=${encodeURIComponent(next)}` : ""}`;
 
 interface AuthContextType {
   isLoggedIn: boolean;
@@ -17,8 +31,11 @@ interface AuthContextType {
   signUp: (
     email: string,
     password: string,
-    username?: string
-  ) => Promise<{ error: AuthError | null }>;
+    username?: string,
+    /** The in-app page to come back to (an invite), carried through the confirmation link */
+    next?: string | null
+  ) => Promise<SignUpResult>;
+  resendConfirmation: (email: string, next?: string | null) => Promise<{ error: AuthError | null }>;
   signIn: (
     email: string,
     password: string
@@ -49,6 +66,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       setUser(session?.user ?? null);
       setIsLoggedIn(!!session?.user);
       setLoading(false);
+      if (session?.user) identify(session.user.id);
     });
 
     // Listen for auth changes (including OAuth callbacks)
@@ -63,6 +81,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 
       setUser(session?.user ?? null);
       setIsLoggedIn(!!session?.user);
+      if (session?.user) identify(session.user.id);
     });
 
     return () => subscription.unsubscribe();
@@ -101,7 +120,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     }
   };
 
-  const signUp = async (email: string, password: string, username?: string) => {
+  const signUp = async (email: string, password: string, username?: string, next?: string | null): Promise<SignUpResult> => {
     if (!isSupabaseConfigured()) {
       // Demo mode
       const demoUser: Partial<User> = {
@@ -111,27 +130,48 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       };
       setUser(demoUser as User);
       setIsLoggedIn(true);
-      return { error: null };
+      return { error: null, needsConfirmation: false, alreadyRegistered: false };
     }
 
+    const name = username || email.split("@")[0];
+    const fromInvite = !!next?.startsWith("/duel/");
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        // Confirmation emails link back to this site, same rule as OAuth above
-        emailRedirectTo: `${window.location.origin}/auth`,
+        // The confirmation link comes back to this site, then on to the invite
+        emailRedirectTo: confirmRedirect(next ?? null),
         data: {
-          username: username || email.split("@")[0], // Use username or fallback to email prefix
-          display_name: username || email.split("@")[0],
+          username: name,
+          display_name: name,
+          // For the funnel report: sign-ups that came from an invite link
+          ...(fromInvite ? { signup_source: "invite", invite_code: next!.split("/")[2] } : {}),
         },
       },
     });
 
-    if (!error && data.user) {
+    if (error) return { error, needsConfirmation: false, alreadyRegistered: false };
+
+    // Signed straight in (email confirmation is off)
+    if (data.session && data.user) {
       setUser(data.user);
       setIsLoggedIn(true);
+      return { error: null, needsConfirmation: false, alreadyRegistered: false };
     }
+    // An existing account comes back as a user with no identities
+    if (data.user && (data.user.identities?.length ?? 0) === 0) {
+      return { error: null, needsConfirmation: false, alreadyRegistered: true };
+    }
+    return { error: null, needsConfirmation: true, alreadyRegistered: false };
+  };
 
+  const resendConfirmation = async (email: string, next?: string | null) => {
+    if (!isSupabaseConfigured()) return { error: null };
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: confirmRedirect(next ?? null) },
+    });
     return { error };
   };
 
@@ -257,6 +297,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         login,
         logout,
         signUp,
+        resendConfirmation,
         signIn,
         signInWithGoogle,
         resetPassword,
