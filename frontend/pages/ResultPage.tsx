@@ -179,7 +179,7 @@ const ResultPage: React.FC = () => {
                 </ButtonLink>
                 {isLoggedIn && result.mode !== "friend" && (
                   <ButtonLink to="/ghost" variant="outline" size="lg" className="mt-2 w-full justify-between">
-                    Race a ghost <span className="label text-fg-3">Rated</span>
+                    Race a ghost <span className="label text-fg-3">Unrated</span>
                   </ButtonLink>
                 )}
               </div>

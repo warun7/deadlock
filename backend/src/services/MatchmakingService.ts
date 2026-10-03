@@ -296,8 +296,8 @@ export class MatchmakingService {
 
   /**
    * Start a ghost duel: race a recording of someone's ranked win, on their
-   * problem and their clock. Rated for this player only (see
-   * GameService.recordGhostResult). The ghost seat's id is the recording's,
+   * problem and their clock. Unrated, like Practice (see
+   * GameService.finishGhostMatch). The ghost seat's id is the recording's,
    * never the real player's, so nothing reaches them.
    */
   async startGhost(socket: AuthenticatedSocket): Promise<void> {
@@ -1012,9 +1012,9 @@ export class MatchmakingService {
     }
 
     if (isGhostMatch) {
-      // The racer left and did not come back: a loss to the ghost, rated
+      // The racer left and did not come back: the ghost wins (unrated)
       this.cleanupGhost(matchId);
-      await this.gameService?.recordGhostResult(match, false, duration, "unknown", "disconnect");
+      await this.gameService?.finishGhostMatch(match, false, duration, "disconnect");
       return;
     }
 

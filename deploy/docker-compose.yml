@@ -145,7 +145,7 @@ services:
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
       DISCORD_ROLE_ID: ${DISCORD_ROLE_ID:-}
 
-      # Ghost duels (race a recorded ranked win; rated for the racer)
+      # Ghost duels (race a recorded ranked win; unrated)
       GHOST_ENABLED: ${GHOST_ENABLED:-true}
 
       # Containers should log to stdout, not to files inside themselves.

@@ -38,7 +38,7 @@ export type MatchStatus = "pending" | "active" | "finished" | "abandoned";
  * ranked: two people from the queue, rated and recorded.
  * practice: a person against a bot, unrated and not recorded.
  * friend: two people from a duel room, unrated and not recorded; the room keeps score.
- * ghost: a person racing a recording of someone's ranked win; rated for the racer only.
+ * ghost: a person racing a recording of someone's ranked win; unrated and not recorded.
  */
 export type MatchMode = "ranked" | "practice" | "friend" | "ghost";
 
@@ -380,7 +380,7 @@ export interface LobbyStats {
 export interface ClientToServerEvents {
   join_queue: () => void;
   join_practice: () => void; // Start an unrated match against a bot
-  join_ghost: () => void; // Race a recording of someone's ranked win (rated)
+  join_ghost: () => void; // Race a recording of someone's ranked win (unrated)
   watch_lobby: (ack: (stats: LobbyStats) => void) => void; // lobby_stats until unwatch_lobby
   unwatch_lobby: () => void;
   leave_queue: () => void;
@@ -431,7 +431,7 @@ export interface ServerToClientEvents {
     practice?: boolean;
     /** Friend match from a duel room: unrated and not recorded */
     friendly?: boolean;
-    /** Ghost duel: rated for the racer */
+    /** Ghost duel: unrated and not recorded */
     ghost?: boolean;
     roomCode?: string;
     /** Rounds won in the room so far, this one included */

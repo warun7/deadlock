@@ -12,7 +12,7 @@
 --      Share cards read it; voiding a rating change reverses it.
 --   3. ghost_recordings: a ranked winner's solve (when each submission
 --      landed, how many tests it passed, and the final code), raced later in
---      ghost duels. record_ghost_match writes the racer's history row.
+--      ghost duels. Ghost duels are unrated and stay out of match history.
 --   4. Seasons: the leaderboard ranks the current season; start_new_season
 --      saves the final standings and pulls every rating halfway back to 1000.
 --   5. Fair-play review: a reviewer clears or confirms each flagged match;
@@ -35,17 +35,6 @@
 -- ============================================
 -- 1. Match history linked to the live match
 -- ============================================
-
-ALTER TABLE public.matches
-  ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'ranked';
-
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_matches_mode') THEN
-    ALTER TABLE public.matches
-      ADD CONSTRAINT chk_matches_mode CHECK (mode IN ('ranked', 'ghost'));
-  END IF;
-END $$;
 
 CREATE INDEX IF NOT EXISTS idx_matches_player_problem ON public.matches (player_id, problem_id);
 
@@ -92,44 +81,6 @@ REVOKE ALL ON FUNCTION public.record_match_pair(
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.record_match_pair(
   uuid, uuid, text, integer, text, text, integer, integer, boolean, text, text, timestamptz, uuid
-) TO service_role;
-
--- A ghost duel: one history row, the racer's. The ghost's real player is the
--- opponent but gets no row, so their rating and record never move. The
--- database triggers rate the racer as for any match.
-CREATE OR REPLACE FUNCTION public.record_ghost_match(
-  p_game_id uuid,
-  p_player_id uuid,
-  p_ghost_player_id uuid,
-  p_ghost_name text,
-  p_won boolean,
-  p_problem_id text,
-  p_problem_id_ref integer,
-  p_problem_title text,
-  p_language text,
-  p_duration_seconds integer,
-  p_rating_change integer
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  INSERT INTO public.game_sessions (id, problem_id_ref, duration_seconds, completed_at)
-  VALUES (p_game_id, p_problem_id_ref, p_duration_seconds, now());
-
-  INSERT INTO public.matches (game_id, player_id, opponent_id, problem_id, problem_id_ref, problem_title, language, result, rating_change, duration_seconds, is_bot_match, bot_username, mode, completed_at)
-  VALUES (p_game_id, p_player_id, p_ghost_player_id, p_problem_id, p_problem_id_ref, p_problem_title, p_language,
-          CASE WHEN p_won THEN 'won' ELSE 'lost' END, p_rating_change, p_duration_seconds, false, p_ghost_name, 'ghost', now());
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.record_ghost_match(
-  uuid, uuid, uuid, text, boolean, text, integer, text, text, integer, integer
-) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.record_ghost_match(
-  uuid, uuid, uuid, text, boolean, text, integer, text, text, integer, integer
 ) TO service_role;
 
 -- ============================================
@@ -322,8 +273,8 @@ GRANT EXECUTE ON FUNCTION public.void_match_rating(uuid) TO service_role;
 -- ============================================
 
 -- A recording to race: someone else's solve, of a problem this player has
--- never had in a rated match, from a player not under review, as close to
--- their rating as there is. Counts the race.
+-- never had in a ranked match or a ghost duel, from a player not under
+-- review, as close to their rating as there is. Counts the race.
 CREATE OR REPLACE FUNCTION public.pick_ghost(p_player_id uuid, p_rating integer, p_exclude_problems text[] DEFAULT '{}')
 RETURNS SETOF public.ghost_recordings
 LANGUAGE plpgsql
@@ -338,6 +289,11 @@ BEGIN
   WHERE g.player_id <> p_player_id
     AND NOT (g.problem_id = ANY (COALESCE(p_exclude_problems, '{}')))
     AND NOT EXISTS (SELECT 1 FROM public.matches m WHERE m.player_id = p_player_id AND m.problem_id = g.problem_id)
+    AND NOT EXISTS (
+      SELECT 1 FROM public.match_results r
+      WHERE r.mode = 'ghost' AND r.problem_id = g.problem_id
+        AND (r.winner_id = p_player_id OR r.loser_id = p_player_id)
+    )
     AND g.player_id NOT IN (SELECT u.player_id FROM public.players_under_review() u)
     AND NOT EXISTS (
       SELECT 1 FROM public.match_integrity mi

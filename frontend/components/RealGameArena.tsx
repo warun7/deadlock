@@ -661,7 +661,7 @@ const RealGameArena: React.FC = () => {
   const didWin = winner !== null && winner === user?.id;
   // The server ends a timed-out match with no winner
   const isDraw = gameOver && winner === null;
-  // Ghost duel: racing a recording of someone's ranked win (rated for you only)
+  // Ghost duel: racing a recording of someone's ranked win (unrated, like Practice)
   const isGhost = !!currentMatchData?.opponent?.isGhost || currentMatchData?.mode === "ghost" || ghostResult;
   const opponentName = isGhost
     ? `${currentMatchData?.opponent?.username || "A player"}'s ghost`
@@ -1385,7 +1385,7 @@ const RealGameArena: React.FC = () => {
             : isFriendly
               ? `${opponentName} takes this round. Friend duels are unrated, so nothing goes on your record.`
               : isGhost
-                ? `${opponentName} wins and the loss goes on your record. Ghost duels count half as much as a live ranked match.`
+                ? `${opponentName} wins. Ghost duels are unrated, so nothing goes on your record.`
                 : `${opponentName} wins immediately and the loss goes on your record.`}
         </p>
         <div className="mt-8 flex justify-end gap-2">
@@ -1447,7 +1447,7 @@ const RealGameArena: React.FC = () => {
             Match time <span className="tabular text-fg">{clockText}</span>
           </span>
           {isPractice && <span>Practice &middot; unrated</span>}
-          {isGhost && !ratingResult && <span>Ghost duel</span>}
+          {isGhost && <span>Ghost duel &middot; unrated</span>}
           {isFriendly && !friendResult?.score && <span>Friend duel &middot; unrated</span>}
           {friendResult?.score && (
             <span>

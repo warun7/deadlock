@@ -117,7 +117,7 @@ const LeaderboardPage: React.FC = () => {
         {board && (
           <p className="mt-5 max-w-[52ch] text-[17px] leading-snug text-fg-2">
             {board.season.current
-              ? `Since ${formatDate(board.season.startsAt)}. Ranked and ghost duels count; ratings decide the order.`
+              ? `Since ${formatDate(board.season.startsAt)}. Ranked matches count; ratings decide the order.`
               : `Final standings, ${formatDate(board.season.startsAt)} to ${formatDate(board.season.endsAt!)}.`}
           </p>
         )}

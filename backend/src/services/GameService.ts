@@ -329,8 +329,8 @@ export class GameService {
         this.queuedNotice(socket)
       );
 
-      // When each rated submission landed: a winning one becomes a ghost to race
-      if (match.mode === "ranked" || match.mode === "ghost") {
+      // When each ranked submission landed: a winning solve becomes a ghost to race
+      if (match.mode === "ranked") {
         await redisService
           .appendTimeline(match.id, user.id, {
             t: Date.now() - match.startedAt,
@@ -456,7 +456,7 @@ export class GameService {
 
     if (match.mode === "ghost") {
       this.matchmakingService?.cleanupGhost(matchId);
-      await this.recordGhostResult(match, true, duration, this.getLanguageName(languageId), "solved");
+      await this.finishGhostMatch(match, true, duration, "solved");
       return;
     }
 
@@ -510,7 +510,7 @@ export class GameService {
 
       if (match.mode === "ghost") {
         this.matchmakingService?.cleanupGhost(matchId);
-        await this.recordGhostResult(match, false, Math.floor((Date.now() - match.startedAt) / 1000), "unknown", "forfeit");
+        await this.finishGhostMatch(match, false, Math.floor((Date.now() - match.startedAt) / 1000), "forfeit");
         return;
       }
 
@@ -775,42 +775,20 @@ export class GameService {
   }
 
   /**
-   * A ghost duel ended. Only the racer (player1) is rated, against the
-   * rating the ghost's player had when they recorded it, at the ghost K
-   * factor. The ghost's player is never told and never moves.
+   * A ghost duel ended. Unrated, like Practice: no rating moves and nothing
+   * goes in match history. The result can still be shared, and the race
+   * still counts for fair play and the funnel. The ghost's player is never
+   * told.
    */
-  async recordGhostResult(
-    match: MatchState,
-    racerWon: boolean,
-    duration: number,
-    language: string,
-    endReason: MatchEndReason
-  ): Promise<void> {
+  async finishGhostMatch(match: MatchState, racerWon: boolean, duration: number, endReason: MatchEndReason): Promise<void> {
     const racer = match.player1;
     const ghost = match.ghost;
-    const ghostSeat = match.player2;
-    const winnerId = racerWon ? racer.id : ghostSeat.id;
+    const winnerId = racerWon ? racer.id : match.player2.id;
     if (!ghost) {
       console.error(`❌ Ghost match ${match.id} has no recording`);
       this.scheduleCleanup(match.id);
       return;
     }
-
-    const ratings = await this.fetchRatings([racer.id]);
-    const racerRating = ratings.get(racer.id) ?? racer.elo;
-    const change = this.ghostRatingChange(racerRating, ghost.rating, racerWon);
-    const saved = await ghostService.recordRace({
-      matchId: match.id,
-      playerId: racer.id,
-      ghostPlayerId: ghost.playerId,
-      ghostName: `${ghost.username} (ghost)`,
-      won: racerWon,
-      problemId: match.problemId,
-      problemTitle: match.problemTitle,
-      language,
-      durationSeconds: duration,
-      ratingChange: change,
-    });
 
     const reasons: Record<MatchEndReason, string> = {
       solved: racerWon ? `You solved it before ${ghost.username}'s ghost` : `${ghost.username}'s ghost solved it first`,
@@ -819,17 +797,12 @@ export class GameService {
       timeout: "Match timed out - no winner",
       abandoned: "Match ended",
     };
-    this.emitToUser(racer.id, "game_over", {
-      winnerId,
-      reason: reasons[endReason],
-      ghost: true,
-      ...(saved ? { ratingChange: change, newRating: Math.max(0, racerRating + change) } : {}),
-    });
+    this.emitToUser(racer.id, "game_over", { winnerId, reason: reasons[endReason], ghost: true });
 
-    if (saved) this.refreshRating(racer.id, Math.max(0, racerRating + change));
     void this.integrityService?.finalize(match, winnerId, endReason);
     analyticsService.matchEnded(match, winnerId);
 
+    // The share page; it also stops this player getting the problem again
     void this.saveResult(match, {
       mode: "ghost",
       winnerId: racerWon ? racer.id : ghost.playerId,
@@ -839,14 +812,8 @@ export class GameService {
       ghostSide: racerWon ? "loser" : "winner",
       endReason,
       duration,
-      winnerRatingChange: racerWon && saved ? change : null,
-      loserRatingChange: !racerWon && saved ? change : null,
-      winnerRating: racerWon && saved ? Math.max(0, racerRating + change) : null,
-      loserRating: !racerWon && saved ? Math.max(0, racerRating + change) : null,
       notify: [racer.id],
     });
-    // Beating a ghost records a ghost of your own
-    if (racerWon && endReason === "solved") void this.saveGhostRecording(match, racer.id, racerRating);
 
     this.scheduleCleanup(match.id);
   }
@@ -859,17 +826,10 @@ export class GameService {
       const won = await redisService.setMatchWinner(matchId, match.player2.id, "ghost_set_winner");
       if (!won) return;
       this.matchmakingService?.cleanupGhost(matchId);
-      await this.recordGhostResult(match, false, Math.floor((Date.now() - match.startedAt) / 1000), "unknown", "solved");
+      await this.finishGhostMatch(match, false, Math.floor((Date.now() - match.startedAt) / 1000), "solved");
     } catch (error) {
       console.error(`❌ Error ending ghost match ${matchId}:`, error);
     }
-  }
-
-  /** Elo against the ghost's recorded rating, at the ghost K factor; at least one point either way */
-  private ghostRatingChange(racerRating: number, ghostRating: number, racerWon: boolean): number {
-    const K = config.ghost.kFactor;
-    const expected = 1 / (1 + Math.pow(10, (ghostRating - racerRating) / 400));
-    return racerWon ? Math.max(1, Math.round(K * (1 - expected))) : -Math.max(1, Math.round(K * expected));
   }
 
   /** Write the share-page row; tells the players once it can be shared */

@@ -170,8 +170,8 @@ const DashboardPage: React.FC = () => {
                 </p>
               ) : lobby && lobby.online <= 1 && lobby.inQueue === 0 ? (
                 <p className="text-[clamp(1.5rem,2.4vw,2rem)] leading-[1.08] tracking-[-0.035em] text-fg-2">
-                  <strong className="font-medium text-fg">Quiet right now.</strong> Race a ghost of a real player&apos;s win
-                  (rated), or send a friend a duel link. The ranked hour fills the queue.
+                  <strong className="font-medium text-fg">Quiet right now.</strong> Race a ghost of a real player&apos;s win,
+                  or send a friend a duel link. The ranked hour fills the queue.
                 </p>
               ) : (
                 <p className="text-[clamp(1.5rem,2.4vw,2rem)] leading-[1.08] tracking-[-0.035em] text-fg-2">
@@ -212,7 +212,7 @@ const DashboardPage: React.FC = () => {
                         <span className="inline-flex items-center gap-2">
                           <Ghost className="size-4" />
                           <RollText>Race a ghost</RollText>
-                          <span className="label text-fg-3">Rated</span>
+                          <span className="label text-fg-3">Unrated</span>
                         </span>
                         <Kbd>G</Kbd>
                       </ButtonLink>

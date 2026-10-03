@@ -200,7 +200,7 @@ export class IntegrityService {
     }
   }
 
-  /** Keep the editor's counts from a rated submission (ranked, or a ghost duel) */
+  /** Keep the editor's counts from a ranked or ghost duel submission */
   async recordSubmission(match: MatchState, userId: string, code: string, telemetry: unknown): Promise<void> {
     if (match.mode !== "ranked" && match.mode !== "ghost") return;
     const t = parseTelemetry(telemetry);
@@ -220,8 +220,8 @@ export class IntegrityService {
   }
 
   /**
-   * A rated match ended: write one row per player (a ghost duel has one, the
-   * racer's, against the ghost's real player). Runs once per match, and
+   * A ranked match or ghost duel ended: write one row per player (a ghost
+   * duel has one, the racer's, against the ghost's real player). Runs once per match, and
    * never throws; a failure costs the signals, not the match.
    */
   async finalize(match: MatchState, winnerId: string | null, endReason: MatchEndReason): Promise<void> {

@@ -3,10 +3,11 @@ import { db, isMissingSchema, NotAvailableError } from "./db";
 import type { TimelineEntry } from "../types";
 
 /**
- * Ghost duels: race a recording of a real player's ranked win, rated, at any
- * hour. A recording is when each of their submissions landed and how many
- * tests it passed (ghost_recordings, migration 013); the ghost replays those
- * on the same clock, and wins if its accepted submission lands first.
+ * Ghost duels: race a recording of a real player's ranked win, at any hour.
+ * A recording is when each of their submissions landed and how many tests
+ * it passed (ghost_recordings, migration 013); the ghost replays those on the
+ * same clock, and wins if its accepted submission lands first. Unrated, like
+ * Practice: a recording is not an opponent, so no rating moves.
  */
 
 export interface GhostRecording {
@@ -52,40 +53,6 @@ export class GhostService {
   async saveRecording(row: Omit<GhostRecording, "id">): Promise<void> {
     const { error } = await db.from("ghost_recordings").upsert(row, { onConflict: "match_id,player_id", ignoreDuplicates: true });
     if (error && !isMissingSchema(error)) throw error;
-  }
-
-  /** The racer's history row; the database applies their rating change */
-  async recordRace(args: {
-    matchId: string;
-    playerId: string;
-    ghostPlayerId: string;
-    ghostName: string;
-    won: boolean;
-    problemId: string;
-    problemTitle: string;
-    language: string;
-    durationSeconds: number;
-    ratingChange: number;
-  }): Promise<boolean> {
-    const problemIdRef = Number.parseInt(args.problemId, 10);
-    const { error } = await db.rpc("record_ghost_match", {
-      p_game_id: args.matchId,
-      p_player_id: args.playerId,
-      p_ghost_player_id: args.ghostPlayerId,
-      p_ghost_name: args.ghostName,
-      p_won: args.won,
-      p_problem_id: args.problemId,
-      p_problem_id_ref: Number.isNaN(problemIdRef) ? null : problemIdRef,
-      p_problem_title: args.problemTitle || "Unknown Problem",
-      p_language: args.language,
-      p_duration_seconds: args.durationSeconds,
-      p_rating_change: args.ratingChange,
-    });
-    if (error) {
-      console.error(`❌ GHOST RACE NOT RECORDED for match ${args.matchId}:`, error.message);
-      return false;
-    }
-    return true;
   }
 }
 

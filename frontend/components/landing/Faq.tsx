@@ -25,11 +25,11 @@ const QUESTIONS = [
   },
   {
     q: "What if nobody else is online?",
-    a: "Race a ghost: a replay of a real player's ranked win, their submissions landing when they did. Beat their time and you gain rating; ghost duels count half as much as live ranked. You can also send a friend a duel link, practice against a bot, or turn on alerts to hear when someone is waiting. Every day there is a ranked hour when everyone queues at once.",
+    a: "Race a ghost: a replay of a real player's ranked win, their submissions landing when they did. Try to beat their time; like practice, ghost duels are unrated. You can also send a friend a duel link, practice against a bot, or turn on alerts to hear when someone is waiting. Every day there is a ranked hour when everyone queues at once.",
   },
   {
     q: "Is my solve used as a ghost?",
-    a: "Yes: when you win a ranked match (or beat a ghost), that solve can be raced by other players, who see your username, your rating at the time and, after the race, your code. Only the racer's rating moves.",
+    a: "Yes: when you win a ranked match, that solve can be raced by other players, who see your username, your rating at the time and, after the race, your code. Ghost duels are unrated, so nobody's rating moves.",
   },
   {
     q: "Is there a leaderboard?",

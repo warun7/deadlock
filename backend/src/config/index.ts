@@ -121,11 +121,9 @@ export const config = {
     ttlSeconds: parseInt(process.env.ROOM_TTL_SECONDS || "10800", 10), // 3 hours
   },
 
-  // Ghost duels: race a recording of a real player's ranked win, rated
+  // Ghost duels: race a recording of a real player's ranked win (unrated)
   ghost: {
     enabled: process.env.GHOST_ENABLED !== "false",
-    // Half the K of a live ranked match: only the racer's rating moves
-    kFactor: parseInt(process.env.GHOST_K_FACTOR || "16", 10) || 16,
   },
 
   // The daily ranked hour: everyone is pointed at the same hour so queues

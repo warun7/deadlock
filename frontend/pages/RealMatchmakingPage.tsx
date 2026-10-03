@@ -19,7 +19,7 @@ type Status = "connecting" | "searching" | "found" | "error";
 const HANDOFF_MS = 3000;
 // Practice starts at once, so the hand-off is only long enough to read it
 const PRACTICE_HANDOFF_MS = 1500;
-// A ghost duel starts at once too, but it is rated: a moment to read who it is
+// A ghost duel starts at once too: a moment to read whose ghost it is
 const GHOST_HANDOFF_MS = 2500;
 // Ranked is people only; after this long alone, offer Practice instead
 const OFFER_PRACTICE_AFTER_S = 30;
@@ -263,7 +263,7 @@ const RealMatchmakingPage: React.FC<{ mode?: "ranked" | "practice" | "ghost" }> 
                   <p className="label text-fg-3">Ghost duel</p>
                   <DotLoader pattern="ripple" size={5} cell={10} gap={4} className="mt-5 text-fg" label="Finding a ghost" />
                   <h1 className={`mt-8 ${title}`}>Finding a ghost</h1>
-                  <p className={lead}>A real player&apos;s ranked win, replayed on the same clock. Beat their time. Rated, at half weight.</p>
+                  <p className={lead}>A real player&apos;s ranked win, replayed on the same clock. Beat their time. Unrated, like practice.</p>
                   <Button variant="outline" size="lg" className="mt-10" onClick={handleCancel}>
                     Cancel <Kbd>Esc</Kbd>
                   </Button>
@@ -300,8 +300,8 @@ const RealMatchmakingPage: React.FC<{ mode?: "ranked" | "practice" | "ghost" }> 
                   {timer >= OFFER_PRACTICE_AFTER_S && (
                     <div className="mt-8 max-w-md animate-[rise-in_0.5s_var(--ease-out-expo)_both] border-t border-rule pt-5 motion-reduce:animate-none">
                       <p className="text-[15px] leading-snug text-fg-2">
-                        Nobody else is in the queue right now. Race a ghost of a real player&apos;s win (rated), send a friend a duel
-                        link, or warm up against a bot.
+                        Nobody else is in the queue right now. Race a ghost of a real player&apos;s win, send a friend a duel
+                        link, or warm up against a bot. All three are unrated.
                       </p>
                       <div className="mt-3 -ml-3 flex flex-wrap gap-1">
                         {lobby?.ghosts !== false && (
@@ -364,8 +364,8 @@ const RealMatchmakingPage: React.FC<{ mode?: "ranked" | "practice" | "ghost" }> 
                   </div>
                   {ghost && (
                     <p className="label mt-6 max-w-[46ch] text-fg-3">
-                      Rated {matchData?.opponent?.elo ?? ""}. Their submissions land when they did in their match. Pasting from
-                      outside the editor is off.
+                      They were rated {matchData?.opponent?.elo ?? "?"} when they won it. Their submissions land when they did
+                      in their match. Unrated; pasting from outside the editor is off.
                     </p>
                   )}
                   {ranked && (
