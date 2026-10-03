@@ -18,6 +18,9 @@ const RealMatchmakingPage = lazy(() => import("./pages/RealMatchmakingPage"));
 const GamePage = lazy(() => import("./pages/GamePage"));
 const RoomPage = lazy(() => import("./pages/RoomPage"));
 const PublicProfilePage = lazy(() => import("./pages/PublicProfilePage"));
+const LeaderboardPage = lazy(() => import("./pages/LeaderboardPage"));
+const ResultPage = lazy(() => import("./pages/ResultPage"));
+const AdminPage = lazy(() => import("./pages/AdminPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
 const RouteFallback: React.FC = () => (
@@ -72,6 +75,22 @@ const AppContent: React.FC = () => (
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/ghost"
+          element={
+            <ProtectedRoute>
+              <RealMatchmakingPage key="ghost" mode="ghost" />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AdminPage />
+            </ProtectedRoute>
+          }
+        />
         {/* Duel rooms: /duel opens yours; invite links are public so a signed-out friend sees who invited them */}
         <Route
           path="/duel"
@@ -90,8 +109,10 @@ const AppContent: React.FC = () => (
             </ProtectedRoute>
           }
         />
-        {/* Public profile pages - accessible without login */}
+        {/* Public pages - accessible without login */}
         <Route path="/u/:targetUsername" element={<PublicProfilePage />} />
+        <Route path="/leaderboard" element={<LeaderboardPage />} />
+        <Route path="/r/:id" element={<ResultPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>

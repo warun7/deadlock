@@ -39,6 +39,15 @@ export interface StoredSubmission {
   submittedAt: number;
 }
 export type OpponentCodeAck = { ok: true; submission: StoredSubmission | null } | { ok: false; message: string };
+
+/** Mirrors backend LobbyStats: signed-in players with the app open */
+export interface LobbyStats {
+  online: number;
+  inQueue: number;
+  inMatches: number;
+  rankedHour: { startsAt: number; endsAt: number; live: boolean } | null;
+  ghosts: boolean;
+}
 export type ReportAck = { ok: true } | { ok: false; message: string };
 
 // The game server; it also serves the few REST endpoints (room previews)
@@ -129,6 +138,26 @@ class GameSocket {
       throw new Error('Socket not connected');
     }
     this.socket.emit('join_practice');
+  }
+
+  // Race a recording of someone's ranked win (rated)
+  startGhost() {
+    if (!this.socket?.connected) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('join_ghost');
+  }
+
+  // Live lobby counts until unwatchLobby; lobby_stats events carry updates
+  watchLobby(): Promise<LobbyStats> {
+    if (!this.socket?.connected) {
+      return Promise.reject(new Error('Socket not connected'));
+    }
+    return this.socket.timeout(8000).emitWithAck('watch_lobby');
+  }
+
+  unwatchLobby() {
+    this.socket?.emit('unwatch_lobby');
   }
 
   leaveQueue() {

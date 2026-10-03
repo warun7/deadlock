@@ -5,7 +5,7 @@ import { useReveal } from "./useReveal";
 const QUESTIONS = [
   {
     q: "Which languages can I use?",
-    a: "Python, JavaScript and C++. You can switch mid-match; each language keeps its own draft.",
+    a: "Python, JavaScript and C++. You can switch mid-match; each language keeps its own draft, and your next match starts in the one you used last.",
   },
   {
     q: "What kind of problems are they?",
@@ -25,7 +25,15 @@ const QUESTIONS = [
   },
   {
     q: "What if nobody else is online?",
-    a: "Ranked is always another person, so you wait for the next player. Meanwhile you can send a friend a duel link or practice against a bot. Both are unrated and stay off your record.",
+    a: "Race a ghost: a replay of a real player's ranked win, their submissions landing when they did. Beat their time and you gain rating; ghost duels count half as much as live ranked. You can also send a friend a duel link, practice against a bot, or turn on alerts to hear when someone is waiting. Every day there is a ranked hour when everyone queues at once.",
+  },
+  {
+    q: "Is my solve used as a ghost?",
+    a: "Yes: when you win a ranked match (or beat a ghost), that solve can be raced by other players, who see your username, your rating at the time and, after the race, your code. Only the racer's rating moves.",
+  },
+  {
+    q: "Is there a leaderboard?",
+    a: "Yes, for each season, ordered by rating. Players under fair-play review are left out until a person has checked. When a season ends its standings are kept, and every rating moves halfway back to 1000 for a fresh start.",
   },
   {
     q: "Can I play against a friend?",

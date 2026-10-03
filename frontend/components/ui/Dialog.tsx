@@ -86,7 +86,7 @@ const Dialog: React.FC<DialogProps> = ({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ type: "spring", stiffness: 420, damping: 36 }}
-            className={`relative w-full max-w-sm border border-fg bg-bg p-5 sm:p-6 ${className}`}
+            className={`relative max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-x-hidden overflow-y-auto overscroll-contain border border-fg bg-bg p-5 sm:p-6 ${className}`}
           >
             {eyebrow && (
               <div className="label -mx-5 -mt-5 mb-5 border-b border-rule px-5 py-2.5 text-fg sm:-mx-6 sm:-mt-6 sm:px-6">/ {eyebrow}</div>

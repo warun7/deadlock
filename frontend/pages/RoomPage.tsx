@@ -29,6 +29,7 @@ import {
   type RoomView,
 } from "../lib/rooms";
 import { clearReturnTo, rememberReturnTo } from "../lib/returnTo";
+import { track } from "../lib/analytics";
 import type { MatchFoundPayload } from "../types";
 
 const HANDOFF_MS = 3000;
@@ -95,7 +96,11 @@ const RoomPage: React.FC = () => {
         if (!preview) setPhase({ kind: "gone", reason: "missing" });
         else if (preview.status === "closed") setPhase({ kind: "gone", reason: "closed" });
         else if (preview.guest) setPhase({ kind: "full", preview });
-        else setPhase({ kind: "preview", preview });
+        else {
+          // A signed-out visitor opened an invite: the top of the funnel
+          track("invite_view", { code: preview.code });
+          setPhase({ kind: "preview", preview });
+        }
       })
       .catch(() => !cancelled && setPhase({ kind: "error", message: "Could not reach the match server. Check your connection and try again." }));
     return () => {
@@ -127,7 +132,10 @@ const RoomPage: React.FC = () => {
             const res = await gameSocket.createRoom();
             if (cancelled) return;
             if (isRoomRefusal(res)) setPhase({ kind: "error", message: res.message });
-            else navigate(`/duel/${res.room.code}`, { replace: true });
+            else {
+              track("room_created");
+              navigate(`/duel/${res.room.code}`, { replace: true });
+            }
             return;
           }
           const res = await gameSocket.joinRoom(code);
@@ -288,6 +296,7 @@ const RoomPage: React.FC = () => {
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
+      track("invite_copied");
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -311,8 +320,12 @@ const RoomPage: React.FC = () => {
   };
 
   const goSignUp = (mode: "signup" | "login") => {
-    if (code) rememberReturnTo(`/duel/${code}`);
-    navigate(mode === "signup" ? "/auth?mode=signup" : "/auth");
+    if (!code) return;
+    // Remembered here, and carried in the URL so a confirmation email opened
+    // on another device still lands in the room
+    rememberReturnTo(`/duel/${code}`);
+    const next = `next=${encodeURIComponent(`/duel/${code}`)}`;
+    navigate(mode === "signup" ? `/auth?mode=signup&${next}` : `/auth?${next}`);
   };
 
   useShortcuts(

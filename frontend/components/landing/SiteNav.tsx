@@ -26,6 +26,7 @@ const SiteNav: React.FC<SiteNavProps> = ({ onAnchor }) => {
     t: toggle,
     l: () => navigate("/auth"),
     p: () => navigate("/auth?mode=signup"),
+    b: () => navigate("/leaderboard"),
   });
 
   return (
@@ -52,6 +53,9 @@ const SiteNav: React.FC<SiteNavProps> = ({ onAnchor }) => {
                 <Chip k={s.k}>{s.label}</Chip>
               </a>
             ))}
+            <ChipLink to="/leaderboard" k="B">
+              Leaderboard
+            </ChipLink>
           </div>
         </div>
 

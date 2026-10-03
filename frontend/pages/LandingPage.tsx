@@ -10,16 +10,24 @@ import SiteFooter from "../components/landing/SiteFooter";
 import { useAuth } from "../contexts/AuthContext";
 import { useLenis } from "../lib/useLenis";
 import { features } from "../lib/features";
+import { returnToPath } from "../lib/returnTo";
+import { track } from "../lib/analytics";
 
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
   const { isLoggedIn } = useAuth();
   const { scrollTo } = useLenis();
 
-  // Logged-in players go straight to the lobby
+  // Logged-in players go straight to the lobby, or back to the invite they
+  // signed up from (a confirmation link can land here if Supabase's redirect
+  // list does not include /auth)
   useEffect(() => {
-    if (isLoggedIn) navigate("/dashboard", { replace: true });
+    if (isLoggedIn) navigate(returnToPath() ?? "/dashboard", { replace: true });
   }, [isLoggedIn, navigate]);
+
+  useEffect(() => {
+    track("landing_view");
+  }, []);
 
   return (
     <>
