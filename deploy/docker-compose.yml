@@ -3,7 +3,7 @@
 # ============================================================
 # One `docker compose up -d` runs:
 #
-#   edge           Caddy: terminates TLS, serves deadlock.sbs, proxies the API
+#   edge           Caddy: terminates TLS, serves $DOMAIN, proxies the API
 #   frontend       built Vite bundle, served by an internal Caddy
 #   backend        Node + Socket.IO game server
 #   redis          app match state / reconnect mapping
@@ -66,6 +66,8 @@ services:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
         VITE_SOCKET_URL: ${VITE_SOCKET_URL}
+        # Absolute origin for the link-preview image in index.html
+        VITE_SITE_URL: https://${DOMAIN}
     container_name: deadlock-frontend
     restart: unless-stopped
     expose:

@@ -7,9 +7,9 @@
 # Requires DNS A records pointing at this server BEFORE the first boot, or the
 # certificate challenge fails:
 #
-#   deadlock.sbs      -> <server ip>
-#   www.deadlock.sbs  -> <server ip>
-#   api.deadlock.sbs  -> <server ip>
+#   deadlock.varunsg.com      -> <server ip>
+#   www.deadlock.varunsg.com  -> <server ip>
+#   api.deadlock.varunsg.com  -> <server ip>
 # ============================================================
 
 {
