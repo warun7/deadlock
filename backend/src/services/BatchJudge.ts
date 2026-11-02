@@ -25,7 +25,7 @@ import { TestCase, TestResult } from "../types";
 
 export const MULTI_FILE_LANGUAGE_ID = 89;
 
-interface LanguageSpec {
+export interface LanguageSpec {
   sourceFile: string;
   /** Bash, run once in /box. Absent for interpreted languages. */
   compile?: string;

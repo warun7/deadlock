@@ -94,7 +94,7 @@ REDIS_URL=redis://localhost:6379
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-JUDGE0_URL=https://judge.deadlock.sbs
+JUDGE0_URL=http://localhost:2358
 ```
 
 ## 🏗️ Project Structure

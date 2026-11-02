@@ -767,7 +767,7 @@ const RealGameArena: React.FC = () => {
           number: sampleIndex + 1,
           input: sample.input,
           expected: sample.expectedOutput,
-          got: r.stdout ?? "",
+          got: r.stdout,
           status: r.status,
           message: r.message,
         };
@@ -1345,7 +1345,7 @@ const RealGameArena: React.FC = () => {
                         {[
                           { label: `Sample ${sampleFailure.number} input`, value: sampleFailure.input },
                           { label: "Expected", value: sampleFailure.expected },
-                          { label: "Your output", value: sampleFailure.got || "(no output)" },
+                          { label: "Your output", value: sampleFailure.got === undefined ? "(press Run to see it)" : sampleFailure.got || "(no output)" },
                         ].map((b) => (
                           <div key={b.label} className="min-w-0">
                             <div className="label mb-1.5 text-screen-fg-2">/ {b.label}</div>

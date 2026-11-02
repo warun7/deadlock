@@ -1,7 +1,11 @@
 import path from "path";
 import { Resvg } from "@resvg/resvg-js";
+import { config } from "../config";
 import { formatClock, type PublicResult } from "../services/ResultsService";
 import { pixelCells } from "./pixelFont";
+
+// The site's own host, e.g. DEADLOCK.VARUNSG.COM, so the card follows the domain
+const SITE_LABEL = new URL(config.siteOrigin).host.toUpperCase();
 
 /**
  * The 1200x630 share card for a result, in the site's paper style (same
@@ -134,7 +138,7 @@ export function resultCardSvg(r: PublicResult): string {
   // Footer
   parts.push(`<path d="M${PAD} 528H${W - PAD}" stroke="${C.line}" stroke-width="1.5"/>`);
   parts.push(`<text x="${PAD}" y="580" font-family="Geist" font-size="30" letter-spacing="-0.6" fill="${C.fg2}">Same problem. Same clock. Think you're faster?</text>`);
-  parts.push(`<text x="${W - PAD}" y="578" text-anchor="end" font-family="Geist Mono" font-weight="500" font-size="20" fill="${C.fg}">DEADLOCK.SBS</text>`);
+  parts.push(`<text x="${W - PAD}" y="578" text-anchor="end" font-family="Geist Mono" font-weight="500" font-size="20" fill="${C.fg}">${SITE_LABEL}</text>`);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${parts.join("")}</svg>`;
 }

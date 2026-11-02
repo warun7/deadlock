@@ -7,9 +7,9 @@
 # Requires DNS A records pointing at this server BEFORE the first boot, or the
 # certificate challenge fails:
 #
-#   deadlock.sbs      -> <server ip>
-#   www.deadlock.sbs  -> <server ip>
-#   api.deadlock.sbs  -> <server ip>
+#   deadlock.varunsg.com      -> <server ip>
+#   www.deadlock.varunsg.com  -> <server ip>
+#   api.deadlock.varunsg.com  -> <server ip>
 # ============================================================
 
 {
@@ -21,6 +21,14 @@
 # The frontend is built with a single origin in mind, and a second origin would
 # also need adding to FRONTEND_URL for CORS.
 www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
+
+# The old domain. Everything moves to the new one with its path and query, so
+# invite (/duel/CODE) and result (/r/<id>) links shared before the move still
+# open. Works while deadlock.sbs's DNS points at this server; delete this block
+# once deadlock.sbs expires (Caddy only logs failed renewals until then).
+deadlock.sbs, www.deadlock.sbs {
 	redir https://{$DOMAIN}{uri} permanent
 }
 

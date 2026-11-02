@@ -11,7 +11,7 @@ This document assumes no prior infrastructure knowledge. Follow it top to bottom
 ```
                         Internet
                             |
-                   deadlock.sbs  +  api.deadlock.sbs
+                   deadlock.varunsg.com + api.deadlock.varunsg.com
                             |
                   +---------v----------+
                   |      edge          |   Caddy: HTTPS certificates, routing
@@ -75,20 +75,23 @@ that can be moved off independently — see [Scaling](#scaling-when-you-get-user
 
 ### Point your domain at it
 
-In **Namecheap → Domain List → deadlock.sbs → Manage → Advanced DNS**, delete
-any existing A records and add these three:
+The site lives on a subdomain of `varunsg.com`. In the DNS settings for
+**varunsg.com** (wherever that domain's DNS is managed), add these three:
 
 | Type | Host | Value | TTL |
 |---|---|---|---|
-| A Record | `@` | *your droplet IP* | Automatic |
-| A Record | `www` | *your droplet IP* | Automatic |
-| A Record | `api` | *your droplet IP* | Automatic |
+| A Record | `deadlock` | *your droplet IP* | Automatic |
+| A Record | `www.deadlock` | *your droplet IP* | Automatic |
+| A Record | `api.deadlock` | *your droplet IP* | Automatic |
+
+If the DNS is on Cloudflare, set these records to **DNS only** (grey cloud) so
+Caddy can get its own certificates.
 
 Wait a few minutes. Check it worked, from your laptop:
 
 ```bash
-dig +short deadlock.sbs
-dig +short api.deadlock.sbs
+dig +short deadlock.varunsg.com
+dig +short api.deadlock.varunsg.com
 ```
 
 Both must print your droplet IP. **If they do not, stop here** — certificates
@@ -183,8 +186,8 @@ Fill in every blank. Here is where each value comes from:
 | `VITE_SUPABASE_ANON_KEY` | Same as `SUPABASE_ANON_KEY` |
 | `ADMIN_SECRET` | Make one up: run `openssl rand -hex 32` |
 
-`DOMAIN`, `API_DOMAIN` and `VITE_SOCKET_URL` already match `deadlock.sbs` —
-leave them unless your domain is different.
+`DOMAIN`, `API_DOMAIN`, `FRONTEND_URL` and `VITE_SOCKET_URL` already match
+`deadlock.varunsg.com` — leave them unless your domain is different.
 
 > **Why some keys appear twice.** Anything starting with `VITE_` gets baked into
 > the JavaScript that browsers download, so it must be public — that is why the
@@ -209,8 +212,8 @@ When it finishes you will see a health report and your URLs:
 
 ```
  Deadlock is deployed
-  App:    https://deadlock.sbs
-  API:    https://api.deadlock.sbs
+  App:    https://deadlock.varunsg.com
+  API:    https://api.deadlock.varunsg.com
 ```
 
 ### One more step: tell Supabase about your domain
@@ -218,17 +221,17 @@ When it finishes you will see a health report and your URLs:
 Login will not redirect correctly until you do this.
 
 In Supabase → **Authentication → URL Configuration**:
-- **Site URL:** `https://deadlock.sbs`
-- **Redirect URLs:** add `https://deadlock.sbs/**`
+- **Site URL:** `https://deadlock.varunsg.com`
+- **Redirect URLs:** add `https://deadlock.varunsg.com/**`
 
-If you also use Google login, add `https://deadlock.sbs` to the **Authorized
+If you also use Google login, add `https://deadlock.varunsg.com` to the **Authorized
 JavaScript origins** of the OAuth client in Google Cloud Console.
 
 ---
 
 ## Part 5 — Check it works
 
-Open `https://deadlock.sbs` — you should get a padlock and the landing page.
+Open `https://deadlock.varunsg.com` — you should get a padlock and the landing page.
 
 Then verify the pieces from the server:
 
@@ -429,7 +432,7 @@ queue into Redis first. Do not add a second backend container until that is done
 ## Troubleshooting
 
 **Site shows a certificate warning / "not secure"**
-DNS is wrong or not propagated. Confirm with `dig +short deadlock.sbs`, then
+DNS is wrong or not propagated. Confirm with `dig +short deadlock.varunsg.com`, then
 `docker compose logs edge`. Caddy retries automatically, so once DNS is correct
 it usually fixes itself within a few minutes.
 

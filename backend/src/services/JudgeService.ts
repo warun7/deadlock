@@ -13,6 +13,7 @@ import {
 import { checkerService } from './CheckerService';
 import { createZipBase64 } from '../utils/zip';
 import {
+  LanguageSpec,
   MULTI_FILE_LANGUAGE_ID,
   batchLanguage,
   buildHarness,
@@ -336,9 +337,17 @@ export class JudgeService {
     // Leave the harness time to print its last lines before Judge0 stops it
     const budgetMs = Math.max(2000, Math.min(wall - 2, cpu - 1) * 1000);
 
+    // Every input is a file in the sandbox, and the player's code can read
+    // them all: at compile time (`#include "in/5"` puts it in the compiler's
+    // error) and while running a sample (print in/5 as the sample's output).
+    // So when hidden inputs are in the sandbox, nothing the program controls
+    // comes back except verdicts: no sample output, no compiler output, no
+    // timings. Both are fetched again from sandboxes holding no hidden input.
+    const holdsHidden = testCases.some((tc) => tc.isHidden !== false);
+
     const harness = buildHarness({
       testCount: testCases.length,
-      sampleTests: testCases.flatMap((tc, i) => (tc.isHidden === false ? [i + 1] : [])),
+      sampleTests: holdsHidden ? [] : testCases.flatMap((tc, i) => (tc.isHidden === false ? [i + 1] : [])),
       perTestMs: config.judge0.testTimeLimitMs,
       budgetMs,
       runLine: language.run,
@@ -371,7 +380,8 @@ export class JudgeService {
           hidden: tc.isHidden !== false,
           expected: tc.expectedOutput,
         })),
-        data.compile_output || 'Compilation failed'
+        (holdsHidden ? await this.compileWithoutInputs(sourceCode, language) : data.compile_output) ||
+          'Compilation failed'
       );
     }
 
@@ -383,7 +393,66 @@ export class JudgeService {
       );
       return null;
     }
+    if (holdsHidden) {
+      for (const r of testResults) r.time = undefined;
+      await this.attachSampleOutput(sourceCode, languageId, testCases, testResults);
+    }
     return this.summarize(testResults);
+  }
+
+  /**
+   * Compiler messages for a batch that failed to compile with hidden inputs
+   * beside it. Compiles again, same flags, with only the source in the
+   * sandbox. Undefined if that fails too.
+   */
+  private async compileWithoutInputs(sourceCode: string, language: LanguageSpec): Promise<string | undefined> {
+    if (!language.compile) return undefined;
+    try {
+      const data = await this.submit({
+        language_id: MULTI_FILE_LANGUAGE_ID,
+        additional_files: createZipBase64([
+          { name: language.sourceFile, data: sourceCode },
+          { name: 'compile', data: `${language.compile}\n` },
+          { name: 'run', data: 'true\n' },
+        ]),
+      });
+      return data.status?.id === STATUS_COMPILE_ERROR ? data.compile_output || undefined : undefined;
+    } catch (error: any) {
+      console.error(`   Clean compile failed: ${this.describeError(error)}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * A batch with hidden inputs returns no program output. When a sample
+   * failed, run the samples alone (no hidden input in that sandbox) so the
+   * player can still see what their code printed. Output is attached only
+   * where the rerun reached the same verdict, so it matches what was judged.
+   */
+  private async attachSampleOutput(
+    sourceCode: string,
+    languageId: number,
+    testCases: TestCase[],
+    testResults: TestResult[]
+  ): Promise<void> {
+    const sampleIndexes = testCases.flatMap((tc, i) => (tc.isHidden === false ? [i] : []));
+    const worthShowing = (r: TestResult) =>
+      !r.passed && (r.status === 'Wrong Answer' || r.status.startsWith('Runtime Error'));
+    if (!sampleIndexes.some((i) => worthShowing(testResults[i]))) return;
+
+    try {
+      const rerun = await this.executeBatch(
+        sourceCode,
+        languageId,
+        sampleIndexes.map((i) => testCases[i])
+      );
+      rerun?.testResults?.forEach((r, k) => {
+        const original = testResults[sampleIndexes[k]];
+        if (r.status === original.status) original.stdout = r.stdout;
+      });
+    } catch (error: any) {
+      console.error(`   Sample rerun failed: ${this.describeError(error)}`);
+    }
   }
 
   private describeError(error: any): string {
